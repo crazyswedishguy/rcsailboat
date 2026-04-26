@@ -15,10 +15,22 @@
 #define PIN_GPS_TX 2  // UART2 TX — optional, used to reconfigure GPS baud rate
 #endif
 
-// I2C device addresses
+// Onboard I2C bus — QMI8658 IMU + CST816S touch (do not connect external devices here)
+#define PIN_ONBOARD_I2C_SDA 47
+#define PIN_ONBOARD_I2C_SCL 48
+
+// I2C device addresses — external bus (IO6/IO7)
 // INA219 is moved to 0x41 (solder A0) to avoid collision with PCA9685 @ 0x40.
-#define PCA9685_ADDR 0x40
-#define INA219_ADDR  0x41
+#define PCA9685_ADDR  0x40
+#define INA219_ADDR   0x41
+
+// I2C device addresses — onboard bus (IO47/IO48)
+#define QMI8658_ADDR  0x6B  // SA0 = 1 on Waveshare AMOLED board
+
+// Optional compass — build with -DCOMPASS_ENABLED (see platformio.ini [env:esp32-s3-compass])
+#ifdef COMPASS_ENABLED
+#define QMC5883L_ADDR 0x0D  // wire to external I2C bus (IO6/IO7); update docs/pinmap.md
+#endif
 
 // PCA9685 output channel assignments
 #define CH_RUDDER_PWM 0

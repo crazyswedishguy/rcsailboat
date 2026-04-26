@@ -81,14 +81,41 @@ Claude Code: when a phase is done, move it to "Completed" at the bottom and writ
 
 ## Phase 6 — Telemetry
 
-- [ ] Read INA219 voltage + current
-- [ ] Read onboard IMU for roll (heel) angle
-- [ ] Emit CRSF `BATTERY_SENSOR` at 2 Hz
-- [ ] Emit CRSF `ATTITUDE` at 5 Hz
-- [ ] Pi decodes telemetry frames and pushes them over WebSocket to the browser
-- [ ] Browser displays: battery voltage, battery current, heel angle, link quality
+### 6a — Power monitoring (INA219)
+- [ ] Add `power.h/cpp` to read voltage + current from INA219 on external I²C (IO6/IO7, addr 0x41)
+- [ ] Track mAh consumed since boot
+- [ ] Emit CRSF `BATTERY_SENSOR` (0x08) at 2 Hz via UART1
 
-**Acceptance**: the browser dashboard shows live values that respond to reality (tilt the boat → heel changes; run the motor → current rises).
+### 6b — IMU / attitude (QMI8658)
+- [ ] Add `imu.h/cpp` to read QMI8658 accelerometer on onboard I²C (IO47/IO48, addr 0x6B)
+- [ ] Compute heel (roll) and pitch from accelerometer gravity projection
+- [ ] Emit CRSF `ATTITUDE` (0x1E) at 5 Hz via UART1 (yaw = 0 until 6c)
+
+### 6c — Heading (QMC5883L magnetometer) [requires additional hardware]
+- [ ] Wire QMC5883L to external I²C bus (IO6/IO7, addr 0x0D) — update `docs/pinmap.md`
+- [ ] Add `compass.h/cpp` under `-DCOMPASS_ENABLED` build flag (mirrors GPS pattern)
+- [ ] Include live heading in ATTITUDE frame yaw field once compass is wired
+
+### 6d — GPS telemetry
+- [ ] Fill in `telemetry_send_gps()` stub — emit CRSF GPS frame (0x02) at 1 Hz
+- [ ] Include lat, lng, speed (SOG), heading, altitude, satellites
+
+### 6e — Link quality
+- [ ] Parse `LINK_STATISTICS` (0x14) frames received from ELRS in `elrs.cpp`
+- [ ] Expose `elrs_rssi()` and `elrs_link_quality()` accessors
+
+### 6f — Commanded servo positions + ESP32 temperature
+- [ ] Expose `servos_get_commanded(int pca_channel)` from `servos.cpp`
+- [ ] Read ESP32 internal temperature via `temperatureRead()`
+- [ ] Emit custom CRSF sailboat frame (0x80) at 5 Hz: rudder, sail, ESC commanded + temp
+
+### 6g — Base station: decode and display
+- [ ] Pi decodes incoming CRSF telemetry frames from ELRS serial port
+- [ ] Push decoded values over WebSocket to browser
+- [ ] Browser dashboard: voltage, current, mAh, heel, pitch, heading, GPS position on map,
+      GPS speed, RSSI/link quality, servo commanded positions, ESP32 temperature
+
+**Acceptance**: browser dashboard shows live values that respond to reality (tilt boat → heel changes; run motor → current rises; walk away → RSSI drops; move a slider → commanded position updates).
 
 ---
 

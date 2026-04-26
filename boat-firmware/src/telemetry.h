@@ -1,8 +1,8 @@
 #pragma once
 
 void telemetry_init();
-void telemetry_update();
+void telemetry_update();   // call every loop iteration; emits CRSF frames on schedule
 
 #ifdef GPS_ENABLED
-void telemetry_send_gps();  // emit CRSF GPS frame (0x02) with current fix data
+void telemetry_send_gps(); // emit CRSF GPS frame (0x02) with current fix data
 #endif
