@@ -101,3 +101,6 @@ crsf-*.bin
 
 # Local override for CLAUDE.md hardware checklist — if you keep a per-machine copy
 CLAUDE.local.md
+
+# Offline map tiles — downloaded by scripts/download_tiles.py; can be hundreds of MB
+base-station/static/tiles/**/*.png

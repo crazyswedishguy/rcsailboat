@@ -48,6 +48,7 @@ Use CRSF's standard telemetry frame types where they fit (battery, GPS if ever a
 | `ATTITUDE` (0x1E) | pitch, roll, yaw (0.0001 rad) | Onboard IMU (roll = heel) | 5 Hz |
 | `LINK_STATISTICS` (0x14) | RSSI, LQ, SNR, etc. | Auto-populated by ELRS stack | automatic |
 | `FLIGHT_MODE` (0x21) | short text: "MANUAL", "FAILSAFE", "DISARMED" | Firmware state | on change |
+| `GPS` (0x02) | lat (°×1e7 int32), lng (°×1e7 int32), groundspeed (km/h×10 uint16), heading (°×100 uint16), altitude (m+1000 uint16), satellites (uint8) | GPS module on UART2 — **optional**, requires `-DGPS_ENABLED` build flag | 1 Hz when fix acquired |
 
 ### Fields deliberately **not** sent (for bandwidth reasons)
 

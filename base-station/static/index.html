@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>RC Sailboat</title>
+
+  <!-- Leaflet CSS — served locally; run scripts/download_tiles.py --fetch-leaflet first -->
+  <link rel="stylesheet" href="/static/leaflet/leaflet.min.css">
+
+  <style>
+    /* ── Reset & CSS variables ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a1628;   /* page background */
+      --surface:   #112240;   /* card background */
+      --surface2:  #1a3a5c;   /* track / inactive button */
+      --accent:    #64d8f0;   /* cyan highlight */
+      --dim:       #8892b0;   /* muted text */
+      --text:      #ccd6f6;   /* body text */
+      --safe:      #52b788;   /* armed / connected green */
+      --danger:    #e63946;   /* stop / disconnected red */
+    }
+
+    /* ── Page layout ── */
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1rem 1rem 1.5rem;
+      gap: 0.875rem;
+      /* prevent text selection / long-press menus on touch */
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* ── Header ── */
+    header {
+      width: 100%;
+      max-width: 480px;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    h1 { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); }
+
+    /* Connection status pill: green when WebSocket is open, red when closed */
+    #status {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em;
+      padding: 0.2rem 0.65rem; border-radius: 999px;
+      text-transform: uppercase;
+    }
+    #status.connected    { background: rgba(82,183,136,.15); color: var(--safe);   border: 1px solid var(--safe); }
+    #status.disconnected { background: rgba(230,57,70,.15);  color: var(--danger); border: 1px solid var(--danger); }
+
+    /* ── Generic card shell ── */
+    .card {
+      background: var(--surface);
+      border-radius: 1rem;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    /* Small uppercase section label (e.g. "THROTTLE", "SAIL TRIM") */
+    .lbl {
+      font-size: 0.68rem; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--dim);
+    }
+    /* Numeric readout displayed below each control */
+    .val {
+      font-size: 0.95rem; font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+      min-width: 3.2rem; text-align: center;
+    }
+
+    /* ── Middle row: throttle card (left) | sail card (right) ── */
+    .mid-row {
+      width: 100%; max-width: 480px;
+      display: flex; gap: 0.875rem;
+    }
+
+    /* ── Vertical throttle slider ── */
+    .throttle-card { width: 86px; }
+
+    /* Vertical range input rendered with writing-mode trick for cross-browser support */
+    input[type=range].vert {
+      writing-mode: vertical-lr;
+      direction: rtl;               /* flip so top = max */
+      -webkit-appearance: slider-vertical;
+      appearance: slider-vertical;
+      width: 44px;
+      height: 168px;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type=range].vert::-webkit-slider-runnable-track {
+      width: 8px; border-radius: 4px; background: var(--surface2);
+    }
+    input[type=range].vert::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--accent); margin-left: -11px;
+    }
+    input[type=range].vert::-moz-range-track {
+      width: 8px; border-radius: 4px; background: var(--surface2);
+    }
+    input[type=range].vert::-moz-range-thumb {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--accent); border: none;
+    }
+
+    /* ── Sail arc card ── */
+    .sail-card { flex: 1; }
+
+    /* ── Rudder card (full width, horizontal slider) ── */
+    .rudder-card {
+      width: 100%; max-width: 480px;
+    }
+    .rudder-row {
+      width: 100%;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    input[type=range].horiz {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 44px; background: transparent; cursor: pointer;
+    }
+    input[type=range].horiz::-webkit-slider-runnable-track {
+      height: 8px; border-radius: 4px; background: var(--surface2);
+    }
+    input[type=range].horiz::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--accent); margin-top: -11px;
+    }
+    input[type=range].horiz::-moz-range-track {
+      height: 8px; border-radius: 4px; background: var(--surface2);
+    }
+    input[type=range].horiz::-moz-range-thumb {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--accent); border: none;
+    }
+    /* Port / Starboard end labels below the rudder slider */
+    .endlabels {
+      display: flex; justify-content: space-between;
+      width: 100%; font-size: 0.65rem; color: var(--dim);
+      padding: 0 2px;
+    }
+
+    /* ── Small neutral button (CTR, nudge, ◄ ►, MAP) ── */
+    .ctr-btn {
+      background: var(--surface2); color: var(--dim);
+      border: none; border-radius: 0.4rem;
+      padding: 0.3rem 0.65rem;
+      font-size: 0.68rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      cursor: pointer; transition: background 0.12s, color 0.12s;
+    }
+    .ctr-btn:active { background: var(--accent); color: #fff; }
+    /* Map toggle highlighted when open */
+    .ctr-btn.map-open { background: var(--accent); color: #0a1628; }
+
+    /* ── ARM / STOP action buttons ── */
+    .action-row {
+      width: 100%; max-width: 480px;
+      display: flex; gap: 0.75rem;
+    }
+    .act-btn {
+      flex: 1; padding: 0.9rem 0.5rem;
+      border: none; border-radius: 0.75rem;
+      font-size: 0.9rem; font-weight: 800;
+      letter-spacing: 0.07em; text-transform: uppercase;
+      cursor: pointer; transition: opacity 0.1s;
+    }
+    .act-btn:active { opacity: 0.72; }
+
+    /* ARM button: grey when disarmed, green outline when armed */
+    #btn-arm {
+      background: var(--surface2); color: var(--dim);
+      border: 2px solid var(--surface2);
+    }
+    #btn-arm.armed {
+      background: rgba(82,183,136,.15);
+      border-color: var(--safe); color: var(--safe);
+    }
+    /* STOP button: always red, slightly wider than ARM */
+    #btn-stop {
+      flex: 1.4;
+      background: var(--danger); color: #fff; font-size: 1rem;
+    }
+
+    /* ── Map panel ── */
+    .map-card {
+      width: 100%; max-width: 480px;
+      padding: 0;
+      overflow: hidden;
+      position: relative;
+    }
+    /* The Leaflet map fills the card; fixed height works well on phone screens */
+    #map {
+      width: 100%;
+      height: 300px;
+      background: var(--surface2);  /* placeholder colour while tiles load */
+    }
+    /* Centred overlay shown when there is no GPS fix or Leaflet is unavailable */
+    #gps-nofix {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--dim);
+      font-size: 0.8rem; font-weight: 700;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      text-align: center;
+      pointer-events: none;
+      z-index: 500;
+      padding: 0.5rem 1rem;
+      background: rgba(10,22,40,0.75);
+      border-radius: 0.4rem;
+    }
+    /* Bottom-left telemetry overlay (satellites, speed, altitude) */
+    #gps-info {
+      position: absolute;
+      bottom: 8px; left: 8px;
+      background: rgba(10,22,40,0.82);
+      color: var(--accent);
+      font-size: 0.7rem; font-weight: 700;
+      padding: 0.25rem 0.55rem;
+      border-radius: 0.3rem;
+      z-index: 500;
+      pointer-events: none;
+    }
+    /* Boat heading arrow rendered as a CSS-rotatable div icon inside Leaflet */
+    .boat-marker-icon {
+      width: 24px; height: 24px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      color: var(--accent);
+      transform-origin: center;
+      filter: drop-shadow(0 0 3px rgba(100,216,240,0.7));
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>RC Sailboat</h1>
+    <!-- MAP toggle: opens/closes the map panel below the controls -->
+    <button class="ctr-btn" id="btn-map">Map</button>
+    <!-- Updated by JS: "Online" (green) when WebSocket is open, "Offline" (red) otherwise -->
+    <div id="status" class="disconnected">Offline</div>
+  </header>
+
+  <!-- ── Middle row: throttle slider (left) + sail trim arc (right) ── -->
+  <div class="mid-row">
+
+    <!-- Throttle: vertical slider, range -1.00 (full reverse) to +1.00 (full forward) -->
+    <div class="card throttle-card">
+      <div class="lbl">Throttle</div>
+      <input type="range" id="throttle" class="vert" orient="vertical"
+             min="-100" max="100" value="0" step="1">
+      <div class="val" id="val-throttle">0.00</div>
+      <button class="ctr-btn" id="ctr-throttle">CTR</button>
+    </div>
+
+    <!-- Sail trim: interactive SVG arc widget -->
+    <div class="card sail-card">
+      <div class="lbl">Sail trim</div>
+      <!--
+        Geometry:  Mast pivot at upper-left (CX=20, CY=20), radius R=120.
+                   v=0.0 (OUT) = 3 o'clock  = boom horizontal to the right (140, 20)
+                   v=1.0 (IN)  = 6 o'clock  = boom pointing straight down  ( 20,140)
+                   The arc sweeps clockwise through the lower-right quadrant.
+
+        Interaction: drag anywhere in the SVG; the thumb snaps to the nearest
+                     arc position based on the pointer's angle from the mast.
+      -->
+      <svg id="sail-svg" viewBox="0 0 160 160" width="148" height="148"
+           style="touch-action:none; display:block;">
+
+        <!-- Faint pie-slice background — shows the full sail-trim range -->
+        <path fill="rgba(100,160,220,0.08)" stroke="none"
+              d="M 20,20 L 140,20 A 120,120 0 0,1 20,140 Z"/>
+
+        <!-- Dashed arc track: thumb travels along this path (Out → In) -->
+        <path fill="none" stroke="#3a5a7c" stroke-width="2.5" stroke-linecap="round"
+              stroke-dasharray="10 7"
+              d="M 140,20 A 120,120 0 0,1 20,140"/>
+
+        <!-- Sail shape: quadratic Bézier from mast to boom tip.
+             The control point is offset perpendicular to the boom (CW side)
+             so the sail belly always curves consistently inward toward the arc. -->
+        <path id="sail-shape" stroke="#ddeeff" stroke-width="2.5"
+              fill="rgba(180,220,255,0.28)"/>
+
+        <!-- Boom: rigid spar from mast to the thumb (updated by JS) -->
+        <line id="sail-boom" stroke="#6a8aaa" stroke-width="2" stroke-linecap="round"/>
+
+        <!-- Mast pivot point (fixed at upper-left corner) -->
+        <circle id="sail-mast" cx="20" cy="20" r="6" fill="#ffffff"/>
+
+        <!-- Draggable thumb — JS moves this along the arc -->
+        <circle id="sail-thumb" cx="140" cy="20" r="14" fill="#64d8f0"
+                fill-opacity="0.9" style="cursor:grab"/>
+
+        <!-- Arc endpoint labels -->
+        <text x="152" y="24" font-size="9" text-anchor="start" fill="#8892b0">out</text>
+        <text x="20"  y="155" font-size="9" text-anchor="middle" fill="#8892b0">in</text>
+      </svg>
+
+      <!-- Numeric sail value (0.00 = fully out, 1.00 = fully in) -->
+      <div class="val" id="val-sail">0.00</div>
+
+      <!-- +5° eases the sail out (decreases value); −5° trims it in (increases value) -->
+      <div style="display:flex; gap:0.4rem;">
+        <button class="ctr-btn" id="nudge-sail-out">+5°</button>
+        <button class="ctr-btn" id="nudge-sail-in">−5°</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Rudder: horizontal slider across the full card width ── -->
+  <div class="card rudder-card">
+    <div class="rudder-row">
+      <div class="lbl">Rudder</div>
+      <!-- Value readout + ◄ CTR ► nudge buttons in a row -->
+      <div style="display:flex; align-items:center; gap:0.4rem;">
+        <div class="val" id="val-rudder">0.00</div>
+        <button class="ctr-btn" id="nudge-rudder-left">◄</button>
+        <button class="ctr-btn" id="ctr-rudder">CTR</button>
+        <button class="ctr-btn" id="nudge-rudder-right">►</button>
+      </div>
+    </div>
+    <!-- Slider: -100 = full port, 0 = centre, +100 = full starboard -->
+    <input type="range" id="rudder" class="horiz" min="-100" max="100" value="0" step="1">
+    <div class="endlabels"><span>◄ Port</span><span>Stbd ►</span></div>
+  </div>
+
+  <!-- ── Arm / Stop ── -->
+  <div class="action-row">
+    <!-- ARM toggles armed state; text and colour change to reflect current state -->
+    <button class="act-btn" id="btn-arm">Disarmed</button>
+    <!-- STOP: immediately disarms + zeroes throttle (hard safety stop) -->
+    <button class="act-btn" id="btn-stop">&#9632; Stop</button>
+  </div>
+
+  <!-- ── Map panel: hidden by default; toggled by the MAP button in the header ── -->
+  <div class="card map-card" id="map-panel" hidden>
+    <!-- Leaflet renders tiles into this div -->
+    <div id="map"></div>
+    <!-- Shown when there is no GPS fix or Leaflet.js hasn't been downloaded yet -->
+    <div id="gps-nofix">No GPS fix</div>
+    <!-- Live telemetry overlay: satellite count, speed, altitude -->
+    <div id="gps-info" hidden></div>
+  </div>
+
+<!-- Leaflet.js — served locally; run scripts/download_tiles.py --fetch-leaflet first -->
+<script src="/static/leaflet/leaflet.min.js"></script>
+
+<script>
+// =============================================================================
+// SAIL ARC WIDGET
+// =============================================================================
+//
+// The sail trim is shown as a quarter-circle arc with:
+//   - a white dot (mast / pivot) fixed at the upper-left of the SVG (CX, CY)
+//   - a cyan thumb dragged along the arc
+//   - a straight boom line from mast to thumb
+//   - a filled Bézier sail shape that bellies consistently along the boom
+//
+// Value convention (matches server protocol):
+//   v = 0.0  →  sail fully OUT  (boom at 3 o'clock, horizontal right)
+//   v = 1.0  →  sail fully IN   (boom at 6 o'clock, pointing straight down)
+//
+// Angle mapping: a(v) = v · π/2   (radians, 0 = right, π/2 = down)
+
+const CX = 20;    // mast x in SVG viewBox coordinates
+const CY = 20;    // mast y in SVG viewBox coordinates
+const R  = 120;   // arc radius (px in SVG coordinate space)
+
+// Cache frequently-used SVG element references
+const sailSvg   = document.getElementById('sail-svg');
+const sailShape = document.getElementById('sail-shape');
+const sailBoom  = document.getElementById('sail-boom');
+const sailThumb = document.getElementById('sail-thumb');
+
+// Current sail trim value [0, 1].  Kept in a module-level variable so the
+// nudge buttons and WebSocket sender can read it without querying the DOM.
+let sailValue = 0;
+
+// -----------------------------------------------------------------------------
+// ptOnArc(v)  →  {x, y}
+// Returns the SVG coordinates of the thumb for a given trim value v ∈ [0, 1].
+// -----------------------------------------------------------------------------
+function ptOnArc(v) {
+  const a = v * Math.PI / 2;                       // map v → angle
+  return { x: CX + R * Math.cos(a), y: CY + R * Math.sin(a) };
+}
+
+// -----------------------------------------------------------------------------
+// updateSail(v)
+// Clamps v to [0, 1], then redraws the boom, thumb, and sail shape.
+//
+// Bézier belly:  the control point is displaced from the boom midpoint by
+// `belly` pixels in the CW-perpendicular direction to the boom.  The CW
+// perpendicular of unit vector (cos a, sin a) is (sin a, -cos a).  This keeps
+// the belly magnitude constant and truly perpendicular at all angles — avoiding
+// the degeneracy that occurs when using (sin a, cos a) at a = π/4.
+// -----------------------------------------------------------------------------
+function updateSail(v) {
+  sailValue = Math.max(0, Math.min(1, v));
+  const a  = sailValue * Math.PI / 2;
+  const pt = ptOnArc(sailValue);
+
+  // Midpoint of the boom chord (mast → thumb)
+  const mid = { x: (CX + pt.x) / 2, y: (CY + pt.y) / 2 };
+
+  // CW perpendicular to boom: displaces the Bézier control point so the sail
+  // belly always curves toward the interior of the arc sector
+  const belly = 22;
+  const ctrl  = {
+    x: mid.x + belly * Math.sin(a),
+    y: mid.y - belly * Math.cos(a),
+  };
+
+  // Quadratic Bézier: M mast Q ctrl thumb  (Z closes back to mast for fill)
+  sailShape.setAttribute('d',
+    `M ${CX},${CY} Q ${ctrl.x.toFixed(1)},${ctrl.y.toFixed(1)} ${pt.x.toFixed(1)},${pt.y.toFixed(1)} Z`);
+
+  // Boom line
+  sailBoom.setAttribute('x1', CX);              sailBoom.setAttribute('y1', CY);
+  sailBoom.setAttribute('x2', pt.x.toFixed(1)); sailBoom.setAttribute('y2', pt.y.toFixed(1));
+
+  // Move the draggable thumb
+  sailThumb.setAttribute('cx', pt.x.toFixed(1));
+  sailThumb.setAttribute('cy', pt.y.toFixed(1));
+
+  // Update readout
+  document.getElementById('val-sail').textContent = sailValue.toFixed(2);
+}
+
+// Render the initial "fully out" position on page load
+updateSail(0);
+
+// -----------------------------------------------------------------------------
+// valueFromPt(svgX, svgY)  →  v ∈ [0, 1]
+// Converts a pointer position (in SVG coordinates) to a sail trim value by
+// computing the angle from the mast and mapping it onto [0, π/2].
+// Points outside the lower-right quadrant are clamped to the nearest endpoint.
+// -----------------------------------------------------------------------------
+function valueFromPt(svgX, svgY) {
+  // Clamp to the positive-x, positive-y quadrant relative to mast so we stay
+  // within the valid arc range (a ∈ [0, π/2])
+  const dx = Math.max(0, svgX - CX);
+  const dy = Math.max(0, svgY - CY);
+  return Math.min(Math.PI / 2, Math.atan2(dy, dx)) / (Math.PI / 2);
+}
+
+// -----------------------------------------------------------------------------
+// toSvgCoords(clientX, clientY)  →  {x, y}
+// Converts browser pointer coordinates (CSS pixels) to SVG viewBox coordinates.
+// Required because the SVG may be scaled by CSS (viewBox=160×160, rendered at
+// 148×148 CSS pixels, but the mapping is handled by the ratio below).
+// -----------------------------------------------------------------------------
+function toSvgCoords(clientX, clientY) {
+  const rect = sailSvg.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) * (160 / rect.width),
+    y: (clientY - rect.top)  * (160 / rect.height),
+  };
+}
+
+// ── Pointer / touch events for the sail arc drag ──────────────────────────────
+// We use the Pointer Events API (works for mouse, touch, and stylus) with
+// setPointerCapture so dragging outside the SVG still tracks correctly.
+
+let sailDragging = false;
+
+sailSvg.addEventListener('pointerdown', e => {
+  sailDragging = true;
+  sailSvg.setPointerCapture(e.pointerId);   // keep events even if pointer leaves SVG
+  const p = toSvgCoords(e.clientX, e.clientY);
+  updateSail(valueFromPt(p.x, p.y));
+  send();
+});
+
+sailSvg.addEventListener('pointermove', e => {
+  if (!sailDragging) return;
+  const p = toSvgCoords(e.clientX, e.clientY);
+  updateSail(valueFromPt(p.x, p.y));
+  send();
+});
+
+sailSvg.addEventListener('pointerup',     () => { sailDragging = false; });
+sailSvg.addEventListener('pointercancel', () => { sailDragging = false; });
+
+// =============================================================================
+// THROTTLE & RUDDER SLIDERS
+// =============================================================================
+// Both use native <input type="range"> for simplicity.
+// Internal range: -100 to +100 (integer steps).
+// Displayed / transmitted range: -1.00 to +1.00 (divided by 100).
+
+const throttleEl = document.getElementById('throttle');
+const rudderEl   = document.getElementById('rudder');
+
+throttleEl.addEventListener('input', () => {
+  document.getElementById('val-throttle').textContent =
+    (throttleEl.value / 100).toFixed(2);
+  send();
+});
+
+rudderEl.addEventListener('input', () => {
+  document.getElementById('val-rudder').textContent =
+    (rudderEl.value / 100).toFixed(2);
+  send();
+});
+
+// CTR buttons: snap the respective control back to neutral (0)
+document.getElementById('ctr-throttle').addEventListener('click', () => {
+  throttleEl.value = 0;
+  document.getElementById('val-throttle').textContent = '0.00';
+  send();
+});
+
+document.getElementById('ctr-rudder').addEventListener('click', () => {
+  rudderEl.value = 0;
+  document.getElementById('val-rudder').textContent = '0.00';
+  send();
+});
+
+// ── Rudder nudge buttons (◄ / ►) ─────────────────────────────────────────────
+// Each press steps the rudder by 0.10 (10 internal units out of ±100).
+// The delta is applied in internal-unit space then clamped to [-100, 100].
+function nudgeRudder(delta) {
+  rudderEl.value = Math.max(-100, Math.min(100, +rudderEl.value + delta));
+  document.getElementById('val-rudder').textContent = (rudderEl.value / 100).toFixed(2);
+  send();
+}
+// ◄ = port (negative rudder), ► = starboard (positive rudder)
+document.getElementById('nudge-rudder-left').addEventListener('click',  () => nudgeRudder(-10));
+document.getElementById('nudge-rudder-right').addEventListener('click', () => nudgeRudder(+10));
+
+// ── Sail trim nudge buttons (+5° / −5°) ──────────────────────────────────────
+// The arc spans 90° total, so one step of 5° = 5/90 = 1/18 of the [0,1] range.
+// "+5°" eases the sail OUT (decreases v toward 0).
+// "−5°" trims the sail IN  (increases v toward 1).
+const SAIL_STEP = 1 / 18;   // 5° expressed as a fraction of the 90° arc
+
+document.getElementById('nudge-sail-out').addEventListener('click', () => {
+  updateSail(sailValue - SAIL_STEP);   // OUT = smaller v
+  send();
+});
+document.getElementById('nudge-sail-in').addEventListener('click', () => {
+  updateSail(sailValue + SAIL_STEP);   // IN  = larger v
+  send();
+});
+
+// =============================================================================
+// ARM / STOP
+// =============================================================================
+const btnArm = document.getElementById('btn-arm');
+let armed = false;
+
+// Toggle armed state; visual feedback via CSS class
+btnArm.addEventListener('click', () => {
+  armed = !armed;
+  btnArm.textContent = armed ? 'Armed' : 'Disarmed';
+  btnArm.className   = 'act-btn' + (armed ? ' armed' : '');
+  send();
+});
+
+// STOP: disarm immediately + zero throttle, then send a "stop" command so the
+// server also zeroes its state regardless of any in-flight messages
+document.getElementById('btn-stop').addEventListener('click', () => {
+  armed = false;
+  btnArm.textContent = 'Disarmed';
+  btnArm.className   = 'act-btn';
+  throttleEl.value   = 0;
+  document.getElementById('val-throttle').textContent = '0.00';
+  send({ stop: true });
+});
+
+// =============================================================================
+// MAP
+// =============================================================================
+//
+// Leaflet.js renders an interactive tile map inside #map-panel.  Tiles are
+// served locally from /tiles/{z}/{x}/{y}.png — pre-downloaded by running:
+//   python scripts/download_tiles.py --lat <lat> --lon <lon> --radius 2.0
+//
+// The panel is hidden by default; the MAP button in the header toggles it.
+// The map is lazily initialised when the panel is first opened (or when the
+// first GPS fix arrives), because Leaflet requires the container to be visible
+// before it can calculate its size.
+
+const mapPanel  = document.getElementById('map-panel');
+const btnMap    = document.getElementById('btn-map');
+const gpsNofix  = document.getElementById('gps-nofix');
+const gpsInfo   = document.getElementById('gps-info');
+
+let leafletMap  = null;   // Leaflet map instance
+let boatMarker  = null;   // Leaflet marker for the boat position
+let mapReady    = false;  // true once initMap() has run successfully
+
+// -----------------------------------------------------------------------------
+// initMap()
+// Creates the Leaflet map and boat marker.  No-op if already initialised or
+// if Leaflet failed to load (e.g. download_tiles.py --fetch-leaflet not run yet).
+// -----------------------------------------------------------------------------
+function initMap() {
+  if (mapReady) return;
+  if (typeof L === 'undefined') {
+    // Leaflet.js not available — update overlay message so the user knows why
+    gpsNofix.textContent = 'Map unavailable — run scripts/download_tiles.py --fetch-leaflet';
+    return;
+  }
+  mapReady = true;
+
+  // Default view: zoomed out world view until the first GPS fix arrives
+  leafletMap = L.map('map', { zoomControl: true }).setView([0, 0], 2);
+
+  // Local tile layer — tiles must be pre-downloaded; blank squares = missing tiles
+  L.tileLayer('/tiles/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  }).addTo(leafletMap);
+
+  // Boat marker: a CSS div icon so we can rotate it via transform
+  const icon = L.divIcon({
+    html: '<div class="boat-marker-icon" id="boat-icon">▲</div>',
+    className: '',
+    iconSize:   [24, 24],
+    iconAnchor: [12, 12],
+  });
+  boatMarker = L.marker([0, 0], { icon }).addTo(leafletMap);
+}
+
+// MAP toggle button: show/hide the map panel
+btnMap.addEventListener('click', () => {
+  const opening = mapPanel.hidden;
+  mapPanel.hidden = !opening;
+  btnMap.classList.toggle('map-open', opening);
+
+  if (opening) {
+    initMap();
+    // Leaflet must recalculate its container size after the panel becomes visible
+    if (leafletMap) leafletMap.invalidateSize();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// handleGps(msg)
+// Called when the server pushes a GPS telemetry message over the WebSocket.
+// msg shape: { type:"gps", lat, lng, speed, heading, alt, sats, fix }
+// -----------------------------------------------------------------------------
+function handleGps(msg) {
+  if (!msg.fix) return;   // no valid fix yet — leave "No GPS fix" overlay in place
+
+  // Lazily init the map when the first fix arrives (even if the panel isn't open)
+  initMap();
+
+  // Hide the "no fix" overlay and show the telemetry info bar
+  gpsNofix.hidden = true;
+  gpsInfo.hidden  = false;
+  gpsInfo.textContent =
+    `${msg.sats} sats · ${msg.speed.toFixed(1)} km/h · ${msg.alt.toFixed(0)} m`;
+
+  if (!boatMarker) return;
+
+  // Move the marker to the new position
+  boatMarker.setLatLng([msg.lat, msg.lng]);
+
+  // Rotate the arrow icon to match the boat's heading
+  const iconEl = boatMarker.getElement();
+  if (iconEl) {
+    const arrow = iconEl.querySelector('.boat-marker-icon');
+    if (arrow) arrow.style.transform = `rotate(${msg.heading}deg)`;
+  }
+
+  // Pan the map to follow the boat, but only if the panel is currently open
+  if (!mapPanel.hidden && leafletMap) leafletMap.panTo([msg.lat, msg.lng]);
+}
+
+// =============================================================================
+// WEBSOCKET
+// =============================================================================
+// The page opens a WebSocket to ws://<host>/ws on load and reconnects
+// automatically if the connection drops (e.g. server restart, AP handover).
+// Every user interaction calls send(), which serialises the current state and
+// writes it to the socket — only when the socket is open.
+//
+// The server may also push messages to the browser (e.g. GPS position updates).
+// These arrive as JSON objects with a "type" field.
+
+const statusEl = document.getElementById('status');
+let ws = null;
+
+// connect() establishes (or re-establishes) the WebSocket connection.
+// On close it schedules a reconnect after 2 s so the UI stays live.
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    statusEl.textContent = 'Online';
+    statusEl.className   = 'connected';
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'Offline';
+    statusEl.className   = 'disconnected';
+    setTimeout(connect, 2000);   // retry in 2 s
+  };
+
+  ws.onerror = () => ws.close();   // let onclose handle the retry
+
+  // Handle server-to-client push messages (currently only GPS)
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'gps') handleGps(msg);
+    } catch (_) { /* ignore malformed messages */ }
+  };
+}
+
+// send(extra) serialises the current UI state to JSON and posts it to the
+// server.  `extra` can inject override fields (e.g. { stop: true }).
+// No-op when the socket is not yet open or has closed.
+function send(extra = {}) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({
+    rudder:   rudderEl.value / 100,   // -1.0 … +1.0
+    sail:     sailValue,               //  0.0 … +1.0
+    throttle: throttleEl.value / 100, // -1.0 … +1.0
+    armed,                             // boolean
+    ...extra,
+  }));
+}
+
+connect();
+</script>
+</body>
+</html>
