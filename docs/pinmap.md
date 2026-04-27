@@ -10,7 +10,7 @@
 | IO7  | BIDIR | I²C SCL | PCA9685 SCL, INA219 SCL | External bus |
 | IO17 | IN  | UART1 RX (CRSF from ELRS) | ELRS RP3 receiver TX pin | 420000 baud, CRSF; use UART1 (UART0 = USB-CDC on IO43/44) |
 | IO18 | OUT | UART1 TX (CRSF to ELRS) | ELRS RP3 receiver RX pin | 420000 baud, CRSF |
-| IO9  | OUT | Status LED | External LED + resistor to GND | Heartbeat / failsafe indicator |
+| IO8  | OUT | Status LED | External LED + resistor to GND | Heartbeat / failsafe indicator |
 | IO1  | IN  | UART2 RX (NMEA from GPS) | GPS module TX pin | **Optional** — requires `-DGPS_ENABLED` build flag; 9600 baud NMEA |
 | IO2  | OUT | UART2 TX (config to GPS) | GPS module RX pin | **Optional** — only needed to change GPS baud rate or rate config |
 
@@ -22,12 +22,12 @@ Derived from the Waveshare ESP32-S3-Touch-AMOLED-1.64 schematic:
 |-----:|----------|
 | IO0  | BOOT strapping pin |
 | IO4  | Battery voltage ADC (internal) |
-| IO10 | OLED QSPI CS |
-| IO11 | OLED QSPI CLK |
-| IO12 | OLED QSPI D0 |
-| IO13 | OLED QSPI D1 |
-| IO14 | OLED QSPI D2 |
-| IO15 | OLED QSPI D3 |
+| IO9  | OLED QSPI CS |
+| IO10 | OLED QSPI CLK |
+| IO11 | OLED QSPI D0 |
+| IO12 | OLED QSPI D1 |
+| IO13 | OLED QSPI D2 |
+| IO14 | OLED QSPI D3 |
 | IO19 | USB D− |
 | IO20 | USB D+ |
 | IO21 | OLED RESET |
@@ -48,7 +48,7 @@ Derived from the Waveshare ESP32-S3-Touch-AMOLED-1.64 schematic:
 |---:|---|
 | IO1 | **GPS RX** (when GPS_ENABLED) |
 | IO2 | **GPS TX** (when GPS_ENABLED) |
-| IO3, IO5, IO8, IO16, IO42 | Unassigned — available for future use |
+| IO3, IO5, IO15, IO16, IO42 | Unassigned — available for future use |
 
 ## I²C addresses
 

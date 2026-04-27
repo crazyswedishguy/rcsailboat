@@ -6,31 +6,6 @@ Claude Code: when a phase is done, move it to "Completed" at the bottom and writ
 
 ---
 
-## Phase 0 — Project scaffolding
-
-- [ ] Create `base-station/` Python project (venv, `requirements.txt`, `pyproject.toml`, `ruff` config)
-- [ ] Create `boat-firmware/` PlatformIO project for ESP32-S3 (Waveshare board)
-- [ ] Create `shared/protocol.py` with `PROTOCOL_VERSION`, channel constants
-- [ ] Create `boat-firmware/src/protocol.h` with matching `PROTOCOL_VERSION` and channel constants
-- [ ] Create `boat-firmware/src/config.h` with GPIO pin definitions (matching `docs/pinmap.md`)
-- [ ] Set up git pre-commit: `ruff` for Python, `clang-format` for C++
-
-**Acceptance**: `boat-firmware` builds an empty `setup()`/`loop()` and flashes to the ESP32-S3. The base station has a venv with FastAPI installed and can serve "hello world" from `/`.
-
----
-
-## Phase 1 — Base station: web UI skeleton
-
-- [ ] FastAPI app serving a static HTML page with three sliders (rudder, sail, throttle), an arm toggle, and a STOP button
-- [ ] WebSocket endpoint receives control state and logs it
-- [ ] In-memory "desired state" object updated from the WebSocket
-- [ ] Basic input validation (range-clamp, NaN guard)
-- [ ] Configure Pi as Wi-Fi AP with hostapd + dnsmasq (documented as a separate setup script)
-
-**Acceptance**: connect a phone to the Pi's Wi-Fi, open the page in a browser, move the sliders, and see the values update in the Pi's server logs.
-
----
-
 ## Phase 2 — Boat firmware: I²C + PCA9685 + servos (no radio yet)
 
 - [ ] Bring up I²C and scan the bus on boot (log found addresses)
@@ -79,35 +54,16 @@ Claude Code: when a phase is done, move it to "Completed" at the bottom and writ
 
 ---
 
-## Phase 6 — Telemetry
-
-### 6a — Power monitoring (INA219)
-- [ ] Add `power.h/cpp` to read voltage + current from INA219 on external I²C (IO6/IO7, addr 0x41)
-- [ ] Track mAh consumed since boot
-- [ ] Emit CRSF `BATTERY_SENSOR` (0x08) at 2 Hz via UART1
-
-### 6b — IMU / attitude (QMI8658)
-- [ ] Add `imu.h/cpp` to read QMI8658 accelerometer on onboard I²C (IO47/IO48, addr 0x6B)
-- [ ] Compute heel (roll) and pitch from accelerometer gravity projection
-- [ ] Emit CRSF `ATTITUDE` (0x1E) at 5 Hz via UART1 (yaw = 0 until 6c)
+## Phase 6 — Telemetry (remaining)
 
 ### 6c — Heading (QMC5883L magnetometer) [requires additional hardware]
 - [ ] Wire QMC5883L to external I²C bus (IO6/IO7, addr 0x0D) — update `docs/pinmap.md`
 - [ ] Add `compass.h/cpp` under `-DCOMPASS_ENABLED` build flag (mirrors GPS pattern)
 - [ ] Include live heading in ATTITUDE frame yaw field once compass is wired
 
-### 6d — GPS telemetry
-- [ ] Fill in `telemetry_send_gps()` stub — emit CRSF GPS frame (0x02) at 1 Hz
-- [ ] Include lat, lng, speed (SOG), heading, altitude, satellites
-
 ### 6e — Link quality
 - [ ] Parse `LINK_STATISTICS` (0x14) frames received from ELRS in `elrs.cpp`
 - [ ] Expose `elrs_rssi()` and `elrs_link_quality()` accessors
-
-### 6f — Commanded servo positions + ESP32 temperature
-- [ ] Expose `servos_get_commanded(int pca_channel)` from `servos.cpp`
-- [ ] Read ESP32 internal temperature via `temperatureRead()`
-- [ ] Emit custom CRSF sailboat frame (0x80) at 5 Hz: rudder, sail, ESC commanded + temp
 
 ### 6g — Base station: decode and display
 - [ ] Pi decodes incoming CRSF telemetry frames from ELRS serial port
@@ -144,4 +100,31 @@ Claude Code: when a phase is done, move it to "Completed" at the bottom and writ
 
 ## Completed
 
-(nothing yet)
+### Phase 0 — Project scaffolding
+Scaffold created as planned: PlatformIO project for ESP32-S3, FastAPI base-station project with venv,
+`shared/protocol.py` and `boat-firmware/src/protocol.h` with matching protocol constants and channel
+definitions, `config.h` with GPIO pin map, ruff config. `git pre-commit` hooks not added (skipped by choice).
+
+### Phase 1 — Base station: web UI skeleton
+FastAPI app serving static HTML with rudder/sail/throttle sliders, arm toggle, and STOP button.
+WebSocket endpoint updates an in-memory `DesiredState` object and logs changes. Range clamping and
+NaN guard in place. GPS position broadcast infrastructure (`GpsPosition`, `broadcast()`) added
+alongside the base Phase 1 items. Wi-Fi AP setup deferred to a separate setup script (not in repo).
+
+### Phase 6a — Power monitoring (INA219)
+`power.h/cpp` implemented: reads voltage + current from INA219 over external I²C (IO6/IO7, addr 0x41),
+tracks mAh consumed since boot. Emits CRSF `BATTERY_SENSOR` (0x08) at 2 Hz via `telemetry.cpp`.
+
+### Phase 6b — IMU / attitude (QMI8658)
+`imu.h/cpp` implemented: reads QMI8658 accelerometer on onboard I²C (IO47/IO48, addr 0x6B) at 62.5 Hz,
+computes heel (roll) and pitch from gravity projection using atan2. Emits CRSF `ATTITUDE` (0x1E) at
+5 Hz via `telemetry.cpp`; yaw is hardcoded 0 pending compass hardware (Phase 6c).
+
+### Phase 6d — GPS telemetry
+`gps.h/cpp` stub and `telemetry_send_gps()` implemented in `telemetry.cpp`. Emits CRSF GPS frame
+(0x02) at 1 Hz when `GPS_ENABLED` build flag is set and a fix is available.
+
+### Phase 6f — Commanded servo positions + ESP32 temperature
+`servos_get_commanded()` accessor implemented. Custom CRSF sailboat frame (0x80) emitted at 5 Hz
+from `telemetry.cpp`: rudder, sail, ESC commanded values (×10000) plus ESP32 internal temperature.
+CRSF frame builder (`crsf_build`, CRC-8/DVB-S2) implemented and shared by all telemetry emitters.

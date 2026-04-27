@@ -7,7 +7,7 @@
 #define PIN_I2C_SCL    7   // External I2C bus
 #define PIN_CRSF_RX    17  // UART1 RX — receives CRSF from ELRS RP3 TX
 #define PIN_CRSF_TX    18  // UART1 TX — sends CRSF to ELRS RP3 RX
-#define PIN_STATUS_LED 9   // Status LED (active HIGH, add 330Ω to GND)
+#define PIN_STATUS_LED 8   // Status LED (active HIGH, add 330Ω to GND) — IO9 is DISP_CS
 
 // Optional GPS module — build with -DGPS_ENABLED (see platformio.ini [env:esp32-s3-gps])
 #ifdef GPS_ENABLED
@@ -31,6 +31,15 @@
 #ifdef COMPASS_ENABLED
 #define QMC5883L_ADDR 0x0D  // wire to external I2C bus (IO6/IO7); update docs/pinmap.md
 #endif
+
+// AMOLED display — SH8601 over QSPI (onboard, do not use these GPIOs externally)
+#define PIN_DISP_CS    9
+#define PIN_DISP_CLK   10
+#define PIN_DISP_D0    11
+#define PIN_DISP_D1    12
+#define PIN_DISP_D2    13
+#define PIN_DISP_D3    14
+#define PIN_DISP_RST   21
 
 // PCA9685 output channel assignments
 #define CH_RUDDER_PWM 0
