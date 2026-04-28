@@ -1,75 +1,175 @@
-# Pin map — ESP32-S3 (Waveshare 1.64" AMOLED dev board)
+# Pin map
 
-**This is the canonical pin assignment.** The firmware's `config.h` must match this table exactly. When pins change, update both simultaneously.
+Canonical pin assignment reference for the boat firmware.
 
-## ESP32-S3 pin assignments
+**This file is mirrored in two other places** — when you change a pin, update all three:
+1. This file (`docs/pinmap.md`).
+2. `boat-firmware/src/config.h` — the source of truth for the compiler.
+3. `CLAUDE.md` — the quick-reference section that Claude Code reads at session start.
 
-| GPIO | Direction | Function | Connects to | Notes |
-|-----:|-----------|----------|-------------|-------|
-| IO6  | BIDIR | I²C SDA | PCA9685 SDA, INA219 SDA | External bus; pull-ups on PCA9685 breakout are sufficient |
-| IO7  | BIDIR | I²C SCL | PCA9685 SCL, INA219 SCL | External bus |
-| IO17 | IN  | UART1 RX (CRSF from ELRS) | ELRS RP3 receiver TX pin | 420000 baud, CRSF; use UART1 (UART0 = USB-CDC on IO43/44) |
-| IO18 | OUT | UART1 TX (CRSF to ELRS) | ELRS RP3 receiver RX pin | 420000 baud, CRSF |
-| IO8  | OUT | Status LED | External LED + resistor to GND | Heartbeat / failsafe indicator |
-| IO1  | IN  | UART2 RX (NMEA from GPS) | GPS module TX pin | **Optional** — requires `-DGPS_ENABLED` build flag; 9600 baud NMEA |
-| IO2  | OUT | UART2 TX (config to GPS) | GPS module RX pin | **Optional** — only needed to change GPS baud rate or rate config |
+---
 
-## Pins consumed by the board itself — do not use
+## Board
 
-Derived from the Waveshare ESP32-S3-Touch-AMOLED-1.64 schematic:
+**Waveshare ESP32-S3-Touch-AMOLED-1.64** (SKU 31197)
 
-| GPIO | Function |
-|-----:|----------|
-| IO0  | BOOT strapping pin |
-| IO4  | Battery voltage ADC (internal) |
-| IO9  | OLED QSPI CS |
-| IO10 | OLED QSPI CLK |
-| IO11 | OLED QSPI D0 |
-| IO12 | OLED QSPI D1 |
-| IO13 | OLED QSPI D2 |
-| IO14 | OLED QSPI D3 |
-| IO19 | USB D− |
-| IO20 | USB D+ |
-| IO21 | OLED RESET |
-| IO38 | SD card CS / SDIO D3 |
-| IO39 | SD card MOSI / SDIO CMD |
-| IO40 | SD card MISO / SDIO D0 |
-| IO41 | SD card CLK / SDIO SCK |
-| IO43 | UART0 TX (USB-CDC serial monitor) |
-| IO44 | UART0 RX (USB-CDC serial monitor) |
-| IO45 | LCD CLK / boot strapping |
-| IO46 | IMU INT1 (QMI8658) |
-| IO47 | Onboard I²C SDA (IMU QMI8658 + touch CST816S) |
-| IO48 | Onboard I²C SCL (IMU QMI8658 + touch CST816S) |
+- ESP32-S3R8 (8 MB PSRAM, 16 MB Flash, dual-core LX7 @ 240 MHz)
+- 1.64" AMOLED 280×456, CO5300 driver, QSPI interface
+- FT3168 capacitive touch, I²C
+- QMI8658 6-axis IMU, I²C
+- TF card slot (SPI)
+- USB-C + LiPo charging (ETA6098), MX1.25 battery connector
 
-## Free GPIOs (available for external peripherals)
+## Onboard peripherals
 
-| GPIO | Status |
-|---:|---|
-| IO1 | **GPS RX** (when GPS_ENABLED) |
-| IO2 | **GPS TX** (when GPS_ENABLED) |
-| IO3, IO5, IO15, IO16, IO42 | Unassigned — available for future use |
+These pins are wired on the PCB and cannot be reassigned.
 
-## I²C addresses
+### AMOLED display (CO5300, QSPI)
 
-The external bus (IO6/IO7) carries only our peripherals:
+| Signal | GPIO | Schematic net | Notes |
+|--------|------|---------------|-------|
+| CS     | 9    | `OLED_CS`     | |
+| CLK    | 10   | `OLED_CLK`    | |
+| D0     | 11   | `OLED_SIO0`   | QSPI data line 0 |
+| D1     | 12   | `OLED_SI1`    | QSPI data line 1 |
+| D2     | 13   | `OLED_SI2`    | QSPI data line 2 |
+| D3     | 14   | `OLED_SI3`    | QSPI data line 3 |
+| RESET  | 21   | `OLED_RESET`  | active low |
+| TE     | TODO | —             | tearing-effect signal — find in Waveshare demo source |
 
-| Device | Address | Notes |
-|---|---|---|
-| PCA9685 | 0x40 (default) | PWM servo driver |
-| INA219 | 0x41 | **Moved from default 0x40** — solder A0 jumper on INA219 breakout |
+### Touch controller (FT3168, I²C)
 
-The onboard I²C bus (IO47/IO48) carries only the board's own IMU and touch controller — do not connect external devices to those pins.
+| Signal | GPIO | Schematic net | Notes |
+|--------|------|---------------|-------|
+| SDA    | 47   | `TP_SDA`      | shared bus |
+| SCL    | 48   | `TP_SCL`      | shared bus |
+| INT    | TODO | `TP_INT`      | wired via display FPC, not labeled in the schematic's GPIO table |
+| RESET  | TODO | `TP_RESET`    | likely shared with `OLED_RESET` (GPIO21); confirm in demo |
 
-> **Address collision**: PCA9685 and INA219 both default to 0x40. Move INA219 to 0x41 by soldering the A0 pad on the INA219 breakout *before* first power-on.
+### IMU (QMI8658, I²C)
 
-## PCA9685 channel assignments
+| Signal | GPIO | Schematic net | Notes |
+|--------|------|---------------|-------|
+| SDA    | 47   | `IMU_SDA`     | shared bus |
+| SCL    | 48   | `IMU_SCL`     | shared bus |
+| INT1   | 46   | `IMU_INT1`    | strapping pin — fine as input |
+| INT2   | n/c  | —             | not connected |
 
-| PCA9685 channel | Purpose | PWM neutral (µs) | PWM range (µs) | Notes |
-|---:|---|---:|---|---|
-| 0 | Rudder servo | 1500 | 1000–2000 | Reverse direction in firmware if mounted flipped |
-| 1 | Sail winch servo | 1500 | ~500–2500 | Winch servos have extended travel — verify with HS-785HB datasheet |
-| 2 | Motor ESC | 1500 | 1000–2000 | ESC must see 1500 µs at power-on to arm |
-| 3–15 | Reserved | — | — | |
+I²C address is `0x6A` or `0x6B` depending on the SDO/SA0 strap. **Verify with `i2cdetect` on first build** before hardcoding.
 
-PCA9685 PWM frequency: **50 Hz** (standard servo/ESC rate).
+### TF card (SPI mode)
+
+| Signal | GPIO | Schematic net |
+|--------|------|---------------|
+| CS     | 38   | `SD_CS`       |
+| MOSI   | 39   | `SD_MOSI`     |
+| MISO   | 40   | `SD_MISO`     |
+| SCLK   | 41   | `SD_SCLK`     |
+
+4-bit SDIO mode is **not** available on this board — the SDIO data pins are tied to the SPI nets through 0Ω resistors, so all four SPI pins must function for SD access.
+
+### Battery and system
+
+| Signal       | GPIO   | Notes |
+|--------------|--------|-------|
+| Battery ADC  | 4      | `BAT_ADC` — read through resistor divider, calibrate before trusting voltage |
+| BOOT button  | 0      | strapping pin — do not drive at boot |
+| RST button   | CHIP_PU| hardware reset, not a GPIO |
+| USB-Serial TX| 43     | `U0TXD` — console output |
+| USB-Serial RX| 44     | `U0RXD` — console input |
+
+---
+
+## External peripherals (header-mounted)
+
+These are connected through the P1/P2 headers, so the GPIO assignments are choices, not constraints.
+
+### ELRS receiver (CRSF over UART, 420 000 baud, 8N1)
+
+| Signal       | GPIO | Notes |
+|--------------|------|-------|
+| MCU RX ← Rx TX | 16 | recommended; on header P1, free |
+| MCU TX → Rx RX | 17 | recommended; on header P1, free |
+
+Constraints:
+- Must use a hardware UART (UART1 or UART2 on the ESP32-S3). Bit-banged 420k won't be reliable.
+- Don't use UART0 — that's the USB-Serial console.
+
+### PCA9685 servo driver (I²C, default address `0x40`)
+
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| SDA    | 47   | shared with onboard touch + IMU on header P2 |
+| SCL    | 48   | shared with onboard touch + IMU on header P2 |
+| /OE    | TODO | tie to GND for always-enabled, or assign a free GPIO if servo cutoff on failsafe is wanted |
+
+Channel assignments:
+
+| PCA9685 channel | Function           |
+|-----------------|--------------------|
+| 0               | Rudder servo       |
+| 1               | Sail winch servo   |
+| 2               | Motor ESC          |
+| 3–15            | unused             |
+
+### INA219 current sensor (I²C)
+
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| SDA    | 47   | shared bus |
+| SCL    | 48   | shared bus |
+
+⚠ The INA219's default address is `0x40`, which **conflicts with the PCA9685**. Set the INA219 address straps so it lands at `0x41` or higher before wiring it up. The firmware assumes `0x41`.
+
+---
+
+## I²C bus summary
+
+A single I²C bus on GPIO47/48 carries everything. Confirmed devices and addresses:
+
+| Address | Device   | Notes |
+|---------|----------|-------|
+| 0x15    | FT3168   | touch controller (onboard) |
+| 0x40    | PCA9685  | servo driver (external) |
+| 0x41    | INA219   | current sensor (external, address strapped) |
+| 0x6A/0x6B | QMI8658 | IMU (onboard) — verify which |
+
+Run `i2cdetect`-equivalent at first power-up and check this list matches.
+
+---
+
+## Free GPIOs
+
+Broken out on header P1 or P2 with no onboard function:
+
+`GPIO1, GPIO2, GPIO3, GPIO5, GPIO6, GPIO7, GPIO8, GPIO15, GPIO16, GPIO17, GPIO18, GPIO42, GPIO45`
+
+**Caveats:**
+- GPIO45 is a strapping pin — fine as input or as output after boot, but don't pull it during reset.
+- GPIO16/17 are the recommended ELRS UART pins (see above), so treat them as taken once CRSF is wired.
+- GPIO42 is unlabeled in the schematic's GPIO table — verify it's actually broken out before planning to use it.
+
+## Reserved / strapping pins (avoid unless you know what you're doing)
+
+| GPIO | Reason |
+|------|--------|
+| 0    | BOOT strapping pin (also onboard BOOT button) |
+| 19   | USB D- |
+| 20   | USB D+ |
+| 43   | U0TXD (USB-Serial console) |
+| 44   | U0RXD (USB-Serial console) |
+| 45   | strapping pin (VDD_SPI voltage select) |
+| 46   | strapping pin + IMU INT1 |
+
+---
+
+## Open questions / unverified pins
+
+These are the items still marked `TODO` above. Resolve them by reading the Waveshare Arduino demo source in `docs/waveshare-demo/` and updating this file, `config.h`, and `CLAUDE.md` together.
+
+- [ ] Touch INT GPIO
+- [ ] Touch RESET GPIO (likely == OLED_RESET, GPIO21)
+- [ ] Display TE GPIO
+- [ ] IMU I²C address (0x6A vs 0x6B) — confirm with i2cdetect
+- [ ] PCA9685 /OE pin assignment (or tie to GND)
+- [ ] Confirm GPIO42 is broken out to a header
