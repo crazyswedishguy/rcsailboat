@@ -1,47 +1,129 @@
+// config.h — central hardware configuration for the boat firmware.
+//
+// Single source of truth for GPIO pin numbers and closely-related hardware
+// constants (I2C addresses, UART numbers, baud rates, channel assignments).
+//
+// Mirrors:
+//   - docs/pinmap.md
+//   - CLAUDE.md (Boat hardware / Pin map sections)
+// If you change a value here, update both other places.
+//
+// Board: Waveshare ESP32-S3-Touch-AMOLED-1.64
+
 #pragma once
 
-// GPIO pin assignments — keep in sync with docs/pinmap.md.
-// Derived from Waveshare ESP32-S3-Touch-AMOLED-1.64 schematic.
-// IO47/IO48 are taken by the onboard I2C bus (IMU + touch); use a separate bus.
-#define PIN_I2C_SDA    6   // External I2C bus — PCA9685 + INA219
-#define PIN_I2C_SCL    7   // External I2C bus
-#define PIN_CRSF_RX    17  // UART1 RX — receives CRSF from ELRS RP3 TX
-#define PIN_CRSF_TX    18  // UART1 TX — sends CRSF to ELRS RP3 RX
-#define PIN_STATUS_LED 8   // Status LED (active HIGH, add 330Ω to GND) — IO9 is DISP_CS
+#include <cstdint>
 
-// Optional GPS module — build with -DGPS_ENABLED (see platformio.ini [env:esp32-s3-gps])
-#ifdef GPS_ENABLED
-#define PIN_GPS_RX 1  // UART2 RX — receives NMEA sentences from GPS module TX
-#define PIN_GPS_TX 2  // UART2 TX — optional, used to reconfigure GPS baud rate
-#endif
+// =============================================================================
+// I2C bus (shared by touch, IMU, PCA9685, INA219)
+// =============================================================================
+namespace pins {
+constexpr uint8_t I2C_SDA = 47;
+constexpr uint8_t I2C_SCL = 48;
+}  // namespace pins
 
-// Onboard I2C bus — QMI8658 IMU + CST816S touch (do not connect external devices here)
-#define PIN_ONBOARD_I2C_SDA 47
-#define PIN_ONBOARD_I2C_SCL 48
+constexpr uint32_t I2C_FREQ_HZ = 400'000;  // 400 kHz fast mode
 
-// I2C device addresses — external bus (IO6/IO7)
-// INA219 is moved to 0x41 (solder A0) to avoid collision with PCA9685 @ 0x40.
-#define PCA9685_ADDR  0x40
-#define INA219_ADDR   0x41
+// I2C device addresses on this bus
+namespace i2c_addr {
+constexpr uint8_t FT3168   = 0x15;        // capacitive touch (onboard)
+constexpr uint8_t PCA9685  = 0x40;        // servo driver (external)
+constexpr uint8_t INA219   = 0x41;        // current sensor (external; strapped off default 0x40)
+constexpr uint8_t QMI8658  = 0x6B;        // IMU (onboard); verify with i2cdetect — may be 0x6A
+}  // namespace i2c_addr
 
-// I2C device addresses — onboard bus (IO47/IO48)
-#define QMI8658_ADDR  0x6B  // SA0 = 1 on Waveshare AMOLED board
 
-// Optional compass — build with -DCOMPASS_ENABLED (see platformio.ini [env:esp32-s3-compass])
-#ifdef COMPASS_ENABLED
-#define QMC5883L_ADDR 0x0D  // wire to external I2C bus (IO6/IO7); update docs/pinmap.md
-#endif
+// =============================================================================
+// ELRS receiver — CRSF over UART
+// =============================================================================
+namespace pins {
+// Recommended placements on header P1 — confirm against actual wiring.
+constexpr uint8_t CRSF_RX = 16;  // MCU RX ← receiver TX
+constexpr uint8_t CRSF_TX = 17;  // MCU TX → receiver RX
+}  // namespace pins
 
-// AMOLED display — SH8601 over QSPI (onboard, do not use these GPIOs externally)
-#define PIN_DISP_CS    9
-#define PIN_DISP_CLK   10
-#define PIN_DISP_D0    11
-#define PIN_DISP_D1    12
-#define PIN_DISP_D2    13
-#define PIN_DISP_D3    14
-#define PIN_DISP_RST   21
+constexpr uint8_t  CRSF_UART_NUM = 1;          // hardware UART1 (UART0 is the USB console)
+constexpr uint32_t CRSF_BAUD     = 420'000;    // CRSF standard
 
-// PCA9685 output channel assignments
-#define CH_RUDDER_PWM 0
-#define CH_SAIL_PWM   1
-#define CH_ESC_PWM    2
+
+// =============================================================================
+// PCA9685 servo / ESC driver
+// =============================================================================
+constexpr uint32_t PCA9685_PWM_FREQ_HZ = 50;   // standard hobby servo / ESC frame rate
+
+// Channel assignments (0..15 on the PCA9685)
+namespace pwm_ch {
+constexpr uint8_t RUDDER     = 0;
+constexpr uint8_t SAIL_WINCH = 1;
+constexpr uint8_t MOTOR_ESC  = 2;
+}  // namespace pwm_ch
+
+// Pulse width range in microseconds (calibrate per-servo before relying on these)
+constexpr uint16_t SERVO_PULSE_MIN_US = 1000;
+constexpr uint16_t SERVO_PULSE_MID_US = 1500;
+constexpr uint16_t SERVO_PULSE_MAX_US = 2000;
+
+
+// =============================================================================
+// Battery monitoring
+// =============================================================================
+namespace pins {
+constexpr uint8_t BAT_ADC = 4;             // GPIO4 → BAT_ADC via on-board divider
+}  // namespace pins
+
+// On-board divider — calibrate against a known voltage before trusting these.
+// Values here are placeholders; replace after measurement.
+constexpr float BAT_ADC_DIVIDER_RATIO = 2.0f;   // Vbat = Vadc * ratio
+constexpr float BAT_ADC_VREF          = 3.3f;
+
+
+// =============================================================================
+// Onboard peripherals NOT currently used by the firmware.
+//
+// These are defined for reference only. Before enabling any of these in code,
+// see CLAUDE.md "What to ask before doing" — the architecture intentionally
+// leaves the display, touch, and IMU out of scope for now.
+// =============================================================================
+namespace pins_unused {
+
+// AMOLED display (CO5300, QSPI)
+constexpr uint8_t  OLED_CS    = 9;
+constexpr uint8_t  OLED_CLK   = 10;
+constexpr uint8_t  OLED_D0    = 11;
+constexpr uint8_t  OLED_D1    = 12;
+constexpr uint8_t  OLED_D2    = 13;
+constexpr uint8_t  OLED_D3    = 14;
+constexpr uint8_t  OLED_RESET = 21;
+constexpr int8_t   OLED_TE    = -1;        // TODO — confirm in Waveshare demo
+
+// Touch (FT3168)
+constexpr int8_t   TOUCH_INT   = -1;       // TODO — confirm in Waveshare demo
+constexpr int8_t   TOUCH_RESET = -1;       // TODO — likely == OLED_RESET (21)
+
+// IMU (QMI8658)
+constexpr uint8_t  IMU_INT1 = 46;          // strapping pin — input only at boot
+// IMU INT2 is not connected on this board
+
+// TF card (SPI mode)
+constexpr uint8_t  SD_CS    = 38;
+constexpr uint8_t  SD_MOSI  = 39;
+constexpr uint8_t  SD_MISO  = 40;
+constexpr uint8_t  SD_SCLK  = 41;
+
+}  // namespace pins_unused
+
+
+// =============================================================================
+// Build-time sanity checks
+// =============================================================================
+static_assert(pins::CRSF_RX != pins::CRSF_TX,
+              "CRSF RX and TX must be different pins");
+static_assert(pwm_ch::RUDDER < 16 && pwm_ch::SAIL_WINCH < 16 && pwm_ch::MOTOR_ESC < 16,
+              "PCA9685 channels must be in range 0..15");
+static_assert(pwm_ch::RUDDER != pwm_ch::SAIL_WINCH &&
+              pwm_ch::RUDDER != pwm_ch::MOTOR_ESC &&
+              pwm_ch::SAIL_WINCH != pwm_ch::MOTOR_ESC,
+              "PCA9685 channels must be unique");
+static_assert(SERVO_PULSE_MIN_US < SERVO_PULSE_MID_US &&
+              SERVO_PULSE_MID_US < SERVO_PULSE_MAX_US,
+              "Servo pulse range must be monotonically increasing");
