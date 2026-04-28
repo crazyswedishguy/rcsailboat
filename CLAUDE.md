@@ -26,7 +26,7 @@ docs/
   ├── failsafe.md       # failsafe behavior — read before changing motor/throttle code
   ├── protocol.md       # ELRS channel mapping, telemetry packet schema
   ├── datasheets/       # CO5300, FT3168, QMI8658, ESP32-S3 TRM
-  └── waveshare-demo/   # vendor reference Arduino code (READ-ONLY reference)
+  └── Waveshare Demo/   # vendor reference Arduino code (READ-ONLY reference)
 ```
 
 ## Boat hardware
@@ -63,13 +63,14 @@ AMOLED display (CO5300, QSPI)
   D2    = GPIO13   (OLED_SI2)
   D3    = GPIO14   (OLED_SI3)
   RESET = GPIO21   (OLED_RESET)
-  TE    = TODO — not in the schematic's GPIO table; confirm in Waveshare demo source
+  TE    = not used — Waveshare demo does not wire or use TE
 
 Touch controller (FT3168, I²C)
   SDA   = GPIO47   (shared bus)
   SCL   = GPIO48   (shared bus)
-  INT   = TODO — wired via display FPC; GPIO not labeled in schematic. Find in demo.
-  RESET = TODO — may be shared with OLED_RESET (GPIO21). Confirm in demo.
+  INT   = not used — demo polls I²C directly, no INT pin wired to MCU
+  RESET = not used — no separate reset; shares power-on reset with rest of board
+  Address = 0x38   (confirmed from Waveshare demo lcd_config.h)
 
 IMU (QMI8658, I²C)
   SDA   = GPIO47   (shared bus)
@@ -139,7 +140,7 @@ Not assigned by the board, safe to use for new I/O:
 - One module per concern: `elrs.{h,cpp}`, `servos.{h,cpp}`, `telemetry.{h,cpp}`, `failsafe.{h,cpp}`, `main.cpp`.
 - Avoid blocking calls in `loop()`. No `delay()` longer than a few ms.
 - All GPIO pin numbers live in `config.h` — nowhere else.
-- For chip-level work on CO5300 / FT3168 / QMI8658: start from `docs/waveshare-demo/`, don't write drivers from scratch. Register details for these chips are sparse online and easy to get wrong.
+- For chip-level work on CO5300 / FT3168 / QMI8658: start from `docs/Waveshare Demo/`, don't write drivers from scratch. Register details for these chips are sparse online and easy to get wrong.
 
 ### Build / flash / monitor
 - `pio run` — build

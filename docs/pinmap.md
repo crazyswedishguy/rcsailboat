@@ -35,7 +35,7 @@ These pins are wired on the PCB and cannot be reassigned.
 | D2     | 13   | `OLED_SI2`    | QSPI data line 2 |
 | D3     | 14   | `OLED_SI3`    | QSPI data line 3 |
 | RESET  | 21   | `OLED_RESET`  | active low |
-| TE     | TODO | —             | tearing-effect signal — find in Waveshare demo source |
+| TE     | n/a  | —             | not used — Waveshare demo does not wire TE |
 
 ### Touch controller (FT3168, I²C)
 
@@ -43,8 +43,8 @@ These pins are wired on the PCB and cannot be reassigned.
 |--------|------|---------------|-------|
 | SDA    | 47   | `TP_SDA`      | shared bus |
 | SCL    | 48   | `TP_SCL`      | shared bus |
-| INT    | TODO | `TP_INT`      | wired via display FPC, not labeled in the schematic's GPIO table |
-| RESET  | TODO | `TP_RESET`    | likely shared with `OLED_RESET` (GPIO21); confirm in demo |
+| INT    | n/a  | `TP_INT`      | not used — demo polls I²C directly, no INT line to MCU |
+| RESET  | n/a  | `TP_RESET`    | not used — no separate reset pin |
 
 ### IMU (QMI8658, I²C)
 
@@ -129,7 +129,7 @@ A single I²C bus on GPIO47/48 carries everything. Confirmed devices and address
 
 | Address | Device   | Notes |
 |---------|----------|-------|
-| 0x15    | FT3168   | touch controller (onboard) |
+| 0x38    | FT3168   | touch controller (onboard) — confirmed from Waveshare demo |
 | 0x40    | PCA9685  | servo driver (external) |
 | 0x41    | INA219   | current sensor (external, address strapped) |
 | 0x6A/0x6B | QMI8658 | IMU (onboard) — verify which |
@@ -167,9 +167,9 @@ Broken out on header P1 or P2 with no onboard function:
 
 These are the items still marked `TODO` above. Resolve them by reading the Waveshare Arduino demo source in `docs/waveshare-demo/` and updating this file, `config.h`, and `CLAUDE.md` together.
 
-- [ ] Touch INT GPIO
-- [ ] Touch RESET GPIO (likely == OLED_RESET, GPIO21)
-- [ ] Display TE GPIO
+- [x] Touch INT GPIO — not used; demo polls I²C directly
+- [x] Touch RESET GPIO — not used; no separate reset pin
+- [x] Display TE GPIO — not used; Waveshare demo does not wire TE
 - [ ] IMU I²C address (0x6A vs 0x6B) — confirm with i2cdetect
 - [ ] PCA9685 /OE pin assignment (or tie to GND)
 - [ ] Confirm GPIO42 is broken out to a header

@@ -5,8 +5,8 @@
 #include "display.h"
 #include "elrs.h"
 #include "failsafe.h"
-#include "imu.h"
 #include "power.h"
+#include "protocol.h"
 #include "servos.h"
 #include "telemetry.h"
 
@@ -14,82 +14,55 @@
 #include "gps.h"
 #endif
 
-// ---------------------------------------------------------------------------
-// Phase 2 sweep — replace this block with elrs channel reads in Phase 3.
-// Rudder/ESC: bipolar triangular wave ±1.0 over a 4 s period.
-// Sail: unipolar triangular wave 0..1 over a 2 s period.
-// ESC sweep is limited to ±0.3 so the motor doesn't spin up on the bench.
-// ---------------------------------------------------------------------------
-static void sweep_update() {
-    unsigned long t = millis();
-
-    // Bipolar triangular wave: 0 → 1 → -1 → 0 each 4 s
-    uint32_t phase = t % 4000;
-    float bipolar;
-    if (phase < 1000)      bipolar =  (float)phase / 1000.0f;
-    else if (phase < 3000) bipolar =  1.0f - (float)(phase - 1000) / 1000.0f;
-    else                   bipolar = -1.0f + (float)(phase - 3000) / 1000.0f;
-
-    // Unipolar triangular wave: 0 → 1 → 0 each 2 s
-    uint32_t sphase = t % 2000;
-    float unipolar = (sphase < 1000)
-        ? (float)sphase / 1000.0f
-        : 1.0f - (float)(sphase - 1000) / 1000.0f;
-
-    servos_set(CH_RUDDER_PWM, bipolar);
-    servos_set(CH_SAIL_PWM,   unipolar);
-    servos_set(CH_ESC_PWM,    bipolar * 0.3f);  // gentle — propeller off on bench
-}
-
-void setup() {
+void setup()
+{
     Serial.begin(115200);
-    delay(500);
-    Serial.println("rcsailboat firmware — Phase 2 bench test");
+    delay(300);
+    Serial.println("rcsailboat firmware starting");
 
-    pinMode(PIN_STATUS_LED, OUTPUT);
+    // Single I²C bus shared by PCA9685, INA219, FT3168 (touch), and QMI8658 (IMU).
+    Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
 
-    // External I2C: PCA9685 + INA219 (+ QMC5883L when COMPASS_ENABLED)
-    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-    // Onboard I2C: QMI8658 IMU + CST816S touch
-    Wire1.begin(PIN_ONBOARD_I2C_SDA, PIN_ONBOARD_I2C_SCL);
-
-    display_init();
-    elrs_init();
-    servos_init();   // I2C scan + PCA9685 init + ESC arm (blocks 2 s)
-    imu_init();
-    power_init();
-    telemetry_init();
-    failsafe_init();
+    display_init();     // SH8601 AMOLED via QSPI + LVGL (starts FreeRTOS render task)
+    servos_init();      // PCA9685 init + ESC arm sequence (blocks ~2 s at neutral)
+    power_init();       // INA219 current sensor (safe no-op if not wired)
+    elrs_init();        // CRSF over UART1 (stubbed — implement in Phase 3)
+    failsafe_init();    // failsafe state machine (stubbed)
+    telemetry_init();   // CRSF telemetry emitter
 
 #ifdef GPS_ENABLED
     gps_init();
 #endif
+
+    Serial.println("rcsailboat firmware ready");
 }
 
-void loop() {
-    // Status LED: 500 ms heartbeat
-    static unsigned long s_led_ms = 0;
-    static bool s_led_on = false;
-    if (millis() - s_led_ms >= 500) {
-        s_led_ms = millis();
-        s_led_on = !s_led_on;
-        digitalWrite(PIN_STATUS_LED, s_led_on ? HIGH : LOW);
-    }
+void loop()
+{
+    // Parse incoming CRSF frames and update link statistics.
+    elrs_update();
 
-    sweep_update();   // Phase 2 — remove in Phase 3
+    // Check link timeout; apply failsafe positions if link is lost.
+    failsafe_update();
 
-    // Display refresh at 5 Hz
+    // Map ELRS channels to PCA9685 outputs.
+    // elrs_get_channel() returns 0.0 while ELRS is stubbed → servos hold neutral.
+    servos_set(pwm_ch::RUDDER,     elrs_get_channel(CH_RUDDER));
+    servos_set(pwm_ch::SAIL_WINCH, elrs_get_channel(CH_SAIL));
+    servos_set(pwm_ch::MOTOR_ESC,  elrs_get_channel(CH_THROTTLE));
+
+    // Read INA219 power data.
+    power_update();
+
+    // Emit CRSF telemetry frames on schedule.
+    telemetry_update();
+
+    // Refresh the LVGL telemetry labels at 5 Hz.
     static unsigned long s_disp_ms = 0;
     if (millis() - s_disp_ms >= 200) {
         s_disp_ms = millis();
         display_update();
     }
-
-    elrs_update();
-    imu_update();
-    power_update();
-    failsafe_update();
-    telemetry_update();
 
 #ifdef GPS_ENABLED
     gps_update();

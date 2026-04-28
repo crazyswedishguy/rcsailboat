@@ -12,7 +12,7 @@
 // ESC must see neutral for this long before it will accept throttle commands.
 #define ESC_ARM_MS 2000
 
-static Adafruit_PWMServoDriver s_pca(PCA9685_ADDR);
+static Adafruit_PWMServoDriver s_pca(i2c_addr::PCA9685);
 static bool  s_ok = false;
 static float s_commanded[16] = {};
 
@@ -37,9 +37,9 @@ void servos_init() {
     s_pca.setPWMFreq(50);  // standard servo / ESC frequency
 
     // Hold ESC at neutral while the ESC arms; servos park at mid-travel.
-    s_pca.writeMicroseconds(CH_RUDDER_PWM, SERVO_US_MID);
-    s_pca.writeMicroseconds(CH_SAIL_PWM,   SERVO_US_MID);
-    s_pca.writeMicroseconds(CH_ESC_PWM,    SERVO_US_MID);
+    s_pca.writeMicroseconds(pwm_ch::RUDDER,     SERVO_US_MID);
+    s_pca.writeMicroseconds(pwm_ch::SAIL_WINCH, SERVO_US_MID);
+    s_pca.writeMicroseconds(pwm_ch::MOTOR_ESC,  SERVO_US_MID);
     delay(ESC_ARM_MS);
 
     s_ok = true;

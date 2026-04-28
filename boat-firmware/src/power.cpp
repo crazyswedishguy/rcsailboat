@@ -3,7 +3,7 @@
 #include <Wire.h>
 #include <Adafruit_INA219.h>
 
-static Adafruit_INA219 s_ina(INA219_ADDR);
+static Adafruit_INA219 s_ina(i2c_addr::INA219);
 static bool            s_ok      = false;
 static float           s_voltage = 0.0f;
 static float           s_current = 0.0f;

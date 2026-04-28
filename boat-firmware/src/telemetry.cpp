@@ -99,9 +99,9 @@ static void send_attitude() {
 // SAILBOAT custom frame (0x80) — 8-byte payload, emit at 5 Hz
 // Payload: rudder(-10000..10000), sail(0..10000), ESC(-10000..10000), temp(°C*10)
 static void send_sailboat() {
-    int16_t rudder = (int16_t)(servos_get_commanded(CH_RUDDER_PWM)   * 10000.0f);
-    int16_t sail   = (int16_t)(servos_get_commanded(CH_SAIL_PWM)     * 10000.0f);
-    int16_t esc    = (int16_t)(servos_get_commanded(CH_ESC_PWM)      * 10000.0f);
+    int16_t rudder = (int16_t)(servos_get_commanded(pwm_ch::RUDDER)     * 10000.0f);
+    int16_t sail   = (int16_t)(servos_get_commanded(pwm_ch::SAIL_WINCH) * 10000.0f);
+    int16_t esc    = (int16_t)(servos_get_commanded(pwm_ch::MOTOR_ESC)  * 10000.0f);
     int16_t temp   = (int16_t)(temperatureRead()                      * 10.0f);
 
     uint8_t p[8];

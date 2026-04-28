@@ -5,39 +5,41 @@
 
 // QMI8658 register map (minimal subset for accelerometer-based attitude)
 #define QMI8658_REG_WHOAMI 0x00  // should read 0x05
-#define QMI8658_REG_CTRL1  0x02  // general config
-#define QMI8658_REG_CTRL2  0x03  // accel ODR + range
-#define QMI8658_REG_CTRL7  0x08  // sensor enable
-#define QMI8658_REG_AX_L   0x35  // first of 6 accel bytes (AX_L .. AZ_H, little-endian)
+#define QMI8658_REG_CTRL1  0x02
+#define QMI8658_REG_CTRL2  0x03
+#define QMI8658_REG_CTRL7  0x08
+#define QMI8658_REG_AX_L   0x35  // first of 6 accel bytes (AX_L..AZ_H, little-endian)
 
-// CTRL2: ±8g range (0b010 << 4) | 62.5 Hz ODR (0x05) = 0x25
-// CTRL7: bit 0 = accel enable
 #define QMI8658_CTRL1_AUTOINC  0x40
-#define QMI8658_CTRL2_8G_62HZ  0x25
+#define QMI8658_CTRL2_8G_62HZ  0x25   // ±8g, 62.5 Hz ODR
 #define QMI8658_CTRL7_ACCEL_EN 0x01
-#define QMI8658_ACCEL_SCALE    (8.0f / 32768.0f)  // g per LSB at ±8g full scale
+#define QMI8658_ACCEL_SCALE    (8.0f / 32768.0f)  // g per LSB at ±8g
 
 static bool  s_ok    = false;
 static float s_roll  = 0.0f;
 static float s_pitch = 0.0f;
 
-static bool qmi_write(uint8_t reg, uint8_t val) {
-    Wire1.beginTransmission(QMI8658_ADDR);
-    Wire1.write(reg);
-    Wire1.write(val);
-    return Wire1.endTransmission() == 0;
+static bool qmi_write(uint8_t reg, uint8_t val)
+{
+    Wire.beginTransmission(i2c_addr::QMI8658);
+    Wire.write(reg);
+    Wire.write(val);
+    return Wire.endTransmission() == 0;
 }
 
-static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len) {
-    Wire1.beginTransmission(QMI8658_ADDR);
-    Wire1.write(reg);
-    if (Wire1.endTransmission(false) != 0) return false;
-    Wire1.requestFrom((uint8_t)QMI8658_ADDR, len);
-    for (uint8_t i = 0; i < len; i++) buf[i] = Wire1.read();
+static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len)
+{
+    Wire.beginTransmission(i2c_addr::QMI8658);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) return false;
+    Wire.requestFrom((int)i2c_addr::QMI8658, (int)len);
+    for (uint8_t i = 0; i < len; i++) buf[i] = Wire.read();
     return true;
 }
 
-void imu_init() {
+// Not called from main — IMU is not in scope. See CLAUDE.md "What to ask before doing".
+void imu_init()
+{
     uint8_t who = 0;
     if (!qmi_read(QMI8658_REG_WHOAMI, &who, 1) || who != 0x05) return;
     qmi_write(QMI8658_REG_CTRL1, QMI8658_CTRL1_AUTOINC);
@@ -46,7 +48,9 @@ void imu_init() {
     s_ok = true;
 }
 
-void imu_update() {
+// Not called from main — returns 0.0 safely when imu_init() was not called.
+void imu_update()
+{
     if (!s_ok) return;
     uint8_t buf[6];
     if (!qmi_read(QMI8658_REG_AX_L, buf, 6)) return;

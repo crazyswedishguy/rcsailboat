@@ -26,7 +26,7 @@ constexpr uint32_t I2C_FREQ_HZ = 400'000;  // 400 kHz fast mode
 
 // I2C device addresses on this bus
 namespace i2c_addr {
-constexpr uint8_t FT3168   = 0x15;        // capacitive touch (onboard)
+constexpr uint8_t FT3168   = 0x38;        // capacitive touch (onboard) — confirmed from Waveshare demo lcd_config.h
 constexpr uint8_t PCA9685  = 0x40;        // servo driver (external)
 constexpr uint8_t INA219   = 0x41;        // current sensor (external; strapped off default 0x40)
 constexpr uint8_t QMI8658  = 0x6B;        // IMU (onboard); verify with i2cdetect — may be 0x6A
@@ -94,11 +94,11 @@ constexpr uint8_t  OLED_D1    = 12;
 constexpr uint8_t  OLED_D2    = 13;
 constexpr uint8_t  OLED_D3    = 14;
 constexpr uint8_t  OLED_RESET = 21;
-constexpr int8_t   OLED_TE    = -1;        // TODO — confirm in Waveshare demo
+constexpr int8_t   OLED_TE    = -1;        // not used — Waveshare demo does not wire TE
 
 // Touch (FT3168)
-constexpr int8_t   TOUCH_INT   = -1;       // TODO — confirm in Waveshare demo
-constexpr int8_t   TOUCH_RESET = -1;       // TODO — likely == OLED_RESET (21)
+constexpr int8_t   TOUCH_INT   = -1;       // not used — demo polls I²C directly, no INT line to MCU
+constexpr int8_t   TOUCH_RESET = -1;       // not used — no separate reset pin
 
 // IMU (QMI8658)
 constexpr uint8_t  IMU_INT1 = 46;          // strapping pin — input only at boot
