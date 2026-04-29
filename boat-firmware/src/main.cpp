@@ -5,6 +5,7 @@
 #include "display.h"
 #include "elrs.h"
 #include "failsafe.h"
+#include "imu.h"
 #include "power.h"
 #include "protocol.h"
 #include "servos.h"
@@ -24,6 +25,7 @@ void setup()
     Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
 
     display_init();     // SH8601 AMOLED via QSPI + LVGL (starts FreeRTOS render task)
+    imu_init();         // QMI8658 6-axis IMU (shared I²C bus)
     servos_init();      // PCA9685 init + ESC arm sequence (blocks ~2 s at neutral)
     power_init();       // INA219 current sensor (safe no-op if not wired)
     elrs_init();        // CRSF over UART1 (stubbed — implement in Phase 3)
@@ -53,6 +55,16 @@ void loop()
 
     // Read INA219 power data.
     power_update();
+
+    // Update IMU orientation estimate.
+    imu_update();
+
+    // Poll FT3168 touch controller and cache result for LVGL (must run in main task).
+    static unsigned long s_touch_ms = 0;
+    if (millis() - s_touch_ms >= 20) {
+        s_touch_ms = millis();
+        display_poll_touch();
+    }
 
     // Emit CRSF telemetry frames on schedule.
     telemetry_update();
