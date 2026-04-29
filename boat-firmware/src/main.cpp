@@ -8,6 +8,7 @@
 #include "imu.h"
 #include "power.h"
 #include "protocol.h"
+#include "sdlog.h"
 #include "servos.h"
 #include "telemetry.h"
 
@@ -28,6 +29,7 @@ void setup()
     imu_init();         // QMI8658 6-axis IMU (shared I²C bus)
     servos_init();      // PCA9685 init + ESC arm sequence (blocks ~2 s at neutral)
     power_init();       // INA219 current sensor (safe no-op if not wired)
+    sdlog_init();       // TF card CSV logger (SPI3; safe no-op if no card)
     elrs_init();        // CRSF over UART1 (stubbed — implement in Phase 3)
     failsafe_init();    // failsafe state machine (stubbed)
     telemetry_init();   // CRSF telemetry emitter
@@ -64,6 +66,13 @@ void loop()
     if (millis() - s_touch_ms >= 20) {
         s_touch_ms = millis();
         display_poll_touch();
+    }
+
+    // Write one log row per second to the TF card.
+    static unsigned long s_log_ms = 0;
+    if (millis() - s_log_ms >= 1000) {
+        s_log_ms = millis();
+        sdlog_update();
     }
 
     // Emit CRSF telemetry frames on schedule.

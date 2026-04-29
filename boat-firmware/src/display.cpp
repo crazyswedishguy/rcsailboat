@@ -5,6 +5,10 @@
 #include "power.h"
 #include "servos.h"
 
+#ifdef GPS_ENABLED
+#include "gps.h"
+#endif
+
 #include <Arduino.h>
 #include <Wire.h>
 #include "esp_lcd_sh8601.h"
@@ -66,6 +70,11 @@ static lv_obj_t *s1_lbl_sail   = nullptr;
 static lv_obj_t *s1_lbl_thr    = nullptr;
 static lv_obj_t *s1_lbl_temp   = nullptr;
 
+// ── Screen 1 — GPS extras (only when GPS is compiled in) ─────────────────────
+#ifdef GPS_ENABLED
+static lv_obj_t *s1_lbl_speed  = nullptr;
+#endif
+
 // ── Screen 2 (Link detail) ────────────────────────────────────────────────────
 static lv_obj_t *s2_dot        = nullptr;   // status circle
 static lv_obj_t *s2_lbl_status = nullptr;
@@ -93,6 +102,9 @@ static lv_obj_t *s4_lbl_thr     = nullptr;
 
 // ── Screen 5 (Attitude) ──────────────────────────────────────────────────────
 static lv_obj_t *s5_bar_roll    = nullptr;
+#ifdef GPS_ENABLED
+static lv_obj_t *s5_lbl_speed  = nullptr;
+#endif
 static lv_obj_t *s5_lbl_roll    = nullptr;
 static lv_obj_t *s5_bar_pitch   = nullptr;
 static lv_obj_t *s5_lbl_pitch   = nullptr;
@@ -314,6 +326,11 @@ static void build_tile_main(lv_obj_t *t)
 
     make_section(t, 330, "SYSTEM");
     s1_lbl_temp = make_label(t, 356, "MCU Temp: --\xC2\xB0""C");
+
+#ifdef GPS_ENABLED
+    make_section(t, 390, "NAVIGATION");
+    s1_lbl_speed = make_label(t, 416, "Speed: --.- km/h");
+#endif
 }
 
 static void build_tile_link(lv_obj_t *t)
@@ -459,6 +476,13 @@ static void build_tile_attitude(lv_obj_t *t)
     make_label_font(t, 10, 318,
                     "esp32-s3-compass env",
                     &lv_font_montserrat_14, lv_color_make(100,100,100));
+#endif
+
+#ifdef GPS_ENABLED
+    make_section(t, 346, "SPEED");
+    s5_lbl_speed = make_label_font(t, (LCD_H_RES - 130) / 2, 376,
+                                   "--.- km/h",
+                                   &lv_font_montserrat_28, lv_color_white());
 #endif
 }
 
@@ -642,6 +666,11 @@ void display_update()
     float thr = servos_get_commanded(pwm_ch::MOTOR_ESC);
     float rol = imu_roll_deg();
     float pit = imu_pitch_deg();
+#ifdef GPS_ENABLED
+    float    spd_kmh = gps_speed_kmh();
+    bool     gps_fix = gps_has_fix();
+    lv_color_t spd_c = gps_fix ? lv_color_white() : lv_color_make(120, 120, 120);
+#endif
 
     // ── Screen 1: main overview ───────────────────────────────────────────────
     lv_label_set_text_fmt(s1_lbl_link, "Link: %s  LQ: %u%%", ok ? "OK  " : "FAIL", lq);
@@ -655,6 +684,10 @@ void display_update()
     lv_label_set_text_fmt(s1_lbl_thr,    "Throttle: %+.3f", thr);
     lv_label_set_text_fmt(s1_lbl_temp, "MCU Temp: %.1f\xC2\xB0""C", temp);
     lv_obj_set_style_text_color(s1_lbl_temp, temp_c, LV_PART_MAIN);
+#ifdef GPS_ENABLED
+    lv_label_set_text_fmt(s1_lbl_speed, "Speed: %.1f km/h", spd_kmh);
+    lv_obj_set_style_text_color(s1_lbl_speed, spd_c, LV_PART_MAIN);
+#endif
 
     // ── Screen 2: link detail ─────────────────────────────────────────────────
     lv_obj_set_style_bg_color(s2_dot, link_c, LV_PART_MAIN);
@@ -704,6 +737,10 @@ void display_update()
 #ifdef COMPASS_ENABLED
     // Placeholder — fill in once QMC5883L driver is wired
     lv_label_set_text(s5_lbl_heading, "--- \xC2\xB0");
+#endif
+#ifdef GPS_ENABLED
+    lv_label_set_text_fmt(s5_lbl_speed, "%.1f km/h", spd_kmh);
+    lv_obj_set_style_text_color(s5_lbl_speed, spd_c, LV_PART_MAIN);
 #endif
 
     lvgl_unlock();

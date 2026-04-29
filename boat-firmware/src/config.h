@@ -65,6 +65,17 @@ constexpr uint16_t SERVO_PULSE_MAX_US = 2000;
 
 
 // =============================================================================
+// TF card (SPI mode — on SPI3/HSPI, separate from display's SPI2/FSPI)
+// =============================================================================
+namespace pins {
+constexpr uint8_t SD_CS   = 38;
+constexpr uint8_t SD_MOSI = 39;
+constexpr uint8_t SD_MISO = 40;
+constexpr uint8_t SD_SCLK = 41;
+}  // namespace pins
+
+
+// =============================================================================
 // Battery monitoring
 // =============================================================================
 namespace pins {
@@ -103,12 +114,6 @@ constexpr int8_t   TOUCH_RESET = -1;       // not used — no separate reset pin
 // IMU (QMI8658)
 constexpr uint8_t  IMU_INT1 = 46;          // strapping pin — input only at boot
 // IMU INT2 is not connected on this board
-
-// TF card (SPI mode)
-constexpr uint8_t  SD_CS    = 38;
-constexpr uint8_t  SD_MOSI  = 39;
-constexpr uint8_t  SD_MISO  = 40;
-constexpr uint8_t  SD_SCLK  = 41;
 
 }  // namespace pins_unused
 
