@@ -11,6 +11,7 @@
 #include "sdlog.h"
 #include "servos.h"
 #include "telemetry.h"
+#include "wifi_ctrl.h"
 
 #ifdef GPS_ENABLED
 #include "gps.h"
@@ -30,8 +31,9 @@ void setup()
     servos_init();      // PCA9685 init + ESC arm sequence (blocks ~2 s at neutral)
     power_init();       // INA219 current sensor (safe no-op if not wired)
     sdlog_init();       // TF card CSV logger (SPI3; safe no-op if no card)
-    elrs_init();        // CRSF over UART1 (stubbed — implement in Phase 3)
-    failsafe_init();    // failsafe state machine (stubbed)
+    wifi_ctrl_init();   // WiFi AP + web control server (default control mode)
+    elrs_init();        // CRSF hardware init (inactive until mode switched to ELRS)
+    failsafe_init();    // failsafe state machine (stubbed — implemented in Phase 3)
     telemetry_init();   // CRSF telemetry emitter
 
 #ifdef GPS_ENABLED
@@ -43,17 +45,29 @@ void setup()
 
 void loop()
 {
-    // Parse incoming CRSF frames and update link statistics.
-    elrs_update();
+    // Handle WiFi HTTP requests and apply any queued mode switches.
+    wifi_ctrl_update();
 
-    // Check link timeout; apply failsafe positions if link is lost.
-    failsafe_update();
-
-    // Map ELRS channels to PCA9685 outputs.
-    // elrs_get_channel() returns 0.0 while ELRS is stubbed → servos hold neutral.
-    servos_set(pwm_ch::RUDDER,     elrs_get_channel(CH_RUDDER));
-    servos_set(pwm_ch::SAIL_WINCH, elrs_get_channel(CH_SAIL));
-    servos_set(pwm_ch::MOTOR_ESC,  elrs_get_channel(CH_THROTTLE));
+    // ── Mode-aware servo control ──────────────────────────────────────────────
+    if (wifi_ctrl_mode() == CtrlMode::ELRS) {
+        // ELRS mode: parse CRSF, run failsafe, apply channels directly.
+        elrs_update();
+        failsafe_update();
+        servos_set(pwm_ch::RUDDER,     elrs_get_channel(CH_RUDDER));
+        servos_set(pwm_ch::SAIL_WINCH, elrs_get_channel(CH_SAIL));
+        servos_set(pwm_ch::MOTOR_ESC,  elrs_get_channel(CH_THROTTLE));
+    } else {
+        // WiFi mode: apply web UI commands; neutral if not armed or timed out.
+        if (!wifi_ctrl_armed() || wifi_ctrl_timed_out()) {
+            servos_set(pwm_ch::RUDDER,     0.0f);
+            servos_set(pwm_ch::SAIL_WINCH, 0.0f);
+            servos_set(pwm_ch::MOTOR_ESC,  0.0f);
+        } else {
+            servos_set(pwm_ch::RUDDER,     wifi_ctrl_rudder());
+            servos_set(pwm_ch::SAIL_WINCH, wifi_ctrl_sail());
+            servos_set(pwm_ch::MOTOR_ESC,  wifi_ctrl_throttle());
+        }
+    }
 
     // Read INA219 power data.
     power_update();
@@ -75,10 +89,10 @@ void loop()
         sdlog_update();
     }
 
-    // Emit CRSF telemetry frames on schedule.
+    // Emit CRSF telemetry frames on schedule (used in ELRS mode; no-op when WiFi).
     telemetry_update();
 
-    // Refresh the LVGL telemetry labels at 5 Hz.
+    // Refresh the LVGL telemetry display at 5 Hz.
     static unsigned long s_disp_ms = 0;
     if (millis() - s_disp_ms >= 200) {
         s_disp_ms = millis();

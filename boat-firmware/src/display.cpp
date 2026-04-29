@@ -8,6 +8,7 @@
 #ifdef GPS_ENABLED
 #include "gps.h"
 #endif
+#include "wifi_ctrl.h"
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -60,6 +61,15 @@ static const sh8601_lcd_init_cmd_t s_init_cmds[] = {
 static SemaphoreHandle_t s_mux   = nullptr;
 static lv_disp_drv_t     s_drv;
 static bool              s_ready = false;
+
+// ── Screen 0 (WiFi / ELRS control) — label handles ───────────────────────────
+static lv_obj_t *s0_lbl_mode  = nullptr;   // "WIFI AP" / "ELRS CTRL"
+static lv_obj_t *s0_lbl_info1 = nullptr;   // SSID or LQ
+static lv_obj_t *s0_lbl_info2 = nullptr;   // IP or RSSI
+static lv_obj_t *s0_lbl_info3 = nullptr;   // clients or link status
+static lv_obj_t *s0_lbl_info4 = nullptr;   // last cmd age or duration
+static lv_obj_t *s0_btn       = nullptr;
+static lv_obj_t *s0_btn_lbl   = nullptr;
 
 // ── Screen 1 (Main overview) — label handles ─────────────────────────────────
 static lv_obj_t *s1_lbl_link   = nullptr;
@@ -120,6 +130,7 @@ static unsigned long s_link_start_ms   = 0;
 static bool          s_was_linked      = false;
 
 // ── Banner colors (one per screen) ───────────────────────────────────────────
+#define C_WIFI  lv_color_make(230,  81,   0)   // Deep Orange 800
 #define C_MAIN  lv_color_make(  0,  77,  64)   // Teal 900
 #define C_LINK  lv_color_make( 13,  71, 161)   // Blue 800
 #define C_BATT  lv_color_make(183,  28,  28)   // Red 900  (battery/power)
@@ -295,6 +306,51 @@ static lv_obj_t *make_bar(lv_obj_t *p, lv_coord_t y, bool symmetrical, lv_color_
 }
 
 // ── Screen builders ───────────────────────────────────────────────────────────
+
+static void mode_btn_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    CtrlMode cur = wifi_ctrl_mode();
+    wifi_ctrl_set_mode(cur == CtrlMode::WIFI ? CtrlMode::ELRS : CtrlMode::WIFI);
+}
+
+static void build_tile_wifi(lv_obj_t *t)
+{
+    make_banner(t, "WIFI / ELRS", C_WIFI);
+
+    // Large mode indicator
+    s0_lbl_mode = make_label_font(t, 10, 66, "WIFI AP",
+                                  &lv_font_montserrat_28, lv_color_white());
+
+    // Info lines
+    s0_lbl_info1 = make_label(t, 114, "SSID: " WIFI_AP_SSID);
+    s0_lbl_info2 = make_label(t, 142, "IP:   192.168.4.1");
+    s0_lbl_info3 = make_label(t, 170, "Clients:  0");
+    s0_lbl_info4 = make_label(t, 198, "Last cmd: ---");
+
+    // Toggle button
+    const lv_coord_t BW = 240, BH = 58, BX = (LCD_H_RES - BW) / 2;
+    s0_btn = lv_btn_create(t);
+    lv_obj_set_size(s0_btn, BW, BH);
+    lv_obj_set_pos(s0_btn, BX, 264);
+    lv_obj_set_style_bg_color(s0_btn, lv_color_make(13, 71, 161), LV_PART_MAIN);  // blue = "go ELRS"
+    lv_obj_set_style_radius(s0_btn, 10, LV_PART_MAIN);
+    lv_obj_add_event_cb(s0_btn, mode_btn_cb, LV_EVENT_CLICKED, nullptr);
+
+    s0_btn_lbl = lv_label_create(s0_btn);
+    lv_label_set_text(s0_btn_lbl, "Enable ELRS");
+    lv_obj_set_style_text_font(s0_btn_lbl, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s0_btn_lbl, lv_color_white(), LV_PART_MAIN);
+    lv_obj_center(s0_btn_lbl);
+
+    // Safety note
+    make_label_font(t, 10, 346,
+                    "Throttle zeroed when disarmed",
+                    &lv_font_montserrat_14, lv_color_make(120, 120, 120));
+    make_label_font(t, 10, 368,
+                    "or if connection drops > 500ms",
+                    &lv_font_montserrat_14, lv_color_make(100, 100, 100));
+}
 
 static void build_tile_main(lv_obj_t *t)
 {
@@ -486,7 +542,10 @@ static void build_tile_attitude(lv_obj_t *t)
 #endif
 }
 
-// ── Assemble tileview with all 5 screens ─────────────────────────────────────
+// ── Assemble tileview with all 6 screens ─────────────────────────────────────
+// Layout (col): [WiFi/ELRS(0)] [Main(1)] [Link(2)] [Battery(3)] [Controls(4)] [Attitude(5)]
+// Swipe right from Main → WiFi.  Swipe left from Main → Link.
+// Boot view: Main (col 1).
 static void build_screens()
 {
     lv_obj_t *scr = lv_scr_act();
@@ -500,22 +559,27 @@ static void build_screens()
     lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tv, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
-    lv_obj_t *t0 = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);
-    lv_obj_t *t1 = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);
-    lv_obj_t *t2 = lv_tileview_add_tile(tv, 2, 0, LV_DIR_HOR);
-    lv_obj_t *t3 = lv_tileview_add_tile(tv, 3, 0, LV_DIR_HOR);
-    lv_obj_t *t4 = lv_tileview_add_tile(tv, 4, 0, LV_DIR_LEFT);
+    lv_obj_t *tw = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);  // WiFi (leftmost)
+    lv_obj_t *t0 = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);   // Main
+    lv_obj_t *t1 = lv_tileview_add_tile(tv, 2, 0, LV_DIR_HOR);   // Link
+    lv_obj_t *t2 = lv_tileview_add_tile(tv, 3, 0, LV_DIR_HOR);   // Battery
+    lv_obj_t *t3 = lv_tileview_add_tile(tv, 4, 0, LV_DIR_HOR);   // Controls
+    lv_obj_t *t4 = lv_tileview_add_tile(tv, 5, 0, LV_DIR_LEFT);  // Attitude (rightmost)
 
-    for (lv_obj_t *t : {t0, t1, t2, t3, t4}) {
+    for (lv_obj_t *t : {tw, t0, t1, t2, t3, t4}) {
         lv_obj_set_style_bg_color(t, lv_color_black(), LV_PART_MAIN);
         lv_obj_set_scrollbar_mode(t, LV_SCROLLBAR_MODE_OFF);
     }
 
+    build_tile_wifi(tw);
     build_tile_main(t0);
     build_tile_link(t1);
     build_tile_battery(t2);
     build_tile_controls(t3);
     build_tile_attitude(t4);
+
+    // Start on Main, not WiFi
+    lv_obj_set_tile_id(tv, 1, 0, LV_ANIM_OFF);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -671,6 +735,41 @@ void display_update()
     bool     gps_fix = gps_has_fix();
     lv_color_t spd_c = gps_fix ? lv_color_white() : lv_color_make(120, 120, 120);
 #endif
+
+    // ── Screen 0: WiFi / ELRS control ────────────────────────────────────────
+    {
+        bool wifi = (wifi_ctrl_mode() == CtrlMode::WIFI);
+
+        lv_label_set_text(s0_lbl_mode, wifi ? "WIFI AP" : "ELRS CTRL");
+        lv_obj_set_style_text_color(s0_lbl_mode,
+            wifi ? lv_palette_main(LV_PALETTE_TEAL) : lv_palette_main(LV_PALETTE_BLUE),
+            LV_PART_MAIN);
+
+        if (wifi) {
+            lv_label_set_text(s0_lbl_info1, "SSID: " WIFI_AP_SSID);
+            lv_label_set_text(s0_lbl_info2, "IP:   192.168.4.1");
+            lv_label_set_text_fmt(s0_lbl_info3, "Clients:  %u", (unsigned)wifi_ctrl_clients());
+            unsigned long age_ms = millis() - wifi_ctrl_last_cmd_ms();
+            if (age_ms > 9999) age_ms = 9999;
+            lv_label_set_text_fmt(s0_lbl_info4, "Last cmd: %lu ms ago", age_ms);
+            lv_obj_set_style_text_color(s0_lbl_info4,
+                wifi_ctrl_timed_out() ? lv_palette_main(LV_PALETTE_RED) : lv_color_white(),
+                LV_PART_MAIN);
+            lv_label_set_text(s0_btn_lbl, "Enable ELRS");
+            lv_obj_set_style_bg_color(s0_btn, lv_color_make(13, 71, 161), LV_PART_MAIN);
+        } else {
+            lv_label_set_text_fmt(s0_lbl_info1, "LQ:   %u%%", lq);
+            lv_obj_set_style_text_color(s0_lbl_info1, link_c, LV_PART_MAIN);
+            lv_label_set_text_fmt(s0_lbl_info2, "RSSI: -%u dBm", rssi);
+            lv_obj_set_style_text_color(s0_lbl_info2, rssi_c, LV_PART_MAIN);
+            lv_label_set_text(s0_lbl_info3, ok ? "Link:  OK" : "Link:  NO SIGNAL");
+            lv_obj_set_style_text_color(s0_lbl_info3, link_c, LV_PART_MAIN);
+            lv_label_set_text(s0_lbl_info4, "Failsafe: Phase 3");
+            lv_obj_set_style_text_color(s0_lbl_info4, lv_color_make(120,120,120), LV_PART_MAIN);
+            lv_label_set_text(s0_btn_lbl, "Enable WiFi");
+            lv_obj_set_style_bg_color(s0_btn, lv_color_make(230, 81, 0), LV_PART_MAIN);
+        }
+    }
 
     // ── Screen 1: main overview ───────────────────────────────────────────────
     lv_label_set_text_fmt(s1_lbl_link, "Link: %s  LQ: %u%%", ok ? "OK  " : "FAIL", lq);
