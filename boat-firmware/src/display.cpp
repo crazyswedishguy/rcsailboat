@@ -128,6 +128,28 @@ static void lvgl_unlock()
     xSemaphoreGive(s_mux);
 }
 
+// ── Color helpers ─────────────────────────────────────────────────────────────
+static lv_color_t color_lq(unsigned lq) {
+    if (lq >= 70) return lv_palette_main(LV_PALETTE_GREEN);
+    if (lq >= 30) return lv_palette_main(LV_PALETTE_YELLOW);
+    return lv_palette_main(LV_PALETTE_RED);
+}
+static lv_color_t color_rssi(unsigned rssi) {
+    if (rssi <= 80)  return lv_palette_main(LV_PALETTE_GREEN);
+    if (rssi <= 100) return lv_palette_main(LV_PALETTE_YELLOW);
+    return lv_palette_main(LV_PALETTE_RED);
+}
+static lv_color_t color_batt(float v) {
+    if (v >= 12.0f) return lv_palette_main(LV_PALETTE_GREEN);
+    if (v >= 11.4f) return lv_palette_main(LV_PALETTE_YELLOW);
+    return lv_palette_main(LV_PALETTE_RED);
+}
+static lv_color_t color_temp(float t) {
+    if (t < 60.0f) return lv_palette_main(LV_PALETTE_GREEN);
+    if (t < 80.0f) return lv_palette_main(LV_PALETTE_YELLOW);
+    return lv_palette_main(LV_PALETTE_RED);
+}
+
 // ── Build the telemetry screen ────────────────────────────────────────────────
 static lv_obj_t *make_label(lv_obj_t *parent, lv_coord_t y, const char *text)
 {
@@ -258,22 +280,29 @@ void display_update()
     if (!s_ready) return;
     if (!lvgl_lock(50)) return;   // skip update if LVGL is busy
 
-    bool ok = elrs_link_ok();
-    lv_label_set_text_fmt(s_lbl_link,
-        "Link: %s  LQ: %u%%", ok ? "OK  " : "FAIL",
-        (unsigned)elrs_link_quality());
-    lv_label_set_text_fmt(s_lbl_rssi,
-        "RSSI: -%u dBm", (unsigned)elrs_rssi());
-    lv_label_set_text_fmt(s_lbl_batt,
-        "%.2f V   %.2f A", power_voltage_v(), power_current_a());
-    lv_label_set_text_fmt(s_lbl_rudder,
-        "Rudder: %+.3f", servos_get_commanded(pwm_ch::RUDDER));
-    lv_label_set_text_fmt(s_lbl_sail,
-        "Sail:   %.3f",  servos_get_commanded(pwm_ch::SAIL_WINCH));
-    lv_label_set_text_fmt(s_lbl_esc,
-        "ESC:    %+.3f", servos_get_commanded(pwm_ch::MOTOR_ESC));
-    lv_label_set_text_fmt(s_lbl_temp,
-        "MCU Temp: %.1f\xC2\xB0""C", (float)temperatureRead());
+    bool     ok   = elrs_link_ok();
+    unsigned lq   = (unsigned)elrs_link_quality();
+    unsigned rssi = (unsigned)elrs_rssi();
+    float    v    = power_voltage_v();
+    float    temp = (float)temperatureRead();
+
+    lv_label_set_text_fmt(s_lbl_link, "Link: %s  LQ: %u%%", ok ? "OK  " : "FAIL", lq);
+    lv_obj_set_style_text_color(s_lbl_link,
+        ok ? color_lq(lq) : lv_palette_main(LV_PALETTE_RED), LV_PART_MAIN);
+
+    lv_label_set_text_fmt(s_lbl_rssi, "RSSI: -%u dBm", rssi);
+    lv_obj_set_style_text_color(s_lbl_rssi,
+        ok ? color_rssi(rssi) : lv_palette_main(LV_PALETTE_RED), LV_PART_MAIN);
+
+    lv_label_set_text_fmt(s_lbl_batt, "%.2f V   %.2f A", v, power_current_a());
+    lv_obj_set_style_text_color(s_lbl_batt, color_batt(v), LV_PART_MAIN);
+
+    lv_label_set_text_fmt(s_lbl_rudder, "Rudder: %+.3f", servos_get_commanded(pwm_ch::RUDDER));
+    lv_label_set_text_fmt(s_lbl_sail,   "Sail:   %.3f",  servos_get_commanded(pwm_ch::SAIL_WINCH));
+    lv_label_set_text_fmt(s_lbl_esc,    "ESC:    %+.3f", servos_get_commanded(pwm_ch::MOTOR_ESC));
+
+    lv_label_set_text_fmt(s_lbl_temp, "MCU Temp: %.1f\xC2\xB0""C", temp);
+    lv_obj_set_style_text_color(s_lbl_temp, color_temp(temp), LV_PART_MAIN);
 
     lvgl_unlock();
 }
