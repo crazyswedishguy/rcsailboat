@@ -156,8 +156,36 @@ static lv_obj_t *make_label(lv_obj_t *parent, lv_coord_t y, const char *text)
     lv_obj_t *lbl = lv_label_create(parent);
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_pos(lbl, 8, y);
+    lv_obj_set_pos(lbl, 10, y);
     return lbl;
+}
+
+// Bare rectangle — used for separator lines and the title accent strip.
+static lv_obj_t *make_rect(lv_obj_t *parent,
+                            lv_coord_t x, lv_coord_t y,
+                            lv_coord_t w, lv_coord_t h,
+                            lv_color_t color)
+{
+    lv_obj_t *r = lv_obj_create(parent);
+    lv_obj_remove_style_all(r);
+    lv_obj_set_size(r, w, h);
+    lv_obj_set_pos(r, x, y);
+    lv_obj_set_style_bg_color(r, color, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(r, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+    return r;
+}
+
+// Section label ("LINK", "BATTERY" …) in cyan Montserrat-14 + 1px separator.
+static void make_section(lv_obj_t *parent, lv_coord_t y, const char *name)
+{
+    lv_obj_t *lbl = lv_label_create(parent);
+    lv_label_set_text(lbl, name);
+    lv_obj_set_style_text_color(lbl, lv_palette_main(LV_PALETTE_CYAN), LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_pos(lbl, 10, y);
+    make_rect(parent, 10, y + 18, LCD_H_RES - 20, 1,
+              lv_palette_darken(LV_PALETTE_TEAL, 1));
 }
 
 static void build_screen()
@@ -166,22 +194,44 @@ static void build_screen()
     lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
-    make_label(scr,   8, "RC Sailboat");
+    // ── Title bar ──────────────────────────────────────────────────────────────
+    // Deep ocean teal panel spanning the full display width.
+    lv_obj_t *hdr = make_rect(scr, 0, 0, LCD_H_RES, 64,
+                               lv_color_make(0, 77, 64));   // Material Teal 900
 
-    make_label(scr,  50, "-- Link --");
-    s_lbl_link  = make_label(scr,  80, "Link: --  LQ: --%");
-    s_lbl_rssi  = make_label(scr, 108, "RSSI: -- dBm");
+    lv_obj_t *title = lv_label_create(hdr);
+    lv_label_set_text(title, "RC Sailboat");
+    lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, LV_PART_MAIN);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -9);
 
-    make_label(scr, 150, "-- Battery --");
-    s_lbl_batt  = make_label(scr, 180, "--.-- V   --.-- A");
+    lv_obj_t *sub = lv_label_create(hdr);
+    lv_label_set_text(sub, "~ telemetry ~");
+    lv_obj_set_style_text_color(sub, lv_palette_lighten(LV_PALETTE_TEAL, 3), LV_PART_MAIN);
+    lv_obj_set_style_text_font(sub, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_align(sub, LV_ALIGN_CENTER, 0, 15);
 
-    make_label(scr, 222, "-- Servos --");
-    s_lbl_rudder = make_label(scr, 252, "Rudder:  +0.000");
-    s_lbl_sail   = make_label(scr, 280, "Sail:     0.000");
-    s_lbl_esc    = make_label(scr, 308, "ESC:     +0.000");
+    // Bright teal accent line under the title bar.
+    make_rect(scr, 0, 64, LCD_H_RES, 2, lv_palette_main(LV_PALETTE_TEAL));
 
-    make_label(scr, 350, "-- System --");
-    s_lbl_temp  = make_label(scr, 380, "MCU Temp: --\xC2\xB0""C");
+    // ── LINK ───────────────────────────────────────────────────────────────────
+    make_section(scr, 74, "LINK");
+    s_lbl_link = make_label(scr, 100, "Link: --  LQ: --%");
+    s_lbl_rssi = make_label(scr, 126, "RSSI: -- dBm");
+
+    // ── BATTERY ────────────────────────────────────────────────────────────────
+    make_section(scr, 160, "BATTERY");
+    s_lbl_batt = make_label(scr, 186, "--.-- V   --.-- A");
+
+    // ── SERVOS ─────────────────────────────────────────────────────────────────
+    make_section(scr, 218, "SERVOS");
+    s_lbl_rudder = make_label(scr, 244, "Rudder:  +0.000");
+    s_lbl_sail   = make_label(scr, 270, "Sail:     0.000");
+    s_lbl_esc    = make_label(scr, 296, "ESC:     +0.000");
+
+    // ── SYSTEM ─────────────────────────────────────────────────────────────────
+    make_section(scr, 330, "SYSTEM");
+    s_lbl_temp = make_label(scr, 356, "MCU Temp: --\xC2\xB0""C");
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
