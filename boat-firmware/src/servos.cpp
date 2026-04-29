@@ -33,6 +33,12 @@ static void i2c_scan() {
 void servos_init() {
     i2c_scan();
 
+    Wire.beginTransmission(i2c_addr::PCA9685);
+    if (Wire.endTransmission() != 0) {
+        Serial.println("PCA9685 not found — servo output disabled");
+        return;
+    }
+
     s_pca.begin();
     s_pca.setPWMFreq(50);  // standard servo / ESC frequency
 

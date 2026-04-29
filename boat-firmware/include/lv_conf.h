@@ -124,14 +124,14 @@
  *   FONT USAGE
  *===================*/
 
-/* Only Montserrat 14 — matches demo; LV_FONT_DEFAULT falls back to this */
+/* Montserrat 20 for the telemetry screen; 14 kept for any fallback widgets */
 #define LV_FONT_MONTSERRAT_8   0
 #define LV_FONT_MONTSERRAT_10  0
 #define LV_FONT_MONTSERRAT_12  0
 #define LV_FONT_MONTSERRAT_14  1
 #define LV_FONT_MONTSERRAT_16  0
 #define LV_FONT_MONTSERRAT_18  0
-#define LV_FONT_MONTSERRAT_20  0
+#define LV_FONT_MONTSERRAT_20  1
 #define LV_FONT_MONTSERRAT_22  0
 #define LV_FONT_MONTSERRAT_24  0
 #define LV_FONT_MONTSERRAT_26  0
@@ -155,7 +155,7 @@
 #define LV_FONT_UNSCII_16                 0
 
 #define LV_FONT_CUSTOM_DECLARE
-#define LV_FONT_DEFAULT      &lv_font_montserrat_14
+#define LV_FONT_DEFAULT      &lv_font_montserrat_20
 #define LV_FONT_FMT_TXT_LARGE       0
 #define LV_USE_FONT_COMPRESSED       0
 #define LV_USE_FONT_SUBPX            0

@@ -144,22 +144,22 @@ static void build_screen()
     lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
-    make_label(scr,   6, "RC Sailboat");
+    make_label(scr,   8, "RC Sailboat");
 
-    make_label(scr,  34, "-- Link --");
-    s_lbl_link  = make_label(scr,  52, "Link: --  LQ: --%");
-    s_lbl_rssi  = make_label(scr,  70, "RSSI: -- dBm");
+    make_label(scr,  50, "-- Link --");
+    s_lbl_link  = make_label(scr,  80, "Link: --  LQ: --%");
+    s_lbl_rssi  = make_label(scr, 108, "RSSI: -- dBm");
 
-    make_label(scr,  98, "-- Battery --");
-    s_lbl_batt  = make_label(scr, 116, "--.-- V   --.-- A");
+    make_label(scr, 150, "-- Battery --");
+    s_lbl_batt  = make_label(scr, 180, "--.-- V   --.-- A");
 
-    make_label(scr, 144, "-- Servos --");
-    s_lbl_rudder = make_label(scr, 162, "Rudder:  +0.000");
-    s_lbl_sail   = make_label(scr, 180, "Sail:     0.000");
-    s_lbl_esc    = make_label(scr, 198, "ESC:     +0.000");
+    make_label(scr, 222, "-- Servos --");
+    s_lbl_rudder = make_label(scr, 252, "Rudder:  +0.000");
+    s_lbl_sail   = make_label(scr, 280, "Sail:     0.000");
+    s_lbl_esc    = make_label(scr, 308, "ESC:     +0.000");
 
-    make_label(scr, 226, "-- System --");
-    s_lbl_temp  = make_label(scr, 244, "MCU Temp: --\xC2\xB0""C");
+    make_label(scr, 350, "-- System --");
+    s_lbl_temp  = make_label(scr, 380, "MCU Temp: --\xC2\xB0""C");
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
