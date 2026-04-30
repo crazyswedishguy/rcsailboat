@@ -14,6 +14,8 @@
 //   GET  /pump       — JSON: toggle bilge pump on/off
 //   GET  /track      — JSON array of [lat, lng] pairs for the GPS track viewer
 //   GET  /tiles/z/x/y.png — serves offline map tiles from the SD card
+//   GET  /update     — OTA firmware update page (file picker)
+//   POST /update     — OTA firmware upload; flashes .bin and reboots on success
 //
 // Control timeout:
 //   If no /control request arrives within CTRL_TIMEOUT_MS (500 ms), the boat is
@@ -34,6 +36,7 @@
 
 #include <Arduino.h>
 #include <SD.h>
+#include <Update.h>
 #include <WiFi.h>
 #include <WebServer.h>
 
@@ -113,6 +116,7 @@ input[type=range]{width:100%;height:42px;accent-color:#2dd4bf;cursor:pointer}
 <div class="row" style="margin-top:14px">
   <button id="pumpBtn" class="btn2" style="background:#374151" onclick="togglePump()">Pump: OFF</button>
   <a href="/map" class="btn2" style="background:#1e3a5f;line-height:1.6">&#127754; Track Map</a>
+  <a href="/update" class="btn2" style="background:#1c1a2e;line-height:1.6;color:#a78bfa">&#128268; OTA</a>
 </div>
 <script>
 var armed=false, pumpOn=false;
@@ -268,6 +272,95 @@ setInterval(load,5000);
 </html>
 )html";
 
+// ── Embedded OTA update page ──────────────────────────────────────────────────
+static const char OTA_HTML[] PROGMEM = R"html(
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta charset="utf-8">
+<title>Firmware Update &mdash; Dark &amp; Stormy</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:14px;background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:480px;margin:auto}
+h1{margin:0;font-size:22px;color:#a78bfa}
+.sub{color:#6e7681;font-size:12px;margin:2px 0 14px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin:14px 0}
+.step{color:#8b949e;font-size:13px;margin:7px 0;line-height:1.5}
+.step code{background:#21262d;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:12px;color:#e6edf3;word-break:break-all}
+input[type=file]{display:block;width:100%;padding:10px;background:#21262d;border:1px dashed #30363d;border-radius:8px;color:#e6edf3;margin:12px 0;cursor:pointer;font-size:13px}
+#uploadBtn{display:block;width:100%;padding:14px;font-size:16px;font-weight:700;border:none;border-radius:10px;cursor:pointer;background:#312e81;color:#a78bfa;margin-top:4px}
+#uploadBtn:disabled{opacity:.4;cursor:default}
+#bar{height:8px;background:#21262d;border-radius:4px;margin:12px 0;overflow:hidden;display:none}
+#bfill{height:100%;width:0;background:#a78bfa;border-radius:4px;transition:width .15s}
+#status{text-align:center;font-size:14px;min-height:20px;margin:8px 0;font-weight:600}
+.ok{color:#86efac}.err{color:#fca5a5}.info{color:#93c5fd}
+a.back{display:inline-block;margin-top:12px;color:#6e7681;font-size:13px;text-decoration:none}
+</style>
+</head>
+<body>
+<h1>&#128268; Firmware Update</h1>
+<p class="sub">Dark &amp; Stormy &mdash; OTA Flash</p>
+<div class="card">
+  <div class="step"><b>Step 1</b> &mdash; Build the firmware on your computer:<br>
+    <code>pio run -e esp32-s3-full</code>
+  </div>
+  <div class="step"><b>Step 2</b> &mdash; Locate the binary (Windows):<br>
+    <code>%LOCALAPPDATA%\pio-build\rcsailboat\esp32-s3-full\firmware.bin</code>
+  </div>
+  <div class="step"><b>Step 3</b> &mdash; Select the <code>.bin</code> file and upload below.</div>
+</div>
+<input type="file" id="file" accept=".bin">
+<div id="bar"><div id="bfill"></div></div>
+<div id="status" class="info"></div>
+<button id="uploadBtn" onclick="doUpload()">&#8593;&nbsp; Upload &amp; Flash</button>
+<br>
+<a href="/" class="back">&#8592; Back to control</a>
+<script>
+function doUpload(){
+  var f=document.getElementById('file').files[0];
+  var st=document.getElementById('status');
+  if(!f){st.className='err';st.textContent='Select a .bin file first.';return;}
+  var btn=document.getElementById('uploadBtn');
+  var bar=document.getElementById('bar');
+  btn.disabled=true;
+  bar.style.display='block';
+  st.className='info'; st.textContent='Uploading…';
+  var fd=new FormData();
+  fd.append('firmware',f,f.name);
+  var xhr=new XMLHttpRequest();
+  xhr.open('POST','/update');
+  xhr.upload.onprogress=function(e){
+    if(e.lengthComputable){
+      var pct=Math.round(e.loaded/e.total*100);
+      document.getElementById('bfill').style.width=pct+'%';
+      st.textContent='Uploading… '+pct+'%';
+    }
+  };
+  xhr.onload=function(){
+    document.getElementById('bfill').style.width='100%';
+    if(xhr.status===200){
+      st.className='ok';
+      st.textContent='Flashed! Rebooting in 3 s…';
+      setTimeout(function(){window.location='/';},5000);
+    } else {
+      st.className='err';
+      st.textContent='Failed: '+xhr.responseText;
+      btn.disabled=false;
+    }
+  };
+  xhr.onerror=function(){
+    st.className='err';
+    st.textContent='Upload error — check Wi-Fi connection.';
+    btn.disabled=false;
+  };
+  xhr.send(fd);
+}
+</script>
+</body>
+</html>
+)html";
+
 // ── Module state ──────────────────────────────────────────────────────────────
 static WebServer s_srv(80);
 static CtrlMode  s_mode     = CtrlMode::WIFI;
@@ -378,6 +471,62 @@ static void handle_not_found()
     s_srv.send(404, "text/plain", "Not found");
 }
 
+// ── OTA handlers ─────────────────────────────────────────────────────────────
+
+// GET /update — serve the OTA upload page.
+static void handle_ota_get()
+{
+    s_srv.send_P(200, "text/html; charset=utf-8", OTA_HTML);
+}
+
+// Upload handler — called by WebServer for each multipart chunk.
+// UPLOAD_FILE_START: opens the OTA flash partition.
+// UPLOAD_FILE_WRITE: writes each chunk to flash.
+// UPLOAD_FILE_END:   finalises the write; marks the new partition bootable.
+// If any step fails, Update.hasError() will be true when the POST handler runs.
+static void handle_ota_upload()
+{
+    HTTPUpload &upload = s_srv.upload();
+
+    if (upload.status == UPLOAD_FILE_START) {
+        Serial.printf("ota: start — %s (%u B)\n",
+                      upload.filename.c_str(), upload.totalSize);
+        // UPDATE_SIZE_UNKNOWN lets the OTA library grow the write area as needed.
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+            Serial.printf("ota: begin failed: %s\n", Update.errorString());
+        }
+
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            Serial.printf("ota: write failed: %s\n", Update.errorString());
+        }
+
+    } else if (upload.status == UPLOAD_FILE_END) {
+        if (Update.end(true)) {   // true = set the new partition as the boot target
+            Serial.printf("ota: complete — %u bytes written\n", upload.totalSize);
+        } else {
+            Serial.printf("ota: end failed: %s\n", Update.errorString());
+        }
+    }
+}
+
+// POST /update — called after the upload finishes.
+// Sends the result, closes the connection, then reboots if successful.
+// The reboot must happen after the HTTP response is sent, so we drain the
+// client first, wait briefly for TCP teardown, then call ESP.restart().
+static void handle_ota_post()
+{
+    bool ok = !Update.hasError();
+    s_srv.sendHeader("Connection", "close");
+    s_srv.send(200, "text/plain", ok ? "OK" : Update.errorString());
+    s_srv.client().stop();    // ensure response bytes are flushed before reboot
+    delay(300);
+    if (ok) {
+        Serial.println("ota: rebooting into new firmware");
+        ESP.restart();
+    }
+}
+
 // ── AP lifecycle ──────────────────────────────────────────────────────────────
 static void start_ap()
 {
@@ -393,6 +542,9 @@ static void start_ap()
     s_srv.on("/status",    handle_status);
     s_srv.on("/pump",      handle_pump);
     s_srv.on("/track",     handle_track);
+    // OTA: GET serves the upload page; POST receives the binary + flashes + reboots.
+    s_srv.on("/update", HTTP_GET,  handle_ota_get);
+    s_srv.on("/update", HTTP_POST, handle_ota_post, handle_ota_upload);
     s_srv.onNotFound(handle_not_found);
     s_srv.begin();
 
