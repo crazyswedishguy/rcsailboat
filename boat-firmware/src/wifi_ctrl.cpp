@@ -1,3 +1,30 @@
+// wifi_ctrl.cpp — WiFi Direct AP + embedded web control server.
+//
+// The ESP32 broadcasts its own Wi-Fi access point ("darkandstormy") so any phone,
+// tablet, or laptop can connect and control the boat without a Raspberry Pi.
+// This is the default mode at boot and serves as a useful bench-testing interface
+// before the ELRS radio link is wired up.
+//
+// HTTP endpoints served on port 80:
+//   GET  /           — embedded HTML control page (PROGMEM, no SD card needed)
+//   GET  /map        — embedded GPS track viewer page
+//   GET  /control    — accepts rudder/sail/throttle/arm query params from the control page
+//   GET  /telemetry  — JSON: voltage, current, mAh, roll, pitch
+//   GET  /status     — JSON: bilge wet, pump active, capsized
+//   GET  /pump       — JSON: toggle bilge pump on/off
+//   GET  /track      — JSON array of [lat, lng] pairs for the GPS track viewer
+//   GET  /tiles/z/x/y.png — serves offline map tiles from the SD card
+//
+// Control timeout:
+//   If no /control request arrives within CTRL_TIMEOUT_MS (500 ms), the boat is
+//   considered abandoned and all servo outputs go to neutral. This prevents
+//   the boat from running away if the browser tab is closed or the phone locks.
+//
+// Mode switching:
+//   The display touchscreen can switch from WiFi to ELRS mode. The switch is
+//   requested by calling wifi_ctrl_set_mode() from the LVGL task and applied
+//   in wifi_ctrl_update() on the main task (LVGL task does not own the AP lifecycle).
+
 #include "wifi_ctrl.h"
 #include "bilge.h"
 #include "config.h"

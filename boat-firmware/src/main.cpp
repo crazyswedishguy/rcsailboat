@@ -1,3 +1,26 @@
+// main.cpp — Arduino entry point for the RC sailboat firmware.
+//
+// Runs on a Waveshare ESP32-S3-Touch-AMOLED-1.64 (ESP32-S3R8, dual-core LX7).
+// The main Arduino loop() executes on core 1. The LVGL render task (started by
+// display_init()) runs on core 0 so UI rendering never blocks servo updates.
+//
+// Control modes:
+//   WiFi Direct (default) — ESP32 broadcasts its own AP; browser sends HTTP commands.
+//   ELRS — CRSF channels received from the ELRS receiver on UART1.
+//   Mode is toggled via the touchscreen display. See wifi_ctrl.h for the API.
+//
+// Build environments (platformio.ini):
+//   esp32-s3        — base build (no GPS, no compass)
+//   esp32-s3-gps    — adds TinyGPS++ parser on UART2 (-DGPS_ENABLED)
+//   esp32-s3-compass — adds HMC5883L heading via I²C (-DCOMPASS_ENABLED)
+//   esp32-s3-full   — GPS + compass
+//
+// Timing notes:
+//   - No delay() calls in loop() — all rate-limiting uses millis() timestamps.
+//   - Touch polled at 50 Hz; display updated at 5 Hz; SD logged at 1 Hz.
+//   - GPS update is called every iteration (byte-by-byte, non-blocking).
+//   - Compass sampled at 10 Hz (HMC5883L outputs at up to 75 Hz; 10 Hz is enough).
+
 #include <Arduino.h>
 #include <Wire.h>
 

@@ -8,12 +8,12 @@ Claude Code: when a phase is done, move it to "Completed" at the bottom and writ
 
 ## Phase 2 — Boat firmware: I²C + PCA9685 + servos (no radio yet)
 
-- [ ] Bring up I²C and scan the bus on boot (log found addresses)
-- [ ] Initialize PCA9685 at 50 Hz
-- [ ] Drive the rudder servo through its full range with a hard-coded sweep
-- [ ] Drive the sail winch servo through its full range
-- [ ] Drive the ESC through a safe arming sequence (hold neutral 2 s, then a gentle forward pulse)
-- [ ] Status LED heartbeat
+Software is written (`servos.cpp` + `power.cpp`). Pending bench test — nothing is physically wired yet.
+
+- [ ] Wire PCA9685 to I²C bus (GPIO47/48); wire INA219 at 0x41
+- [ ] Power on, verify I²C scan prints `0x40` (PCA9685) and `0x41` (INA219) at boot
+- [ ] Confirm rudder, sail winch, and ESC all receive PWM on channels 0/1/2
+- [ ] Verify ESC arms at neutral (1500 µs for 2 s) without spinning
 
 **Acceptance**: with the boat on the bench (propeller off — safety), all three actuators sweep on power-up.
 
@@ -21,110 +21,139 @@ Claude Code: when a phase is done, move it to "Completed" at the bottom and writ
 
 ## Phase 3 — Boat firmware: ELRS receive path
 
-- [ ] Wire the RP3 receiver to the ESP32-S3 UART
-- [ ] Integrate a CRSF parser library
-- [ ] Print channel values at 10 Hz to serial console
-- [ ] Map channels 1–4 to the actuators per `docs/protocol.md` (replacing the hard-coded sweep)
-- [ ] Implement arm-channel gating: motor does nothing unless channel 4 ≥ 0.5
+`elrs.cpp` is a stub — CRSF parsing not yet implemented.
 
-**Acceptance**: pairing a transmitter directly (sticks, not the Pi yet), moving the sticks drives the servos and ESC; disarming stops the motor immediately.
+- [ ] Wire ELRS receiver to UART1 (GPIO16 RX, GPIO17 TX)
+- [ ] Implement `elrs_init()`: `Serial1.begin(420000, SERIAL_8N1, CRSF_RX, CRSF_TX)`
+- [ ] Implement `elrs_update()`: parse incoming CRSF frames, extract RC channels
+- [ ] Parse `LINK_STATISTICS` (0x14) to update RSSI and link quality
+- [ ] Confirm channel values print to serial console at 10 Hz
+- [ ] Map channels per `docs/protocol.md` — arm channel must be high before throttle works
+
+**Acceptance**: pairing a transmitter (sticks, not the Pi yet), moving sticks drives servos; disarming stops motor.
 
 ---
 
 ## Phase 4 — Base station: ELRS transmit path
 
-- [ ] Detect the ELRS TX module's USB-serial device
-- [ ] Async task packs the desired state into a CRSF channel frame at 50 Hz and writes it to the TX
-- [ ] Connect the pieces: browser slider → Pi desired state → CRSF out → boat servo moves
+Software is complete (`base-station/app/elrs_bridge.py`). Pending hardware connection.
 
-**Acceptance**: moving a slider on a phone browser moves the corresponding servo on the bench within ~100 ms.
+- [ ] Connect ELRS TX module to Pi via USB-Serial
+- [ ] Confirm `ELRS_PORT` env var points to the right device (check `dmesg` or `ls /dev/ttyUSB*`)
+- [ ] Start base station and confirm 50 Hz RC frames flow to TX module (check ELRS Lua script on transmitter)
+- [ ] Move a browser slider → confirm the corresponding servo moves
+
+**Acceptance**: browser slider → servo moves within ~100 ms.
 
 ---
 
 ## Phase 5 — Boat firmware: failsafe
 
-- [ ] Implement the state machine from `docs/failsafe.md`
-- [ ] 500 ms link-loss detection
-- [ ] Safe-state output on link loss
-- [ ] Throttle slew-rate limiter
-- [ ] Hardware watchdog enabled
-- [ ] Bench test the failsafe per `docs/failsafe.md` § "Testing the failsafe"
+`failsafe.cpp` is a stub. Must be implemented before any water testing. See `docs/failsafe.md`.
 
-**Acceptance**: the full failsafe test procedure passes. No water until this works.
+- [ ] Implement link-loss detection: 500 ms without a valid CRSF frame → link lost
+- [ ] On link loss: rudder → center, sail → center, throttle → 0 immediately
+- [ ] ESC re-arms only after link is re-established AND arm channel goes high again
+- [ ] Throttle slew-rate limiter (prevent instant full-throttle commands)
+- [ ] Enable hardware watchdog
+- [ ] Run the full failsafe test procedure from `docs/failsafe.md`
+
+**Acceptance**: full failsafe test procedure passes. **No water testing until this is done.**
 
 ---
 
-## Phase 6 — Telemetry (remaining)
+## Phase 6e — Link quality telemetry
 
-### 6c — Heading (QMC5883L magnetometer) [requires additional hardware]
-- [ ] Wire QMC5883L to external I²C bus (IO6/IO7, addr 0x0D) — update `docs/pinmap.md`
-- [ ] Add `compass.h/cpp` under `-DCOMPASS_ENABLED` build flag (mirrors GPS pattern)
-- [ ] Include live heading in ATTITUDE frame yaw field once compass is wired
-
-### 6e — Link quality
-- [ ] Parse `LINK_STATISTICS` (0x14) frames received from ELRS in `elrs.cpp`
-- [ ] Expose `elrs_rssi()` and `elrs_link_quality()` accessors
-
-### 6g — Base station: decode and display
-- [ ] Pi decodes incoming CRSF telemetry frames from ELRS serial port
-- [ ] Push decoded values over WebSocket to browser
-- [ ] Browser dashboard: voltage, current, mAh, heel, pitch, heading, GPS position on map,
-      GPS speed, RSSI/link quality, servo commanded positions, ESP32 temperature
-
-**Acceptance**: browser dashboard shows live values that respond to reality (tilt boat → heel changes; run motor → current rises; walk away → RSSI drops; move a slider → commanded position updates).
+- [ ] Parse `LINK_STATISTICS` (0x14) frames in `elrs_update()` (can be done alongside Phase 3)
+- [ ] Expose live RSSI and link quality via `elrs_rssi()` / `elrs_link_quality()`
+- [ ] Verify values appear in the SD card log and in the base-station WebSocket feed
 
 ---
 
 ## Phase 7 — First water test
 
-- [ ] Waterproofing audit of every component and cable entry
-- [ ] LiPo voltage check + balance before launch
-- [ ] Range check on dry land first (walk 50 m away, confirm control)
-- [ ] Short tethered float test in a bucket / bath
-- [ ] Actual pond test in calm conditions, with a retrieval plan
+Only begin after Phase 5 failsafe acceptance test passes.
 
-**Acceptance**: the boat sails, returns to shore, and the battery and electronics are dry afterward.
+- [ ] Waterproofing audit of every component and cable entry point
+- [ ] LiPo voltage check + cell balance before launch
+- [ ] Range check on dry land (walk 50 m away; confirm control + telemetry)
+- [ ] Short tethered float test in a bucket / bath
+- [ ] Actual pond test in calm conditions, with a retrieval plan ready
+
+**Acceptance**: the boat sails, returns, and the battery and electronics are dry afterward.
 
 ---
 
-## Ideas / someday / maybe (not in the current plan)
+## Ideas / someday / maybe
 
-- GPS module + position display on a map in the browser UI
 - Wind sensor (direction + speed) — would need a custom CRSF telemetry frame
 - Water temperature sensor
-- Auto-trim: given wind direction, suggest sail position
-- Data logging to SD or to the Pi for post-sail analysis
-- Migrate browser UI from vanilla JS to something richer if/when it earns the complexity
+- Auto-trim: given wind direction, suggest optimal sail position
+- Migrate browser UI from vanilla JS to something richer once the rest of the system is stable
 
 ---
 
 ## Completed
 
 ### Phase 0 — Project scaffolding
-Scaffold created as planned: PlatformIO project for ESP32-S3, FastAPI base-station project with venv,
-`shared/protocol.py` and `boat-firmware/src/protocol.h` with matching protocol constants and channel
-definitions, `config.h` with GPIO pin map, ruff config. `git pre-commit` hooks not added (skipped by choice).
+Scaffold created: PlatformIO project for ESP32-S3, FastAPI base-station with venv,
+`shared/protocol.py` and `boat-firmware/src/protocol.h` with matching protocol constants,
+`config.h` with GPIO pin map, ruff config.
 
 ### Phase 1 — Base station: web UI skeleton
-FastAPI app serving static HTML with rudder/sail/throttle sliders, arm toggle, and STOP button.
-WebSocket endpoint updates an in-memory `DesiredState` object and logs changes. Range clamping and
-NaN guard in place. GPS position broadcast infrastructure (`GpsPosition`, `broadcast()`) added
-alongside the base Phase 1 items. Wi-Fi AP setup deferred to a separate setup script (not in repo).
+FastAPI app with rudder/sail/throttle sliders, arm toggle, STOP button.
+WebSocket endpoint updating `DesiredState`. Range clamping and NaN guard in place.
+
+### Phase 2 (software) — PCA9685 servo driver
+`servos.h/cpp` written: PCA9685 initialised at 50 Hz, ESC arm sequence (2 s neutral),
+`servos_set()` maps –1.0..+1.0 to 1000–2000 µs. I²C scan at boot logs all found addresses.
+Hardware bench test still pending (nothing wired yet).
 
 ### Phase 6a — Power monitoring (INA219)
-`power.h/cpp` implemented: reads voltage + current from INA219 over external I²C (IO6/IO7, addr 0x41),
-tracks mAh consumed since boot. Emits CRSF `BATTERY_SENSOR` (0x08) at 2 Hz via `telemetry.cpp`.
+`power.h/cpp` written: reads voltage + current from INA219 (I²C 0x41), accumulates mAh.
+Emits CRSF `BATTERY_SENSOR` (0x08) at 2 Hz via `telemetry.cpp`. Safe no-op if sensor absent.
 
 ### Phase 6b — IMU / attitude (QMI8658)
-`imu.h/cpp` implemented: reads QMI8658 accelerometer on onboard I²C (IO47/IO48, addr 0x6B) at 62.5 Hz,
-computes heel (roll) and pitch from gravity projection using atan2. Emits CRSF `ATTITUDE` (0x1E) at
-5 Hz via `telemetry.cpp`; yaw is hardcoded 0 pending compass hardware (Phase 6c).
+`imu.h/cpp` written: reads QMI8658 accelerometer (I²C 0x6B at 62.5 Hz), computes roll and
+pitch via atan2. Capsize flag triggers at roll > 110° sustained > 2 s. Emits CRSF `ATTITUDE`
+(0x1E) at 5 Hz; yaw is live heading when COMPASS_ENABLED, else 0.
 
-### Phase 6d — GPS telemetry
-`gps.h/cpp` stub and `telemetry_send_gps()` implemented in `telemetry.cpp`. Emits CRSF GPS frame
-(0x02) at 1 Hz when `GPS_ENABLED` build flag is set and a fix is available.
+### Phase 6c — Compass (HMC5883L)
+`compass.h/cpp` written using Adafruit HMC5883 Unified library. Heading 0–360° via atan2,
+no declination correction. Compiled in `esp32-s3-compass` / `esp32-s3-full` environments.
+Hardware (BN-880 I²C wiring) still pending.
+
+### Phase 6d — GPS telemetry (TinyGPS++)
+`gps.h/cpp` written: HardwareSerial on UART2 at 9600 baud, TinyGPS++ parses NMEA.
+`gps_has_fix()` requires valid location data < 2 s old. Emits CRSF GPS frame (0x02) at 1 Hz
+when `GPS_ENABLED` and fix is available. BN-880 wiring still pending.
 
 ### Phase 6f — Commanded servo positions + ESP32 temperature
-`servos_get_commanded()` accessor implemented. Custom CRSF sailboat frame (0x80) emitted at 5 Hz
-from `telemetry.cpp`: rudder, sail, ESC commanded values (×10000) plus ESP32 internal temperature.
-CRSF frame builder (`crsf_build`, CRC-8/DVB-S2) implemented and shared by all telemetry emitters.
+`servos_get_commanded()` added. Custom CRSF sailboat frame (0x80) emits at 5 Hz:
+rudder/sail/ESC (×10000) + ESP32 internal temperature from `temperatureRead()`.
+
+### Phase 6g — Base station: CRSF bridge + telemetry UI
+`elrs_bridge.py` fully implemented: async serial RX/TX, CRSF frame builder for RC channels
+(50 Hz), decoders for battery/attitude/GPS/sailboat frames, auto-reconnect. `main.py` wires
+it into FastAPI with WebSocket broadcast. `index.html` updated with live telemetry strip
+(battery, GPS, attitude, boat values) using CSS status colouring.
+
+### Phase 6h — SD card data logger
+`sdlog.h/cpp` written: opens a new `LOG####.CSV` on every boot, logs all telemetry at 1 Hz.
+Columns: timestamp, GPS, voltage/current/mAh, roll/pitch, RSSI/LQ, servo positions, temp, bilge.
+Safe no-op if no card present (uses HSPI / SPI3 independent of display).
+
+### Phase 6i — Bilge monitoring
+`bilge.h/cpp` written: float switch on GPIO2 (internal pull-up, active LOW), debounced 2 s.
+N-MOSFET gate on GPIO3 drives bilge pump. `bilge_water_detected()` and `bilge_pump_set()`
+exposed. WiFi UI shows bilge status and has a manual pump toggle button.
+
+### Phase 6j — WiFi Direct + on-board web server
+`wifi_ctrl.h/cpp` written: ESP32 broadcasts its own AP (`darkandstormy`/`readyabout`).
+Embedded HTML control page (sliders, arm, pump) served from PROGMEM. GPS track map on `/map`.
+Tile server on `/tiles/{z}/{x}/{y}.png` from SD card. Mode switch (WiFi ↔ ELRS) via display touch.
+
+### Phase 6k — AMOLED display (CO5300 + LVGL)
+`display.h/cpp` written: 6-screen swipeable tileview (LVGL 8.3) on CO5300 AMOLED 280×456
+via QSPI. Screens: status, attitude, GPS, bilge/power, SD log, compass. FT3168 touch drives
+LVGL pointer events. Swipe gesture fix applied: gesture events registered on edge tiles, not tileview.

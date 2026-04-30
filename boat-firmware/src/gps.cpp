@@ -1,3 +1,21 @@
+// gps.cpp — TinyGPS++ NMEA parser over UART2 (GPS_ENABLED builds only).
+//
+// Reads NMEA-0183 sentences from the BN-880 GPS module on UART2 (GPIO15 RX,
+// GPIO18 TX, 9600 baud). TinyGPS++ parses GGA, RMC, and VTG sentences and
+// exposes structured fields: location, speed, course, altitude, and satellites.
+//
+// gps_update() must be called every loop() iteration without rate-limiting.
+// The parser is fed one byte at a time and does not block — it accumulates
+// characters until a complete sentence arrives, then updates the field cache.
+//
+// gps_has_fix() requires both:
+//   (a) location.isValid() — the parser has received a valid GGA/RMC fix, and
+//   (b) location.age() < 2000 ms — the fix is not stale (GPS signal still present).
+// Both conditions must be true for has_fix to return true.
+//
+// All other accessors guard with their own isValid() check and return 0 / 0.0
+// when the corresponding field has never been received or is older than 2 s.
+
 #include "gps.h"
 #ifdef GPS_ENABLED
 

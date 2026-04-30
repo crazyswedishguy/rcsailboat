@@ -1,3 +1,31 @@
+"""
+main.py — FastAPI application for the RC sailboat base station.
+
+This is the entry point for the Pi-side server. It ties together three concerns:
+
+  1. ELRS bridge (background task):
+       Opened at startup via the FastAPI lifespan hook. Sends CRSF RC frames to
+       the ELRS TX module at 50 Hz and decodes incoming CRSF telemetry frames.
+       On each decoded frame it calls _on_telem_update() to push data to browsers.
+
+  2. WebSocket hub:
+       Every connected browser receives telemetry pushes as JSON objects. The
+       WebSocket endpoint also accepts incoming JSON messages from the browser
+       (slider values, arm/disarm) and applies them to the shared DesiredState.
+
+  3. Static file serving:
+       The Leaflet map UI (base-station/static/index.html) and offline OSM tiles
+       (base-station/static/tiles/{z}/{x}/{y}.png) are served as static files.
+       Tiles are pre-downloaded by tools/tile_downloader/tile_downloader.py.
+
+Run with:
+    uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+Environment variables:
+    ELRS_PORT   — serial device for ELRS TX module (default /dev/ttyUSB0)
+    ELRS_BAUD   — baud rate (default 420000)
+"""
+
 import asyncio
 import json
 import logging
@@ -14,19 +42,25 @@ from .state import DesiredState, GpsPosition, TelemetryState
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ── File system paths ─────────────────────────────────────────────────────────
+
 _STATIC = Path(__file__).parent.parent / "static"
 _TILES  = _STATIC / "tiles"
-_TILES.mkdir(parents=True, exist_ok=True)
+_TILES.mkdir(parents=True, exist_ok=True)   # ensure tiles directory exists on first run
 
-_state = DesiredState()
-_gps   = GpsPosition()
-_telem = TelemetryState()
+# ── Shared state (all access is on the asyncio event loop — no locking needed) ─
+
+_state = DesiredState()    # what the user wants the boat to do
+_gps   = GpsPosition()     # latest GPS fix from the boat
+_telem = TelemetryState()  # all other telemetry from the boat
+
+# ── WebSocket connection registry ─────────────────────────────────────────────
 
 _connections: set[WebSocket] = set()
 
 
 async def _broadcast(msg: dict) -> None:
-    """Send a JSON message to every connected browser client."""
+    """Send a JSON message to every connected browser client, pruning dead connections."""
     dead: set[WebSocket] = set()
     for ws in _connections:
         try:
@@ -36,8 +70,16 @@ async def _broadcast(msg: dict) -> None:
     _connections.difference_update(dead)
 
 
+# ── Telemetry payload builder ─────────────────────────────────────────────────
+
 def _telemetry_payload() -> dict:
-    """Build the full telemetry dict that gets broadcast to browsers."""
+    """
+    Build the canonical telemetry JSON dict that is sent to browser clients.
+
+    This dict is sent on WebSocket connect (immediate snapshot) and on every
+    decoded CRSF frame thereafter. The browser's handleTelemetry() function
+    dispatches on the top-level 'type' field.
+    """
     return {
         "type": "telemetry",
         "bridge": _telem.bridge_connected,
@@ -71,12 +113,20 @@ def _telemetry_payload() -> dict:
 
 
 def _on_telem_update() -> None:
-    """Called by the bridge on each decoded frame; schedules a WebSocket broadcast."""
+    """
+    Callback invoked by the ELRS bridge on each successfully decoded CRSF frame.
+
+    Schedules a WebSocket broadcast on the running asyncio event loop.
+    This is called from inside an asyncio coroutine, so create_task is safe.
+    """
     asyncio.get_event_loop().create_task(_broadcast(_telemetry_payload()))
 
 
+# ── Application lifespan ──────────────────────────────────────────────────────
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    """Start the ELRS bridge task on startup; cancel it cleanly on shutdown."""
     task = asyncio.create_task(
         elrs_bridge_task(
             state=_state,
@@ -85,7 +135,7 @@ async def _lifespan(app: FastAPI):
             on_update=_on_telem_update,
         )
     )
-    yield
+    yield  # application runs here
     task.cancel()
     try:
         await task
@@ -93,29 +143,53 @@ async def _lifespan(app: FastAPI):
         pass
 
 
+# ── FastAPI application ───────────────────────────────────────────────────────
+
 app = FastAPI(title="rcsailboat base station", lifespan=_lifespan)
+
+# Serve static assets (CSS, JS, images) and pre-downloaded map tiles.
 app.mount("/static", StaticFiles(directory=_STATIC), name="static")
 app.mount("/tiles",  StaticFiles(directory=_TILES),  name="tiles")
 
 
 @app.get("/")
 async def root() -> FileResponse:
+    """Serve the main web UI (index.html). Cache-Control: no-store for dev convenience."""
     return FileResponse(_STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/telemetry")
 async def telemetry() -> JSONResponse:
-    """Polling endpoint — returns the latest telemetry snapshot as JSON."""
+    """
+    Polling fallback — returns the latest telemetry snapshot as JSON.
+
+    Browsers that cannot use WebSocket (or for debugging) can poll this endpoint.
+    Equivalent to a single WebSocket push frame.
+    """
     return JSONResponse(_telemetry_payload())
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
+    """
+    WebSocket endpoint — bidirectional channel between the browser and the Pi.
+
+    On connect: sends an immediate telemetry snapshot so the UI is populated
+    without waiting for the next CRSF frame from the boat.
+
+    Incoming messages (browser → Pi):
+      { "rudder": float, "sail": float, "throttle": float, "armed": bool }
+        — applies the new values to DesiredState (clamped by state.py)
+      { "stop": true }
+        — immediately disarms and zeroes throttle (emergency stop)
+
+    All incoming values are validated by DesiredState.apply() and .stop().
+    """
     await ws.accept()
     _connections.add(ws)
     logger.info("WebSocket client connected (%d total)", len(_connections))
 
-    # Send current telemetry immediately on connect so the UI doesn't show stale data
+    # Send current state immediately so the UI is not blank on load.
     await ws.send_json(_telemetry_payload())
 
     try:
@@ -132,9 +206,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             else:
                 _state.apply(
                     rudder=float(msg.get("rudder",   _state.rudder)),
-                    sail=float(msg.get("sail",     _state.sail)),
+                    sail=float(msg.get("sail",       _state.sail)),
                     throttle=float(msg.get("throttle", _state.throttle)),
-                    armed=bool(msg.get("armed",    _state.armed)),
+                    armed=bool(msg.get("armed",      _state.armed)),
                 )
 
             logger.info(

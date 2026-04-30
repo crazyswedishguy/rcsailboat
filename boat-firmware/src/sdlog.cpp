@@ -1,3 +1,21 @@
+// sdlog.cpp — TF card CSV data logger.
+//
+// Mounts the SD card on the HSPI (SPI3) bus — independent from the display
+// which uses FSPI (SPI2) — so both can run simultaneously without bus conflicts.
+//
+// On init, scans for the first free filename LOG0000.CSV through LOG9999.CSV
+// and opens it for writing. A new file is created on every power-cycle, so
+// log files accumulate and are never overwritten.
+//
+// sdlog_update() writes one CSV row per call with a snapshot of all telemetry:
+//   timestamp, GPS (fix/lat/lng/speed/heading/alt/sats), battery (V/A/mAh),
+//   attitude (roll/pitch), ELRS link (LQ/RSSI), servo commands (rudder/sail/thr),
+//   MCU temperature, bilge status, capsize flag.
+//
+// Call sdlog_update() at ~1 Hz from loop(). Each row is flushed immediately
+// so data is not lost if power fails suddenly (at the cost of slightly more
+// SD wear from frequent flush operations).
+
 #include "sdlog.h"
 #include "bilge.h"
 #include "config.h"

@@ -1,3 +1,27 @@
+// telemetry.cpp — CRSF telemetry frame builder and scheduled emitter.
+//
+// Collects data from the power, IMU, compass, GPS, and servo modules and packs
+// it into CRSF frames, which are passed to elrs_send_frame() for transmission.
+//
+// Frame emission schedule (managed with millis() timers in telemetry_update()):
+//   BATTERY_SENSOR (0x08) every 500 ms (2 Hz)
+//   ATTITUDE       (0x1E) every 200 ms (5 Hz)
+//   SAILBOAT       (0x80) every 200 ms (5 Hz) — emitted on the same tick as ATTITUDE
+//   GPS            (0x02) every 1000 ms (1 Hz) — only when GPS_ENABLED and fix available
+//
+// CRSF frame layout (all frames):
+//   Byte 0:   0xC8 — CRSF_SYNC / flight-controller address
+//   Byte 1:   length — number of bytes following (payload_len + 2: type byte + CRC byte)
+//   Byte 2:   type — frame type identifier (see protocol.h)
+//   Bytes 3…: payload — big-endian, frame-type specific
+//   Last byte: CRC-8/DVB-S2 (polynomial 0xD5) over type + payload bytes
+//
+// Scaling conventions for CRSF field values:
+//   Angles (attitude): float radians × 10000 → int16_t, transmitted big-endian
+//   Voltage: float volts × 10 → uint16_t (100 mV units)
+//   Current: float amps × 10 → uint16_t (100 mA units)
+//   Servo positions: float –1.0..+1.0 × 10000 → int16_t
+
 #include "telemetry.h"
 #include "protocol.h"
 #include "elrs.h"
