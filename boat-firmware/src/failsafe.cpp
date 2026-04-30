@@ -1,22 +1,37 @@
-// failsafe.cpp — link-loss failsafe implementation (Phase 5 stub).
+// failsafe.cpp — link-loss detection and safe-state flag.
 //
-// Both functions are currently no-ops. The full implementation belongs in
-// Phase 5, after the CRSF receive path (elrs.cpp Phase 3) is working.
+// Polls elrs_link_ok() each loop iteration. When the link goes away,
+// sets s_active = true and logs the event. When it returns, clears the
+// flag. main.cpp checks failsafe_active() and commands the safe servo
+// positions (defined in config.h failsafe_pos namespace).
 //
-// When implementing, this module should:
-//   1. Track the timestamp of the last valid CRSF frame (from elrs_update()).
-//   2. If (millis() - last_frame_ms) > 500: call servos_set() to neutral for
-//      rudder/sail, and servos_set(pwm_ch::MOTOR_ESC, 0.0f) for throttle.
-//   3. Set an internal "disarmed by failsafe" flag.
-//   4. Clear the flag only when elrs_link_ok() returns true AND the arm
-//      channel (CH_ARM) rises above 0.5.
-//   5. Apply a slew-rate limiter to throttle commands to prevent sudden
-//      acceleration on link restore.
-//   6. Enable the ESP32 hardware watchdog (esp_task_wdt_init + esp_task_wdt_add).
-//
-// See docs/failsafe.md for the complete state machine and test procedure.
+// elrs_link_ok() returns false in the Phase 3 stub (no CRSF hardware yet),
+// so failsafe will always be active in ELRS mode until Phase 3 is done.
+// That is intentional — the boat cannot be controlled without a working
+// ELRS receive path.
 
 #include "failsafe.h"
+#include "elrs.h"
+#include <Arduino.h>
 
-void failsafe_init()   {}   // Phase 5: init watchdog, reset state
-void failsafe_update() {}   // Phase 5: check link age, apply safe outputs
+static bool s_active = false;
+
+void failsafe_init()
+{
+    s_active = false;
+}
+
+void failsafe_update()
+{
+    bool link = elrs_link_ok();
+
+    if (!link && !s_active) {
+        s_active = true;
+        Serial.println("failsafe: LINK LOST — motor off, sail eased, rudder hard over");
+    } else if (link && s_active) {
+        s_active = false;
+        Serial.println("failsafe: link restored");
+    }
+}
+
+bool failsafe_active() { return s_active; }

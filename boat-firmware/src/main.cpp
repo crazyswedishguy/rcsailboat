@@ -81,18 +81,24 @@ void loop()
 
     // ── Mode-aware servo control ──────────────────────────────────────────────
     if (wifi_ctrl_mode() == CtrlMode::ELRS) {
-        // ELRS mode: parse CRSF, run failsafe, apply channels directly.
+        // ELRS mode: parse CRSF, run failsafe, apply channels or safe positions.
         elrs_update();
         failsafe_update();
-        servos_set(pwm_ch::RUDDER,     elrs_get_channel(CH_RUDDER));
-        servos_set(pwm_ch::SAIL_WINCH, elrs_get_channel(CH_SAIL));
-        servos_set(pwm_ch::MOTOR_ESC,  elrs_get_channel(CH_THROTTLE));
+        if (failsafe_active()) {
+            servos_set(pwm_ch::RUDDER,     failsafe_pos::RUDDER);
+            servos_set(pwm_ch::SAIL_WINCH, failsafe_pos::SAIL);
+            servos_set(pwm_ch::MOTOR_ESC,  failsafe_pos::THROTTLE);
+        } else {
+            servos_set(pwm_ch::RUDDER,     elrs_get_channel(CH_RUDDER));
+            servos_set(pwm_ch::SAIL_WINCH, elrs_get_channel(CH_SAIL));
+            servos_set(pwm_ch::MOTOR_ESC,  elrs_get_channel(CH_THROTTLE));
+        }
     } else {
-        // WiFi mode: apply web UI commands; neutral if not armed or timed out.
+        // WiFi mode: apply web UI commands; failsafe positions if not armed or timed out.
         if (!wifi_ctrl_armed() || wifi_ctrl_timed_out()) {
-            servos_set(pwm_ch::RUDDER,     0.0f);
-            servos_set(pwm_ch::SAIL_WINCH, 0.0f);
-            servos_set(pwm_ch::MOTOR_ESC,  0.0f);
+            servos_set(pwm_ch::RUDDER,     failsafe_pos::RUDDER);
+            servos_set(pwm_ch::SAIL_WINCH, failsafe_pos::SAIL);
+            servos_set(pwm_ch::MOTOR_ESC,  failsafe_pos::THROTTLE);
         } else {
             servos_set(pwm_ch::RUDDER,     wifi_ctrl_rudder());
             servos_set(pwm_ch::SAIL_WINCH, wifi_ctrl_sail());

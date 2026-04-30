@@ -19,9 +19,11 @@ The **safe state** is:
 | Actuator | Commanded value | Rationale |
 |---|---|---|
 | Throttle | 0.0 (neutral, motor stopped) | No propulsion |
-| Rudder | 0.0 (centered) | Boat drifts straight; avoids violent turns |
-| Sail | 0.0 (sheeted fully out) | De-powers the sail; boat luffs and slows down |
+| Rudder | +1.0 (full starboard) | Boat turns in slow circles; stays in roughly the same area rather than sailing off downwind |
+| Sail | −1.0 (fully eased, let out) | De-powers the sail; boat luffs and decelerates |
 | Status LED | rapid blink | Visible indicator from shore |
+
+> **Physical verification required:** `failsafe_pos::SAIL = -1.0` assumes the sail winch servo at minimum position = sail fully eased. `failsafe_pos::RUDDER = +1.0` assumes +1.0 = starboard. Confirm both against your physical rig before water testing. Values are defined in `config.h` (failsafe_pos namespace).
 
 A boat in safe state is a boat you can retrieve.
 
@@ -91,7 +93,7 @@ The failsafe must be tested on the bench before every water test:
 1. Power the boat up on the bench with all actuators attached.
 2. Arm normally, confirm servos respond.
 3. Power off the transmitter.
-4. Within 500 ms: rudder centers, sail sheets out, motor goes to neutral.
+4. Within 500 ms: motor goes to neutral, sail lets out to minimum, rudder goes hard starboard.
 5. Status LED enters rapid-blink pattern.
 6. Power the transmitter back on; confirm boat stays in FAILSAFE until operator re-arms deliberately.
 

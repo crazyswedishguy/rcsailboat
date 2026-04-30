@@ -145,6 +145,26 @@ constexpr uint8_t  IMU_INT1 = 46;          // strapping pin — input only at bo
 
 
 // =============================================================================
+// Failsafe servo positions
+//
+// Applied when the ELRS link is lost (ELRS mode) or the WiFi connection
+// times out (WiFi mode). See docs/failsafe.md for rationale.
+//
+// SAIL assumes servo minimum (−1.0) = sail fully eased (let out).
+// Verify against your physical rig and flip the sign if your winch is
+// rigged the opposite way.
+//
+// RUDDER = +1.0 (full starboard). A drifting boat with one-sided rudder
+// turns in slow circles, keeping it in roughly the same area.
+// =============================================================================
+namespace failsafe_pos {
+constexpr float THROTTLE = 0.0f;   // motor off
+constexpr float SAIL     = -1.0f;  // fully eased — sail luffs, boat decelerates
+constexpr float RUDDER   = 1.0f;   // full starboard — circular drift pattern
+}  // namespace failsafe_pos
+
+
+// =============================================================================
 // Build-time sanity checks
 // =============================================================================
 static_assert(pins::CRSF_RX != pins::CRSF_TX,
