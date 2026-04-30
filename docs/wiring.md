@@ -226,6 +226,77 @@ No external wiring. The TF card slot is soldered to the board.
 
 ---
 
+## Power switch — hull-external on/off
+
+A standard magnetic reed switch cannot be placed directly in the battery circuit — motor peak current (20–60A) would destroy it. Use one of the two approaches below.
+
+### Option A — Commercial waterproof magnetic power switch (recommended)
+
+Purpose-built units for RC boats combine a sealed reed switch with a high-current MOSFET circuit. The reed switch carries only the gate signal (milliamps); the MOSFET handles full battery current. Features to look for:
+
+- **Current rating:** 30A continuous minimum; 60A+ preferred to handle motor stall
+- **Anti-spark:** built-in inrush current limiting protects the ESC capacitors and the connector
+- **Waterproof rating:** IP67 or better; mount the switch body inside the hull, flush against the hull wall so the external magnet can reach it
+
+Wiring: insert the switch in the positive wire between the battery T-plug and the parallel tap point where the ESC and UBEC share the battery feed.
+
+```
+  Battery (+) ──→ [Magnetic power switch] ──→ ESC input (+)
+                                          └──→ UBEC input (+)
+  Battery (−) ──────────────────────────────→ GND rail (no switch on negative)
+```
+
+> Never switch the negative/ground wire. Always switch the positive line only.
+
+### Option B — Reed switch switching UBEC only (simpler, lower safety margin)
+
+If a commercial switch is unavailable, a 3A-rated reed switch in the UBEC supply line is feasible — the UBEC load stays within spec. With the UBEC off, the ESP32 is off, the PCA9685 outputs no PWM, and the ESC holds neutral indefinitely.
+
+Tradeoffs vs Option A:
+- The battery remains connected to the ESC at all times (quiescent drain ~10–20 mA)
+- The motor circuit is live but inert — safe in practice, less clean in principle
+- No anti-spark protection on the main battery connection
+
+```
+  Battery (+) ──→ ESC input (+)                          (always connected)
+  Battery (+) ──→ [Reed switch, 3A rated] ──→ UBEC input (+)
+```
+
+---
+
+## Charging port — in-hull LiPo charging
+
+Charging a 3S LiPo requires two simultaneous connections to the charger:
+
+| Connection | Connector type | Carries |
+|---|---|---|
+| Main charge lead | T-plug (XT60 compatible) or XT30 | Charge current (up to ~5A at 1C) |
+| Balance lead | JST-XH 4-pin (3S standard) | Per-cell voltage sensing |
+
+### Recommended approach — cable gland with pigtail
+
+Mount a **waterproof cable gland** (PG7 or PG9 size) in the hull. Pass a short pigtail through it — a T-plug pigtail wired to the battery's main lead, and a JST-XH balance extension wired to the battery's balance tap. Both pigtails terminate outside the hull for charger connection.
+
+```
+  [Hull wall]
+  Outside: T-plug female ──→ [cable gland] ──→ Inside: wired to battery main lead (+/−)
+  Outside: JST-XH female ──→ [cable gland] ──→ Inside: wired to battery balance tap
+```
+
+When not charging, tuck the external pigtails into a small waterproof pouch or tape them against the hull. When charging, connect charger leads to the pigtails — no hull opening required.
+
+### Alternative — waterproof panel-mount connectors
+
+Mount two waterproof panel connectors in the hull (e.g. XT30 + JST-XH with O-ring seals). These provide a cleaner appearance but require finding connectors with adequate IP ratings and machining or 3D-printing a mounting plate.
+
+### Safety rules for charging
+
+- **Switch the boat off** (via the power switch) before connecting the charger. Do not charge while electronics are running — charge current and operating draw through the same wiring confuses the INA219 readings and can cause voltage spikes.
+- **Never charge unattended** or inside the sealed hull. LiPo thermal runaway produces gas and heat that can split a hull.
+- **Charge at 1C or less** through a cable gland — the wiring gauge (22–20 AWG) limits safe sustained current; 5A is the practical ceiling.
+
+---
+
 ## System block diagram
 
 ```mermaid
