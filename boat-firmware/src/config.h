@@ -65,6 +65,14 @@ constexpr uint16_t SERVO_PULSE_MAX_US = 2000;
 
 
 // =============================================================================
+// Bilge monitoring
+// =============================================================================
+namespace pins {
+constexpr uint8_t BILGE_SENSOR = 2;   // GPIO2 — float switch / probe, active LOW (internal pull-up)
+constexpr uint8_t BILGE_PUMP   = 3;   // GPIO3 — N-MOSFET gate driving the bilge pump
+}  // namespace pins
+
+// =============================================================================
 // WiFi Direct mode
 // =============================================================================
 #define WIFI_AP_SSID "darkandstormy"

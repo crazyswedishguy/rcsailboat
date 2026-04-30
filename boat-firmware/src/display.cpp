@@ -1,4 +1,5 @@
 #include "display.h"
+#include "bilge.h"
 #include "config.h"
 #include "elrs.h"
 #include "imu.h"
@@ -84,11 +85,7 @@ static lv_obj_t *s1_lbl_rudder = nullptr;
 static lv_obj_t *s1_lbl_sail   = nullptr;
 static lv_obj_t *s1_lbl_thr    = nullptr;
 static lv_obj_t *s1_lbl_temp   = nullptr;
-
-// ── Screen 1 — GPS extras (only when GPS is compiled in) ─────────────────────
-#ifdef GPS_ENABLED
-static lv_obj_t *s1_lbl_speed  = nullptr;
-#endif
+static lv_obj_t *s1_lbl_status = nullptr;   // capsize / bilge / OK
 
 // ── Screen 2 (Link detail) ────────────────────────────────────────────────────
 static lv_obj_t *s2_dot        = nullptr;   // status circle
@@ -388,10 +385,10 @@ static void build_tile_main(lv_obj_t *t)
     make_section(t, 330, "SYSTEM");
     s1_lbl_temp = make_label(t, 356, "MCU Temp: --\xC2\xB0""C");
 
-#ifdef GPS_ENABLED
-    make_section(t, 390, "NAVIGATION");
-    s1_lbl_speed = make_label(t, 416, "Speed: --.- km/h");
-#endif
+    make_section(t, 390, "STATUS");
+    s1_lbl_status = make_label_font(t, 10, 416, "Systems OK",
+                                    &lv_font_montserrat_14,
+                                    lv_palette_main(LV_PALETTE_GREEN));
 }
 
 static void build_tile_link(lv_obj_t *t)
@@ -812,10 +809,16 @@ void display_update()
     lv_label_set_text_fmt(s1_lbl_thr,    "Throttle: %+.3f", thr);
     lv_label_set_text_fmt(s1_lbl_temp, "MCU Temp: %.1f\xC2\xB0""C", temp);
     lv_obj_set_style_text_color(s1_lbl_temp, temp_c, LV_PART_MAIN);
-#ifdef GPS_ENABLED
-    lv_label_set_text_fmt(s1_lbl_speed, "Speed: %.1f km/h", spd_kmh);
-    lv_obj_set_style_text_color(s1_lbl_speed, spd_c, LV_PART_MAIN);
-#endif
+    if (imu_is_capsized()) {
+        lv_label_set_text(s1_lbl_status, "!! CAPSIZED !!");
+        lv_obj_set_style_text_color(s1_lbl_status, lv_palette_main(LV_PALETTE_RED), LV_PART_MAIN);
+    } else if (bilge_water_detected()) {
+        lv_label_set_text(s1_lbl_status, "BILGE WET");
+        lv_obj_set_style_text_color(s1_lbl_status, lv_palette_main(LV_PALETTE_ORANGE), LV_PART_MAIN);
+    } else {
+        lv_label_set_text(s1_lbl_status, "Systems OK");
+        lv_obj_set_style_text_color(s1_lbl_status, lv_palette_main(LV_PALETTE_GREEN), LV_PART_MAIN);
+    }
 
     // ── Screen 2: link detail ─────────────────────────────────────────────────
     lv_obj_set_style_bg_color(s2_dot, link_c, LV_PART_MAIN);

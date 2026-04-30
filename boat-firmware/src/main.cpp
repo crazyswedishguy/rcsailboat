@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 
+#include "bilge.h"
 #include "config.h"
 #include "display.h"
 #include "elrs.h"
@@ -28,6 +29,7 @@ void setup()
 
     display_init();     // SH8601 AMOLED via QSPI + LVGL (starts FreeRTOS render task)
     imu_init();         // QMI8658 6-axis IMU (shared I²C bus)
+    bilge_init();       // float switch (GPIO2) + pump MOSFET (GPIO3)
     servos_init();      // PCA9685 init + ESC arm sequence (blocks ~2 s at neutral)
     power_init();       // INA219 current sensor (safe no-op if not wired)
     sdlog_init();       // TF card CSV logger (SPI3; safe no-op if no card)
@@ -72,8 +74,11 @@ void loop()
     // Read INA219 power data.
     power_update();
 
-    // Update IMU orientation estimate.
+    // Update IMU orientation estimate and capsize detection.
     imu_update();
+
+    // Poll bilge sensor and drive pump relay.
+    bilge_update();
 
     // Poll FT3168 touch controller and cache result for LVGL (must run in main task).
     static unsigned long s_touch_ms = 0;

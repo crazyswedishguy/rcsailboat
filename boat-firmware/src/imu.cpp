@@ -1,5 +1,6 @@
 #include "imu.h"
 #include "config.h"
+#include <Arduino.h>
 #include <Wire.h>
 #include <math.h>
 
@@ -15,9 +16,14 @@
 #define QMI8658_CTRL7_ACCEL_EN 0x01
 #define QMI8658_ACCEL_SCALE    (8.0f / 32768.0f)  // g per LSB at ±8g
 
-static bool  s_ok    = false;
-static float s_roll  = 0.0f;
-static float s_pitch = 0.0f;
+#define CAPSIZE_ANGLE_DEG   110.0f
+#define CAPSIZE_DEBOUNCE_MS 2000
+
+static bool          s_ok            = false;
+static float         s_roll          = 0.0f;
+static float         s_pitch         = 0.0f;
+static bool          s_capsized      = false;
+static unsigned long s_capsize_start = 0;
 
 static bool qmi_write(uint8_t reg, uint8_t val)
 {
@@ -62,7 +68,19 @@ void imu_update()
     float gz = az * QMI8658_ACCEL_SCALE;
     s_roll  = atan2f(gy, gz) * (180.0f / (float)M_PI);
     s_pitch = atan2f(-gx, sqrtf(gy * gy + gz * gz)) * (180.0f / (float)M_PI);
+
+    if (fabsf(s_roll) > CAPSIZE_ANGLE_DEG) {
+        if (!s_capsize_start) s_capsize_start = millis();
+        if ((millis() - s_capsize_start) >= CAPSIZE_DEBOUNCE_MS && !s_capsized) {
+            s_capsized = true;
+            Serial.println("imu: CAPSIZE DETECTED");
+        }
+    } else {
+        s_capsize_start = 0;
+        s_capsized = false;
+    }
 }
 
-float imu_roll_deg()  { return s_roll; }
-float imu_pitch_deg() { return s_pitch; }
+float imu_roll_deg()    { return s_roll; }
+float imu_pitch_deg()   { return s_pitch; }
+bool  imu_is_capsized() { return s_capsized; }

@@ -1,4 +1,5 @@
 #include "sdlog.h"
+#include "bilge.h"
 #include "config.h"
 #include "elrs.h"
 #include "imu.h"
@@ -21,7 +22,8 @@ static bool     s_ready = false;
 static const char *CSV_HEADER =
     "millis_ms,gps_fix,lat,lng,speed_kmh,heading_deg,altitude_m,satellites,"
     "voltage_v,current_a,mah_used,roll_deg,pitch_deg,"
-    "lq_pct,rssi_dbm,rudder,sail,throttle,mcu_temp_c";
+    "lq_pct,rssi_dbm,rudder,sail,throttle,mcu_temp_c,"
+    "bilge_wet,capsized";
 
 static bool open_log_file()
 {
@@ -94,10 +96,12 @@ void sdlog_update()
     s_file.printf(
         "%lu,%d,%.7f,%.7f,%.2f,%.2f,%.1f,%u,"
         "%.3f,%.3f,%.1f,%.2f,%.2f,"
-        "%u,%u,%.3f,%.3f,%.3f,%.1f\n",
+        "%u,%u,%.3f,%.3f,%.3f,%.1f,"
+        "%d,%d\n",
         millis(), (int)gps_fix, lat, lng, spd, hdg, alt, (unsigned)sats,
         v, amps, mah, roll, pit,
-        lq, rssi, rud, sail, thr, temp);
+        lq, rssi, rud, sail, thr, temp,
+        (int)bilge_water_detected(), (int)imu_is_capsized());
 
     s_file.flush();
 }

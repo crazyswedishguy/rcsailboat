@@ -1,16 +1,31 @@
 #include "wifi_ctrl.h"
+#include "bilge.h"
 #include "config.h"
 #include "imu.h"
 #include "power.h"
+#include "sdlog.h"
 
 #include <Arduino.h>
+#include <SD.h>
 #include <WiFi.h>
 #include <WebServer.h>
+
+#ifdef GPS_ENABLED
+#include "gps.h"
+#endif
 
 // ── Control frame timeout ─────────────────────────────────────────────────────
 #define CTRL_TIMEOUT_MS 500
 
-// ── Embedded control page (served from Flash) ─────────────────────────────────
+// ── GPS track buffer (GPS_ENABLED only) ──────────────────────────────────────
+#ifdef GPS_ENABLED
+struct GpsPt { float lat; float lng; };
+static GpsPt         s_track[500];
+static int           s_track_len     = 0;
+static unsigned long s_track_last_ms = 0;
+#endif
+
+// ── Embedded control page ─────────────────────────────────────────────────────
 static const char HTML_PAGE[] PROGMEM = R"html(
 <!DOCTYPE html>
 <html>
@@ -36,6 +51,8 @@ input[type=range]{width:100%;height:42px;accent-color:#2dd4bf;cursor:pointer}
 .tc{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:9px;text-align:center}
 .tc .lb{font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px}
 .tc .vl{font-size:20px;font-weight:700;margin-top:3px}
+.row{display:flex;gap:8px;margin-top:10px}
+.btn2{flex:1;padding:12px;font-size:15px;font-weight:700;border:none;border-radius:8px;cursor:pointer;color:#e6edf3;text-align:center;text-decoration:none;display:block}
 </style>
 </head>
 <body>
@@ -63,9 +80,15 @@ input[type=range]{width:100%;height:42px;accent-color:#2dd4bf;cursor:pointer}
   <div class="tc"><div class="lb">Current</div><div class="vl" id="bc">---</div></div>
   <div class="tc"><div class="lb">Roll</div><div class="vl" id="rl">---</div></div>
   <div class="tc"><div class="lb">Pitch</div><div class="vl" id="pt">---</div></div>
+  <div class="tc"><div class="lb">Bilge</div><div class="vl" id="bg" style="font-size:15px">---</div></div>
+  <div class="tc"><div class="lb">Pump</div><div class="vl" id="pm" style="font-size:15px">---</div></div>
+</div>
+<div class="row" style="margin-top:14px">
+  <button id="pumpBtn" class="btn2" style="background:#374151" onclick="togglePump()">Pump: OFF</button>
+  <a href="/map" class="btn2" style="background:#1e3a5f;line-height:1.6">&#127754; Track Map</a>
 </div>
 <script>
-var armed=false;
+var armed=false, pumpOn=false;
 function toggleArm(){
   armed=!armed;
   var b=document.getElementById('armBtn');
@@ -75,6 +98,12 @@ function toggleArm(){
     ['r','s','t'].forEach(function(x){document.getElementById(x).value=0});
     ['rv','sv','tv'].forEach(function(x){document.getElementById(x).textContent='0'});
   }
+}
+function togglePump(){
+  pumpOn=!pumpOn;
+  fetch('/pump?on='+(pumpOn?1:0));
+  document.getElementById('pumpBtn').textContent='Pump: '+(pumpOn?'ON':'OFF');
+  document.getElementById('pumpBtn').style.background=pumpOn?'#166534':'#374151';
 }
 setInterval(function(){
   var r=document.getElementById('r').value;
@@ -94,11 +123,119 @@ setInterval(function(){
     .then(function(d){
       document.getElementById('bv').textContent=d.v!==undefined?d.v.toFixed(1)+'V':'---';
       document.getElementById('bc').textContent=d.a!==undefined?d.a.toFixed(2)+'A':'---';
-      document.getElementById('rl').textContent=d.roll!==undefined?d.roll.toFixed(1)+'°':'---';
-      document.getElementById('pt').textContent=d.pitch!==undefined?d.pitch.toFixed(1)+'°':'---';
+      document.getElementById('rl').textContent=d.roll!==undefined?d.roll.toFixed(1)+'\xb0':'---';
+      document.getElementById('pt').textContent=d.pitch!==undefined?d.pitch.toFixed(1)+'\xb0':'---';
     })
     .catch(function(){});
 },500);
+setInterval(function(){
+  fetch('/status')
+    .then(function(x){return x.json()})
+    .then(function(d){
+      var bg=document.getElementById('bg');
+      bg.textContent=d.wet?'WET ⚠':'DRY';
+      bg.style.color=d.wet?'#f59e0b':'#86efac';
+      document.getElementById('pm').textContent=d.pump?'ON':'OFF';
+      document.getElementById('pm').style.color=d.pump?'#f59e0b':'#86efac';
+      if(d.pump!==pumpOn){
+        pumpOn=d.pump;
+        document.getElementById('pumpBtn').textContent='Pump: '+(pumpOn?'ON':'OFF');
+        document.getElementById('pumpBtn').style.background=pumpOn?'#166534':'#374151';
+      }
+    })
+    .catch(function(){});
+},2000);
+</script>
+</body>
+</html>
+)html";
+
+// ── Embedded GPS track map page ───────────────────────────────────────────────
+static const char MAP_HTML[] PROGMEM = R"html(
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta charset="utf-8">
+<title>Track &mdash; Dark &amp; Stormy</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0d1117;color:#e6edf3;font-family:-apple-system,sans-serif}
+h2{margin:10px;font-size:18px;color:#2dd4bf}
+#info{margin:0 10px 6px;font-size:12px;color:#8b949e;min-height:16px}
+canvas{display:block;background:#161b22;margin:0 auto;border-radius:8px;max-width:100%}
+.row{display:flex;gap:8px;margin:10px;justify-content:center}
+.btn{padding:9px 18px;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:6px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block}
+</style>
+</head>
+<body>
+<h2>&#9973; GPS Track</h2>
+<div id="info">Loading&hellip;</div>
+<canvas id="cv"></canvas>
+<div class="row">
+  <span class="btn" onclick="load()">&#8635; Refresh</span>
+  <a href="/" class="btn">&#8592; Control</a>
+</div>
+<script>
+var pts=[];
+var cv=document.getElementById('cv');
+var ctx=cv.getContext('2d');
+function resize(){
+  var w=Math.min(window.innerWidth-20,480);
+  cv.width=w; cv.height=w;
+}
+resize();
+window.addEventListener('resize',function(){resize();draw();});
+function draw(){
+  var W=cv.width,H=cv.height;
+  ctx.fillStyle='#161b22'; ctx.fillRect(0,0,W,H);
+  if(pts.length<2){
+    ctx.fillStyle='#8b949e'; ctx.font='14px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(pts.length===0?'No GPS fix yet':'Collecting more points…',W/2,H/2);
+    return;
+  }
+  var lats=pts.map(function(p){return p[0];}),lngs=pts.map(function(p){return p[1];});
+  var minLat=Math.min.apply(null,lats),maxLat=Math.max.apply(null,lats);
+  var minLng=Math.min.apply(null,lngs),maxLng=Math.max.apply(null,lngs);
+  var dLat=maxLat-minLat||0.0001,dLng=maxLng-minLng||0.0001;
+  var pad=24;
+  function tx(lng){return pad+(lng-minLng)/dLng*(W-2*pad);}
+  function ty(lat){return H-pad-(lat-minLat)/dLat*(H-2*pad);}
+  // Grid lines
+  ctx.strokeStyle='#21262d'; ctx.lineWidth=1;
+  for(var i=0;i<=4;i++){
+    var gx=pad+i*(W-2*pad)/4,gy=pad+i*(H-2*pad)/4;
+    ctx.beginPath();ctx.moveTo(gx,pad);ctx.lineTo(gx,H-pad);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(pad,gy);ctx.lineTo(W-pad,gy);ctx.stroke();
+  }
+  // Track polyline
+  ctx.beginPath();
+  ctx.moveTo(tx(pts[0][1]),ty(pts[0][0]));
+  for(var i=1;i<pts.length;i++) ctx.lineTo(tx(pts[i][1]),ty(pts[i][0]));
+  ctx.strokeStyle='#2dd4bf'; ctx.lineWidth=2; ctx.lineJoin='round'; ctx.stroke();
+  // Start dot (green)
+  ctx.fillStyle='#22c55e';
+  ctx.beginPath(); ctx.arc(tx(pts[0][1]),ty(pts[0][0]),5,0,2*Math.PI); ctx.fill();
+  // Latest dot (amber)
+  var l=pts[pts.length-1];
+  ctx.fillStyle='#f59e0b';
+  ctx.beginPath(); ctx.arc(tx(l[1]),ty(l[0]),5,0,2*Math.PI); ctx.fill();
+}
+function load(){
+  document.getElementById('info').textContent='Loading…';
+  fetch('/track').then(function(r){return r.json();}).then(function(d){
+    pts=d;
+    var msg=pts.length+' point'+(pts.length!==1?'s':'');
+    if(pts.length>0){
+      var l=pts[pts.length-1];
+      msg+=' — latest: '+l[0].toFixed(5)+', '+l[1].toFixed(5);
+    }
+    document.getElementById('info').textContent=msg;
+    draw();
+  }).catch(function(){document.getElementById('info').textContent='Error loading track.';});
+}
+load();
+setInterval(load,5000);
 </script>
 </body>
 </html>
@@ -127,6 +264,11 @@ static void handle_root()
     s_srv.send_P(200, "text/html; charset=utf-8", HTML_PAGE);
 }
 
+static void handle_map()
+{
+    s_srv.send_P(200, "text/html; charset=utf-8", MAP_HTML);
+}
+
 static void handle_control()
 {
     float r =  s_srv.arg("r").toFloat() / 100.0f;
@@ -153,6 +295,62 @@ static void handle_telemetry()
     s_srv.send(200, "application/json", buf);
 }
 
+static void handle_status()
+{
+    char buf[64];
+    snprintf(buf, sizeof(buf),
+             "{\"wet\":%s,\"pump\":%s,\"capsized\":%s}",
+             bilge_water_detected() ? "true"  : "false",
+             bilge_pump_active()    ? "true"  : "false",
+             imu_is_capsized()      ? "true"  : "false");
+    s_srv.send(200, "application/json", buf);
+}
+
+static void handle_pump()
+{
+    bool on = s_srv.hasArg("on") && s_srv.arg("on") == "1";
+    bilge_pump_set(on);
+    s_srv.send(200, "text/plain", "OK");
+}
+
+static void handle_track()
+{
+#ifdef GPS_ENABLED
+    // Build a compact JSON array: [[lat,lng],...]
+    // Reserve ~20 chars per point + brackets.
+    String json;
+    json.reserve(s_track_len * 22 + 4);
+    json = "[";
+    for (int i = 0; i < s_track_len; i++) {
+        if (i) json += ",";
+        char pt[24];
+        snprintf(pt, sizeof(pt), "[%.6f,%.6f]", s_track[i].lat, s_track[i].lng);
+        json += pt;
+    }
+    json += "]";
+    s_srv.send(200, "application/json", json);
+#else
+    s_srv.send(200, "application/json", "[]");
+#endif
+}
+
+// Serves /tiles/{z}/{x}/{y}.png from the SD card (if mounted).
+// All other unrecognised paths get a plain 404.
+static void handle_not_found()
+{
+    String path = s_srv.uri();
+    if (path.startsWith("/tiles/") && sdlog_is_ready()) {
+        File f = SD.open(path.c_str());
+        if (f && !f.isDirectory()) {
+            s_srv.streamFile(f, "image/png");
+            f.close();
+            return;
+        }
+        if (f) f.close();
+    }
+    s_srv.send(404, "text/plain", "Not found");
+}
+
 // ── AP lifecycle ──────────────────────────────────────────────────────────────
 static void start_ap()
 {
@@ -162,8 +360,13 @@ static void start_ap()
                   WIFI_AP_SSID, WiFi.softAPIP().toString().c_str());
 
     s_srv.on("/",          handle_root);
+    s_srv.on("/map",       handle_map);
     s_srv.on("/control",   handle_control);
     s_srv.on("/telemetry", handle_telemetry);
+    s_srv.on("/status",    handle_status);
+    s_srv.on("/pump",      handle_pump);
+    s_srv.on("/track",     handle_track);
+    s_srv.onNotFound(handle_not_found);
     s_srv.begin();
 
     // Reset timeout so we don't immediately failsafe on mode entry
@@ -211,6 +414,16 @@ void wifi_ctrl_update()
 
     s_srv.handleClient();
     s_clients = (uint8_t)WiFi.softAPgetStationNum();
+
+#ifdef GPS_ENABLED
+    // Record a track point every 5 s when we have a GPS fix.
+    if (gps_has_fix() && (millis() - s_track_last_ms) >= 5000) {
+        s_track_last_ms = millis();
+        if (s_track_len < 500) {
+            s_track[s_track_len++] = { (float)gps_lat(), (float)gps_lng() };
+        }
+    }
+#endif
 }
 
 void wifi_ctrl_set_mode(CtrlMode m)
