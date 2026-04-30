@@ -6,36 +6,33 @@ Complete connection guide for the RC sailboat bench assembly. Pin numbers are GP
 
 ## Power architecture
 
-The boat runs from a **3S LiPo** (11.1 V nominal, 9.0–12.6 V range, T-Plug connector). The Quicrun 1060 ESC has a built-in **SBEC (Switching BEC)** that outputs 6 V / 3 A — this powers all electronics except the motor.
+The boat runs from a **3S LiPo** (11.1 V nominal, 9.0–12.6 V range, T-Plug connector). A dedicated **10A UBEC** (set to 6V) is the sole electronics power source — it feeds both the servo rail and the 5V buck converter. The Quicrun 1060 ESC handles motor control only; its built-in SBEC red wire is left **disconnected** from the servo rail to prevent a BEC voltage conflict.
 
 ```
   3S LiPo ──→ Quicrun 1060 ESC ──→ Motor
-               │ SBEC out (6V / 3A)
-               └──→ INA219 ──→ PCA9685 V+ (servo rail) ──→ Rudder servo
-                                                        └──→ Sail winch servo
-
-  3S LiPo ──→ 5V Buck converter ──→ ESP32 (USB-C), PCA9685 VCC
-                                 └──→ INA219, BN-880, ELRS receiver (via ESP32 3.3V)
+  3S LiPo ──→ 10A UBEC (6V) ──→ INA219 ──→ PCA9685 V+ (servo rail) ──→ Rudder servo
+                             │                                        └──→ Sail winch servo
+                             └──→ 5V Buck converter ──→ ESP32 (USB-C), PCA9685 VCC, ELRS receiver
+                                                    └──→ INA219, BN-880 (via ESP32 3.3V)
 ```
 
 | Rail | Voltage | Source | Consumers |
 |---|---|---|---|
 | Motor | 9–12.6 V (direct battery) | Quicrun 1060 ESC | Brushed drive motor |
-| Servo power | 6 V | ESC SBEC (via INA219 shunt) | PCA9685 V+ rail, all servo power pins |
-| Logic 5 V | 5 V | 3A 5V buck converter (direct from 3S battery) | ESP32 board (via USB-C), PCA9685 VCC |
-| Logic 3.3 V | 3.3 V | ESP32 onboard regulator | INA219, BN-880 GPS/compass, ELRS receiver |
+| Servo power | 6 V | 10A UBEC (via INA219 shunt) | PCA9685 V+ rail, all servo power pins |
+| Logic 5 V | 5 V | 3A 5V buck converter (fed from UBEC 6V output) | ESP32 (via USB-C), PCA9685 VCC, ELRS receiver |
+| Logic 3.3 V | 3.3 V | ESP32 onboard regulator | INA219, BN-880 GPS/compass |
 
-### SBEC current budget (3A limit — keep total below this)
+### UBEC power budget (10A rated — total load is well within spec)
 
 | Load | Typical draw | Peak draw |
 |---|---|---|
-| Rudder servo (standard RC) | 100–200 mA | ~500 mA |
+| Rudder servo | 100–200 mA | ~500 mA |
 | Sail winch servo | 200–500 mA | ~1.5–2 A |
-| **Total** | **~300–700 mA** | **~2–2.5 A** |
+| 5V buck converter (all logic + ELRS) | ~400 mA | ~600 mA |
+| **Total** | **~700 mA–1.1 A** | **~2.5–3 A** |
 
-Logic power (ESP32, PCA9685 VCC) is drawn directly from the battery via the buck converter and does not count against this budget. The SBEC has thermal protection and will reduce output rather than fail permanently, but a brownout will momentarily kill the servos.
-
-> **If the boat will use a high-torque sail winch servo (e.g. HS-785HB or similar >1 A continuous), consider adding a separate UBEC to supplement the SBEC on the servo rail. See the [Optional UBEC supplement](#optional-ubec-supplement) section at the bottom.**
+The 10A UBEC runs at ~10–30% load under normal conditions, so its output stays solidly at 6V with minimal ripple. This clean, regulated 6V is what makes feeding the buck converter from the UBEC (rather than directly from the battery) the better choice: the UBEC absorbs battery-side motor noise before it reaches the logic supply.
 
 ### Wire gauges
 
@@ -43,10 +40,37 @@ Logic power (ESP32, PCA9685 VCC) is drawn directly from the battery via the buck
 |---|---|---|
 | Battery → ESC (T-Plug) | 14–12 AWG silicone | Motor can draw 20+ A |
 | ESC → motor | 14–12 AWG silicone | Same high current path |
-| Battery → buck converter input | 22–20 AWG | <500 mA logic load |
-| ESC SBEC out → INA219 → PCA9685 V+ | 20–18 AWG | Up to 2.5 A servo rail |
+| Battery → UBEC input | 16–14 AWG silicone | UBEC rated 10A; wire to match |
+| UBEC out → INA219 → PCA9685 V+ | 20–18 AWG | Up to 3A servo + logic load |
+| UBEC out → buck converter input | 22–20 AWG | <600 mA logic load |
 | Buck output → ESP32 USB-C | 22–20 AWG | <500 mA |
+| Buck output → ELRS receiver | 22–20 AWG | <200 mA |
 | Signal and I²C wires | 24–26 AWG | Low current only |
+
+### Ferrite cores and motor noise suppression
+
+Brushed motors generate significant wideband RF noise from commutator sparking. This noise propagates back through the motor wires, through the ESC, and onto the battery line where it can reach other electronics. Address it at the source first, then at sensitive receivers.
+
+**Motor capacitors (most effective, do this first):**
+
+Solder three 100 nF ceramic capacitors (X7R or similar, rated ≥25V) directly at the motor terminals:
+- One cap across the two motor terminals
+- One cap from each motor terminal to the motor case/body (must have metal case or ground tab)
+
+This is standard practice for brushed motors in RC vehicles and suppresses the highest-frequency commutator noise more effectively than ferrites alone.
+
+**Ferrite rings (use in addition to capacitors):**
+
+| Location | Priority | How to apply |
+|---|---|---|
+| Motor wires (ESC → motor) | **Critical** | 3–5 turns of each wire through a Type 31 or Type 43 ferrite ring, as close to the motor as possible |
+| Battery leads to ESC | **High** | 2–3 turns through a ferrite ring close to the ESC input, to stop back-propagation onto the battery bus |
+| ELRS receiver power wire | **High** | Single pass or 2 turns; ELRS operates at 2.4 GHz and motor EMI can desensitize it |
+| Buck converter output to ESP32 | **Medium** | Single pass; filters switching noise from the buck converter itself |
+| GPS UART wires (BN-880) | **Low** | Single pass if experiencing GPS dropouts; usually not needed |
+| I²C wires, servo signal wires | **Not needed** | I²C is robust; servo PWM at 50 Hz is not affected by RF noise |
+
+Suitable ferrite rings: Fair-Rite 0431164281 (Type 31, snap-on), or any 5–10mm clip-on ferrite suitable for wire gauge in use. You do not need large or expensive ferrites for these signal and low-power wires.
 
 ---
 
@@ -58,23 +82,38 @@ Logic power (ESP32, PCA9685 VCC) is drawn directly from the battery via the buck
 | Motor A (large red wire) | Motor terminal 1 | Swap A/B if motor spins the wrong way |
 | Motor B (large black wire) | Motor terminal 2 | |
 | 3-pin connector — signal (white/orange) | PCA9685 Ch2 signal pin | PWM signal from PCA9685 to ESC |
-| 3-pin connector — +BEC (red) | PCA9685 V+ rail | **SBEC power output — leave this connected** |
+| 3-pin connector — +BEC (red) | **Leave unconnected** | **SBEC not used — UBEC owns the servo rail. Connecting both causes a BEC conflict. Tape off or cut this wire.** |
 | 3-pin connector — GND (black/brown) | GND rail | Common ground |
 
-> The ESC's 3-pin servo connector is the output of the SBEC. Plugging it into the PCA9685 Ch2 header naturally feeds the SBEC's 6V output onto the PCA9685 V+ bus, which powers all servos. The signal wire goes from PCA9685 to the ESC; the power wire goes from ESC SBEC back to PCA9685.
+> Only the signal and GND wires from the ESC 3-pin connector are used. The red +BEC wire must not be connected to any rail — the UBEC already supplies 6V to the PCA9685 V+ bus, and connecting the SBEC in parallel would cause two voltage regulators to fight over the same rail.
+
+---
+
+## UBEC — Waterproof 10A, 6V output
+
+The UBEC connects in parallel with the ESC directly to the 3S battery. Set its output to **6V** before wiring. It is the sole power source for all electronics — servos, logic, and sensors.
+
+| UBEC connection | Connects to | Notes |
+|---|---|---|
+| Input + | 3S LiPo + (parallel with ESC) | Use 16–14 AWG silicone wire |
+| Input − | GND rail | |
+| Output + (6V) | INA219 V+ | In-series current monitoring before the servo rail |
+| Output + (6V) | 5V buck converter input + | Logic supply chain |
+| Output − | GND rail | |
 
 ---
 
 ## 5V Buck converter — 3A, 5V-30V in → 5V out
 
-Powers the ESP32 and logic devices. Input is wired **directly to the 3S battery** (in parallel with the ESC), not to the SBEC output. The SBEC only outputs 6V, leaving just 1V of headroom; if it sags under servo load the buck converter loses regulation. Taking input from the battery (9–12.6V) gives 4–7.6V of headroom and ensures the logic rail stays stable regardless of what the servos are doing.
+Powers the ESP32 and all logic devices. Input comes from the **UBEC's 6V output**, not directly from the battery. The UBEC, running at only 10–30% of its 10A capacity, holds its output solidly at 6V — giving the buck converter a clean, stable, pre-filtered input. Taking input from the UBEC (rather than the raw battery) means motor switching noise is absorbed by the UBEC before it can reach the logic supply.
 
 | Buck converter connection | Connects to | Notes |
 |---|---|---|
-| Input + | 3S LiPo + (in parallel with ESC input) | 9–12.6 V; plenty of headroom |
+| Input + | UBEC output + (6V) | Tap at the same point as the servo rail or via a short branch wire |
 | Input − | GND rail | |
 | Output + (5 V) | ESP32 USB-C VBUS | Use a USB-C power pigtail or cable |
 | Output + (5 V) | PCA9685 VCC | Logic supply for the PCA9685 IC |
+| Output + (5 V) | ELRS receiver VCC | See ELRS section below |
 | Output − | GND rail | |
 
 > **Powering the ESP32:** The Waveshare AMOLED board accepts 5 V via its USB-C port. Connect the buck converter's 5 V output to a short USB-C cable or pigtail (VBUS + GND only — no data lines needed). Do not connect a LiPo to the MX1.25 battery connector at the same time.
@@ -85,7 +124,7 @@ Powers the ESP32 and logic devices. Input is wired **directly to the 3S battery*
 
 ## INA219 current sensor — electronics rail only
 
-The INA219's default 0.1 Ω shunt is rated for ~3.2 A. The motor draws 20–60 A through the ESC and must never be measured by the INA219. Wire the INA219 in series on the **SBEC output line** to monitor electronics + servo current, which stays within spec.
+The INA219's default 0.1 Ω shunt is rated for ~3.2 A. The motor draws 20–60 A through the ESC and must never be measured by the INA219. Wire the INA219 in series on the **UBEC output line** to monitor combined servo + logic current (~0.7–3A range), which stays within the shunt's spec.
 
 | INA219 connection | Connects to | Notes |
 |---|---|---|
@@ -93,8 +132,8 @@ The INA219's default 0.1 Ω shunt is rated for ~3.2 A. The motor draws 20–60 A
 | GND | GND | |
 | SDA | GPIO47 | Shared I²C bus |
 | SCL | GPIO48 | Shared I²C bus |
-| V+ | SBEC output (6 V) | Before servo rail — high side of shunt |
-| V− | PCA9685 V+ and all servo power | After shunt — current flows V+ → shunt → V− → loads |
+| V+ | UBEC output + (6 V) | High side of shunt — before servo rail and buck converter |
+| V− | PCA9685 V+ rail and buck converter input | After shunt — current flows V+ → shunt → V− → all loads |
 | A0 pad | **Bridge to VS** | Shifts I²C address 0x40 → 0x41 (avoids clash with PCA9685) |
 
 ---
@@ -107,7 +146,7 @@ One bus carries all I²C devices. Connect SDA and SCL in parallel across every d
 |---|---|---|---|
 | FT3168 touch | Onboard | 0x38 | Onboard — no wiring needed |
 | QMI8658 IMU | Onboard | 0x6A or 0x6B | Onboard — no wiring needed |
-| PCA9685 servo driver | Teyleten Robot PCA9685 breakout | **0x40** | VCC: 5 V (from buck); V+: 6 V (from ESC SBEC) |
+| PCA9685 servo driver | Teyleten Robot PCA9685 breakout | **0x40** | VCC: 5 V (from buck); V+: 6 V (from UBEC via INA219) |
 | INA219 current sensor | External breakout | **0x41** | VCC: 3.3 V — A0 pad must be bridged |
 | HMC5883L compass | On BN-880 GPS module | **0x1E** | VCC: 3.3 V |
 
@@ -125,7 +164,7 @@ The PCA9685 has two separate power inputs:
 | GND | GND | |
 | SDA | GPIO47 | I²C data |
 | SCL | GPIO48 | I²C clock |
-| V+ | SBEC output (after INA219 shunt) | Servo power rail — 6 V |
+| V+ | UBEC output (after INA219 shunt) | Servo power rail — 6 V |
 | GND (power rail) | GND | Must share GND with ESP32 |
 | /OE | GND | Tie low for always-enabled outputs |
 
@@ -147,7 +186,7 @@ The PCA9685 has two separate power inputs:
 | MCU RX ← Rx TX | GPIO16 | TX | |
 | MCU TX → Rx RX | GPIO17 | RX | Required for telemetry passthrough |
 | GND | GND | GND | |
-| Power | 3.3 V (from ESP32) | VCC | Most modern ELRS receivers are 3.3 V tolerant — check datasheet |
+| Power | **5 V (from buck converter output)** | VCC | Most ELRS receivers are rated 4.5–6V. Do not power from ESP32 3.3V — this is below most receivers' operating range. Verify your specific receiver's datasheet. |
 
 ---
 
@@ -192,25 +231,28 @@ No external wiring. The TF card slot is soldered to the board.
 ```mermaid
 graph TD
     LIPO["3S LiPo\n11.1 V T-Plug"]
+    UBEC["10A UBEC\n6V regulated"]
 
-    LIPO -->|T-Plug\nheavy gauge| ESC["Quicrun 1060\nBrushed ESC\nSBEC 6V/3A"]
+    LIPO -->|T-Plug heavy gauge| ESC["Quicrun 1060\nBrushed ESC\n(motor only — SBEC not used)"]
+    LIPO -->|parallel tap\n16-14 AWG| UBEC
     ESC -->|motor wires| MOTOR["Brushed motor"]
 
-    ESC -->|SBEC 6V\n3-pin red wire| INA_VIN["INA219 V+"]
-    INA_VIN -->|0.1Ω shunt| INA_VOUT["INA219 V−\n= servo rail 6V"]
+    UBEC -->|6V| INA_VIN["INA219 V+"]
+    INA_VIN -->|0.1Ω shunt| INA_VOUT["INA219 V−\n= electronics rail 6V"]
 
-    LIPO -->|direct from battery\n22-20 AWG| BUCK["5V Buck\n3A converter"]
     INA_VOUT --> PCA_V["PCA9685 V+\nservo power rail"]
+    INA_VOUT --> BUCK["5V Buck\n3A converter"]
 
     PCA_V --> RUDDER["Rudder servo\nCh0"]
     PCA_V --> SAIL["Sail winch\nCh1"]
 
-    ESC -->|signal wire\n3-pin white| PCA_CH2["PCA9685 Ch2\nESC signal"]
+    ESC -->|signal wire\n3-pin white only| PCA_CH2["PCA9685 Ch2\nESC signal"]
 
     BUCK -->|5V via USB-C| ESP["ESP32-S3\nWaveshare AMOLED 1.64"]
     BUCK -->|5V| PCA_VCC["PCA9685 VCC\nlogic"]
+    BUCK -->|5V| ELRS_RX["ELRS receiver"]
 
-    ESP -->|3.3V| SENSORS["INA219 VCC\nBN-880 VCC\nELRS RX VCC"]
+    ESP -->|3.3V| SENSORS["INA219 VCC\nBN-880 VCC"]
 
     ESP <-->|I2C\nGPIO47 SDA / GPIO48 SCL| I2C_BUS["I²C bus"]
     I2C_BUS --- PCA["PCA9685\n0x40"]
@@ -219,7 +261,7 @@ graph TD
     I2C_BUS --- TOUCH["FT3168 touch\n0x38 (onboard)"]
     I2C_BUS --- IMU["QMI8658 IMU\n0x6A/6B (onboard)"]
 
-    ESP <-->|UART1\nGPIO16/17 420kbaud| ELRS_RX["ELRS receiver"]
+    ESP <-->|UART1 signal\nGPIO16/17 420kbaud| ELRS_RX
     ELRS_RX <-->|2.4 GHz RF| ELRS_TX["ELRS TX module\non Pi"]
 
     ESP <-->|UART2\nGPIO15/18 9600baud| BN880["BN-880 GPS"]
@@ -234,17 +276,6 @@ graph TD
 
 ---
 
-## Optional UBEC supplement
-
-If a high-torque sail winch servo is fitted and the SBEC 3A limit feels too tight, a separate UBEC can be added **in parallel** on the servo power rail to supplement the SBEC. In that case:
-
-1. Do **not** disconnect the ESC's red wire — the SBEC still powers the electronics via the buck converter.
-2. Connect the UBEC output+ to the PCA9685 V+ rail alongside the SBEC.
-3. Match the UBEC output voltage to the SBEC (both set to 6V) — mismatched voltages cause the higher-voltage source to back-feed the lower, which wastes power and can damage the lower-voltage BEC.
-4. A Schottky diode (e.g. 1N5822, 3A) on each BEC's output+ before the shared rail prevents back-feeding if voltages drift slightly. Voltage drop across the diode (~0.3V) means the rail settles at ~5.7V, which is still fine for servos.
-
----
-
 ## Prompt for a visual wiring diagram
 
 Paste the following into Claude.ai (or any capable AI chat) to get a hand-drawn style visual diagram. You can also attach this file for full context.
@@ -255,7 +286,7 @@ Paste the following into Claude.ai (or any capable AI chat) to get a hand-drawn 
 I need a clear, easy-to-read visual wiring diagram for a remote-controlled sailboat electronics assembly.
 Draw it in a breadboard/schematic style with labeled wires and component silhouettes. Use distinct colors:
   • Dark red / thick = main battery (3S LiPo, high current)
-  • Orange = 6 V servo rail (from ESC SBEC)
+  • Orange = 6 V servo rail (from UBEC)
   • Yellow = 5 V logic rail (from buck converter)
   • Red thin = 3.3 V (from ESP32 regulator)
   • Black = GND
@@ -265,35 +296,40 @@ Draw it in a breadboard/schematic style with labeled wires and component silhoue
 
 Components:
   1. 3S LiPo battery, T-Plug connector (label: 11.1V)
-  2. HOBBYWING Quicrun 1060 Brushed ESC (T-Plug input, two heavy motor output wires, 3-pin servo connector with signal/+BEC/GND)
+  2. HOBBYWING Quicrun 1060 Brushed ESC (T-Plug input, two heavy motor output wires, 3-pin servo connector — signal and GND used; red BEC wire taped off and NOT connected)
   3. Brushed DC motor
-  4. 3A 5V buck converter (input direct from 3S battery, output 5V)
-  5. Waveshare ESP32-S3-Touch-AMOLED-1.64 dev board (USB-C port for 5V power input)
-  6. Teyleten Robot PCA9685 16-channel PWM servo driver breakout (VCC pin for 5V logic, V+ pin for 6V servo power)
-  7. INA219 current sensor breakout (A0 jumper bridged; in series on SBEC output line before PCA9685 V+)
-  8. BN-880 GPS module (UART pins + separate I2C compass pads)
-  9. ELRS receiver module
-  10. Bilge float switch sensor
-  11. Relay module for bilge pump
+  4. Waterproof 10A UBEC set to 6V output (T-Plug or bare wire input from battery, positive and negative output terminals)
+  5. 3A 5V buck converter (input from UBEC 6V output, output 5V)
+  6. Waveshare ESP32-S3-Touch-AMOLED-1.64 dev board (USB-C port for 5V power input)
+  7. Teyleten Robot PCA9685 16-channel PWM servo driver breakout (VCC pin for 5V logic, V+ pin for 6V servo power)
+  8. INA219 current sensor breakout (A0 jumper bridged; in series on UBEC output before the servo rail / buck converter split)
+  9. BN-880 GPS module (UART pins + separate I2C compass pads)
+  10. ELRS receiver module
+  11. Bilge float switch sensor
+  12. Relay module for bilge pump
 
 Power connections (use thick lines for high-current paths):
   Battery T-Plug → ESC T-Plug (thick dark red)
+  Battery → UBEC input (thick dark red, parallel with ESC)
   ESC motor wires → motor (thick dark red)
 
   ESC 3-pin connector:
-    +BEC (red wire) → INA219 V+ (orange, 6V)
-    INA219 V− → PCA9685 V+ servo rail (orange, 6V)
     Signal (white wire) → PCA9685 Ch2 signal pin (grey/white, thin)
     GND (black) → GND rail
+    +BEC red wire → TAPED OFF, not connected
+
+  UBEC output+ → INA219 V+ (orange, 6V)
+  INA219 V− → PCA9685 V+ servo rail (orange, 6V)
+  INA219 V− → buck converter input+ (orange, branch wire)
 
   PCA9685 V+ rail (6V) → rudder servo power pin, sail winch servo power pin
 
-  Battery + → buck converter input+ (in parallel with ESC, 22-20 AWG)
   Buck converter output 5V → ESP32 USB-C VBUS (yellow, use USB-C pigtail)
   Buck converter output 5V → PCA9685 VCC pin
+  Buck converter output 5V → ELRS receiver VCC
   Buck converter GND → GND rail
 
-  ESP32 3.3V → INA219 VCC, BN-880 VCC, ELRS receiver VCC (thin red)
+  ESP32 3.3V → INA219 VCC, BN-880 VCC (thin red)
 
 I2C bus (SDA=GPIO47, SCL=GPIO48 on ESP32):
   Connect in parallel to: PCA9685 (0x40), INA219 (0x41, A0 bridged), BN-880 compass (0x1E)
@@ -313,9 +349,10 @@ GPIO:
   GPIO3 (output) → relay IN → relay switches bilge pump from 6V servo rail
 
 Important callouts:
-  ⚠ ESC SBEC (6V/3A) powers servos only — buck converter draws from battery directly, not from SBEC
-  ⚠ INA219 shunt measures electronics/servo current ONLY — motor current is NOT measured
-  ⚠ PCA9685 VCC must be 5V from buck — do NOT connect 6V SBEC directly to VCC pin (max 5.5V)
+  ⚠ ESC SBEC red wire must be taped off and NOT connected — UBEC owns the servo rail; connecting both BECs causes a voltage conflict
+  ⚠ INA219 measures servo + logic current only — motor current bypasses it entirely through the ESC
+  ⚠ PCA9685 VCC must be 5V from buck — do NOT connect 6V UBEC directly to VCC (max 5.5V)
+  ⚠ ELRS receiver VCC must be 5V from buck — not 3.3V from ESP32
   ⚠ Do NOT connect 3S battery to ESP32 MX1.25 LiPo port (BAT_ADC calibrated for 3.7V only)
 
 Target audience: electronics hobbyist wiring this for the first time. Make high-current wires visually thicker than signal wires.
