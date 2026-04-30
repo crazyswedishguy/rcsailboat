@@ -6,16 +6,22 @@ Saves tiles as:  <output_dir>/{z}/{x}/{y}.png
 Copy the output directory to the SD card root as  tiles/
 The boat firmware serves them at:  http://192.168.4.1/tiles/{z}/{x}/{y}.png
 
-Usage: python tile_downloader.py
+GUI mode (default, requires a display):
+    python tile_downloader.py
+
+Headless / CLI mode (works over SSH, no display needed):
+    python tile_downloader.py --north 51.52 --south 51.48 --west -0.12 --east -0.08 \
+                              --zoom-min 14 --zoom-max 16 --output ./tiles
+
 Requires: pip install requests
 """
 
+import argparse
 import math
 import os
+import sys
 import threading
 import time
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
 
 import requests
 
@@ -43,189 +49,27 @@ def count_tiles(n_lat: float, s_lat: float, w_lng: float, e_lng: float,
     return total
 
 
-class App(tk.Tk):
-    def __init__(self) -> None:
-        super().__init__()
-        self.title("RC Sailboat — Map Tile Downloader")
-        self.resizable(False, False)
-        self._running = False
-        self._build_ui()
+# ── CLI / headless mode ───────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        PAD = 12
-        frm = ttk.Frame(self, padding=PAD)
-        frm.grid(row=0, column=0, sticky="nsew")
+def download_headless(n: float, s: float, w: float, e: float,
+                      z_min: int, z_max: int, outdir: str) -> None:
+    total = count_tiles(n, s, w, e, z_min, z_max)
+    secs = total * RATE_LIMIT_S
+    print(f"Bounding box: N={n} S={s} W={w} E={e}")
+    print(f"Zoom {z_min}–{z_max}  |  ~{total:,} tiles  |  est. {secs/60:.0f} min")
+    print(f"Output: {os.path.abspath(outdir)}")
+    print("Press Ctrl-C to stop.\n")
 
-        # ── Bounding box ──────────────────────────────────────────────────────
-        ttk.Label(frm, text="Bounding box (decimal degrees):").grid(
-            row=0, column=0, columnspan=4, sticky="w", pady=(0, 4))
+    session = requests.Session()
+    session.headers["User-Agent"] = USER_AGENT
+    done = skipped = errors = 0
 
-        fields = [
-            ("North lat", "_north", ""),
-            ("South lat", "_south", ""),
-            ("West lng",  "_west",  ""),
-            ("East lng",  "_east",  ""),
-        ]
-        for col, (label, attr, default) in enumerate(fields):
-            ttk.Label(frm, text=label).grid(row=1, column=col, padx=4)
-            var = tk.StringVar(value=default)
-            setattr(self, attr, var)
-            ttk.Entry(frm, textvariable=var, width=13).grid(row=2, column=col, padx=4)
-
-        # ── Zoom range ────────────────────────────────────────────────────────
-        ttk.Label(frm, text="Zoom levels:").grid(
-            row=3, column=0, columnspan=4, sticky="w", pady=(12, 4))
-        zfrm = ttk.Frame(frm)
-        zfrm.grid(row=4, column=0, columnspan=4, sticky="w")
-        ttk.Label(zfrm, text="Min").pack(side="left")
-        self._z_min = tk.IntVar(value=14)
-        ttk.Spinbox(zfrm, from_=1, to=19, textvariable=self._z_min,
-                    width=5, wrap=False).pack(side="left", padx=4)
-        ttk.Label(zfrm, text="Max").pack(side="left", padx=(14, 0))
-        self._z_max = tk.IntVar(value=16)
-        ttk.Spinbox(zfrm, from_=1, to=19, textvariable=self._z_max,
-                    width=5, wrap=False).pack(side="left", padx=4)
-        ttk.Label(zfrm, text="(zoom 14–16 is a good default for local sailing)",
-                  foreground="gray").pack(side="left", padx=(10, 0))
-
-        # ── Output directory ──────────────────────────────────────────────────
-        ttk.Label(frm, text="Output directory:").grid(
-            row=5, column=0, columnspan=4, sticky="w", pady=(12, 4))
-        ofrm = ttk.Frame(frm)
-        ofrm.grid(row=6, column=0, columnspan=4, sticky="ew")
-        self._outdir = tk.StringVar(value="tiles")
-        ttk.Entry(ofrm, textvariable=self._outdir, width=40).pack(
-            side="left", expand=True, fill="x")
-        ttk.Button(ofrm, text="Browse…", command=self._browse).pack(
-            side="left", padx=(6, 0))
-
-        # ── Action buttons ────────────────────────────────────────────────────
-        bfrm = ttk.Frame(frm)
-        bfrm.grid(row=7, column=0, columnspan=4, pady=12, sticky="ew")
-        ttk.Button(bfrm, text="Count tiles",
-                   command=self._count).pack(side="left", padx=(0, 6))
-        self._dl_btn = ttk.Button(bfrm, text="Download",
-                                  command=self._start)
-        self._dl_btn.pack(side="left", padx=6)
-        self._stop_btn = ttk.Button(bfrm, text="Stop",
-                                    command=self._stop, state="disabled")
-        self._stop_btn.pack(side="left", padx=6)
-
-        # ── Status / progress ─────────────────────────────────────────────────
-        self._status = tk.StringVar(value="Ready.")
-        ttk.Label(frm, textvariable=self._status,
-                  wraplength=480, justify="left").grid(
-            row=8, column=0, columnspan=4, sticky="w")
-        self._pbar = ttk.Progressbar(frm, length=480, mode="determinate")
-        self._pbar.grid(row=9, column=0, columnspan=4, sticky="ew", pady=(6, 0))
-
-        # ── OSM attribution note ──────────────────────────────────────────────
-        ttk.Label(frm,
-                  text="Tiles © OpenStreetMap contributors (openstreetmap.org/copyright)",
-                  foreground="gray", font=("", 9)).grid(
-            row=10, column=0, columnspan=4, sticky="w", pady=(10, 0))
-
-    # ── Helpers ───────────────────────────────────────────────────────────────
-    def _browse(self) -> None:
-        d = filedialog.askdirectory(title="Select output directory for tiles")
-        if d:
-            self._outdir.set(d)
-
-    def _parse_box(self) -> tuple[float, float, float, float] | None:
-        try:
-            n = float(self._north.get())
-            s = float(self._south.get())
-            w = float(self._west.get())
-            e = float(self._east.get())
-        except ValueError:
-            messagebox.showerror("Invalid input",
-                                 "Enter decimal degrees for all four coordinates.")
-            return None
-        if n <= s:
-            messagebox.showerror("Invalid input",
-                                 "North latitude must be greater than South latitude.")
-            return None
-        if e <= w:
-            messagebox.showerror("Invalid input",
-                                 "East longitude must be greater than West longitude.")
-            return None
-        return n, s, w, e
-
-    def _validate_zoom(self) -> tuple[int, int] | None:
-        z_min, z_max = self._z_min.get(), self._z_max.get()
-        if z_min > z_max:
-            messagebox.showerror("Invalid input",
-                                 "Min zoom must be ≤ Max zoom.")
-            return None
-        return z_min, z_max
-
-    # ── Count ─────────────────────────────────────────────────────────────────
-    def _count(self) -> None:
-        box = self._parse_box()
-        if not box:
-            return
-        zoom = self._validate_zoom()
-        if not zoom:
-            return
-        n, s, w, e = box
-        z_min, z_max = zoom
-        total = count_tiles(n, s, w, e, z_min, z_max)
-        secs = total * RATE_LIMIT_S
-        mins = secs / 60
-        self._status.set(
-            f"~{total:,} tiles across zoom {z_min}–{z_max}. "
-            f"Estimated download time: {mins:.0f} min "
-            f"(at {1/RATE_LIMIT_S:.0f} req/s per OSM policy)."
-        )
-
-    # ── Download ──────────────────────────────────────────────────────────────
-    def _start(self) -> None:
-        box = self._parse_box()
-        if not box:
-            return
-        zoom = self._validate_zoom()
-        if not zoom:
-            return
-        outdir = self._outdir.get().strip()
-        if not outdir:
-            messagebox.showerror("Invalid input", "Select an output directory.")
-            return
-
-        n, s, w, e = box
-        z_min, z_max = zoom
-        self._running = True
-        self._dl_btn.config(state="disabled")
-        self._stop_btn.config(state="normal")
-        self._pbar["value"] = 0
-
-        threading.Thread(
-            target=self._worker,
-            args=(n, s, w, e, z_min, z_max, outdir),
-            daemon=True,
-        ).start()
-
-    def _stop(self) -> None:
-        self._running = False
-
-    def _worker(self, n: float, s: float, w: float, e: float,
-                z_min: int, z_max: int, outdir: str) -> None:
-        total = count_tiles(n, s, w, e, z_min, z_max)
-        done = skipped = errors = 0
-        session = requests.Session()
-        session.headers["User-Agent"] = USER_AGENT
-
+    try:
         for z in range(z_min, z_max + 1):
-            if not self._running:
-                break
             x0, y0 = lat_lng_to_tile(n, w, z)
             x1, y1 = lat_lng_to_tile(s, e, z)
             for x in range(min(x0, x1), max(x0, x1) + 1):
-                if not self._running:
-                    break
                 for y in range(min(y0, y1), max(y0, y1) + 1):
-                    if not self._running:
-                        break
-
                     path = os.path.join(outdir, str(z), str(x), f"{y}.png")
                     if os.path.exists(path):
                         skipped += 1
@@ -239,38 +83,287 @@ class App(tk.Tk):
                                 f.write(resp.content)
                         except Exception as exc:
                             errors += 1
-                            self._set_status(f"Error on z={z} x={x} y={y}: {exc}")
+                            print(f"  ERROR z={z} x={x} y={y}: {exc}")
                         time.sleep(RATE_LIMIT_S)
-
                     done += 1
-                    self._set_progress(done / total * 100 if total else 100)
-                    self._set_status(
-                        f"Zoom {z} — tile ({x}, {y})  "
-                        f"{done}/{total}  |  {skipped} cached  |  {errors} errors"
-                    )
+                    pct = done / total * 100 if total else 100
+                    print(f"\r  z={z} ({x},{y})  {done}/{total} ({pct:.0f}%)  "
+                          f"cached={skipped} errors={errors}   ", end="", flush=True)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    else:
+        print()
 
-        stopped = not self._running
-        self._running = False
-        self.after(0, lambda: self._finish(done, total, skipped, errors, stopped))
+    downloaded = done - skipped - errors
+    print(f"\nDone. {downloaded} downloaded, {skipped} already cached, {errors} errors.")
 
-    def _set_status(self, msg: str) -> None:
-        self.after(0, lambda: self._status.set(msg))
 
-    def _set_progress(self, pct: float) -> None:
-        self.after(0, lambda: self._pbar.__setitem__("value", pct))
+# ── GUI mode ──────────────────────────────────────────────────────────────────
 
-    def _finish(self, done: int, total: int, skipped: int,
-                errors: int, stopped: bool) -> None:
-        self._dl_btn.config(state="normal")
-        self._stop_btn.config(state="disabled")
-        self._pbar["value"] = done / total * 100 if total else 100
-        word = "Stopped" if stopped else "Done"
-        self._status.set(
-            f"{word}. {done}/{total} processed — "
-            f"{done - skipped - errors} downloaded, "
-            f"{skipped} already cached, {errors} errors."
-        )
+def run_gui() -> None:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+
+    class App(tk.Tk):
+        def __init__(self) -> None:
+            super().__init__()
+            self.title("RC Sailboat — Map Tile Downloader")
+            self.resizable(False, False)
+            self._running = False
+            self._build_ui()
+
+        def _build_ui(self) -> None:
+            PAD = 12
+            frm = ttk.Frame(self, padding=PAD)
+            frm.grid(row=0, column=0, sticky="nsew")
+
+            # ── Bounding box ──────────────────────────────────────────────────
+            ttk.Label(frm, text="Bounding box (decimal degrees):").grid(
+                row=0, column=0, columnspan=4, sticky="w", pady=(0, 4))
+
+            fields = [
+                ("North lat", "_north", ""),
+                ("South lat", "_south", ""),
+                ("West lng",  "_west",  ""),
+                ("East lng",  "_east",  ""),
+            ]
+            for col, (label, attr, default) in enumerate(fields):
+                ttk.Label(frm, text=label).grid(row=1, column=col, padx=4)
+                var = tk.StringVar(value=default)
+                setattr(self, attr, var)
+                ttk.Entry(frm, textvariable=var, width=13).grid(row=2, column=col, padx=4)
+
+            # ── Zoom range ────────────────────────────────────────────────────
+            ttk.Label(frm, text="Zoom levels:").grid(
+                row=3, column=0, columnspan=4, sticky="w", pady=(12, 4))
+            zfrm = ttk.Frame(frm)
+            zfrm.grid(row=4, column=0, columnspan=4, sticky="w")
+            ttk.Label(zfrm, text="Min").pack(side="left")
+            self._z_min = tk.IntVar(value=14)
+            ttk.Spinbox(zfrm, from_=1, to=19, textvariable=self._z_min,
+                        width=5, wrap=False).pack(side="left", padx=4)
+            ttk.Label(zfrm, text="Max").pack(side="left", padx=(14, 0))
+            self._z_max = tk.IntVar(value=16)
+            ttk.Spinbox(zfrm, from_=1, to=19, textvariable=self._z_max,
+                        width=5, wrap=False).pack(side="left", padx=4)
+            ttk.Label(zfrm, text="(zoom 14–16 is a good default for local sailing)",
+                      foreground="gray").pack(side="left", padx=(10, 0))
+
+            # ── Output directory ──────────────────────────────────────────────
+            ttk.Label(frm, text="Output directory:").grid(
+                row=5, column=0, columnspan=4, sticky="w", pady=(12, 4))
+            ofrm = ttk.Frame(frm)
+            ofrm.grid(row=6, column=0, columnspan=4, sticky="ew")
+            self._outdir = tk.StringVar(value="tiles")
+            ttk.Entry(ofrm, textvariable=self._outdir, width=40).pack(
+                side="left", expand=True, fill="x")
+            ttk.Button(ofrm, text="Browse…", command=self._browse).pack(
+                side="left", padx=(6, 0))
+
+            # ── Action buttons ────────────────────────────────────────────────
+            bfrm = ttk.Frame(frm)
+            bfrm.grid(row=7, column=0, columnspan=4, pady=12, sticky="ew")
+            ttk.Button(bfrm, text="Count tiles",
+                       command=self._count).pack(side="left", padx=(0, 6))
+            self._dl_btn = ttk.Button(bfrm, text="Download",
+                                      command=self._start)
+            self._dl_btn.pack(side="left", padx=6)
+            self._stop_btn = ttk.Button(bfrm, text="Stop",
+                                        command=self._stop, state="disabled")
+            self._stop_btn.pack(side="left", padx=6)
+
+            # ── Status / progress ─────────────────────────────────────────────
+            self._status = tk.StringVar(value="Ready.")
+            ttk.Label(frm, textvariable=self._status,
+                      wraplength=480, justify="left").grid(
+                row=8, column=0, columnspan=4, sticky="w")
+            self._pbar = ttk.Progressbar(frm, length=480, mode="determinate")
+            self._pbar.grid(row=9, column=0, columnspan=4, sticky="ew", pady=(6, 0))
+
+            # ── OSM attribution note ──────────────────────────────────────────
+            ttk.Label(frm,
+                      text="Tiles © OpenStreetMap contributors (openstreetmap.org/copyright)",
+                      foreground="gray", font=("", 9)).grid(
+                row=10, column=0, columnspan=4, sticky="w", pady=(10, 0))
+
+        # ── Helpers ───────────────────────────────────────────────────────────
+        def _browse(self) -> None:
+            d = filedialog.askdirectory(title="Select output directory for tiles")
+            if d:
+                self._outdir.set(d)
+
+        def _parse_box(self) -> tuple[float, float, float, float] | None:
+            try:
+                n = float(self._north.get())
+                s = float(self._south.get())
+                w = float(self._west.get())
+                e = float(self._east.get())
+            except ValueError:
+                messagebox.showerror("Invalid input",
+                                     "Enter decimal degrees for all four coordinates.")
+                return None
+            if n <= s:
+                messagebox.showerror("Invalid input",
+                                     "North latitude must be greater than South latitude.")
+                return None
+            if e <= w:
+                messagebox.showerror("Invalid input",
+                                     "East longitude must be greater than West longitude.")
+                return None
+            return n, s, w, e
+
+        def _validate_zoom(self) -> tuple[int, int] | None:
+            z_min, z_max = self._z_min.get(), self._z_max.get()
+            if z_min > z_max:
+                messagebox.showerror("Invalid input",
+                                     "Min zoom must be ≤ Max zoom.")
+                return None
+            return z_min, z_max
+
+        # ── Count ─────────────────────────────────────────────────────────────
+        def _count(self) -> None:
+            box = self._parse_box()
+            if not box:
+                return
+            zoom = self._validate_zoom()
+            if not zoom:
+                return
+            n, s, w, e = box
+            z_min, z_max = zoom
+            total = count_tiles(n, s, w, e, z_min, z_max)
+            secs = total * RATE_LIMIT_S
+            mins = secs / 60
+            self._status.set(
+                f"~{total:,} tiles across zoom {z_min}–{z_max}. "
+                f"Estimated download time: {mins:.0f} min "
+                f"(at {1/RATE_LIMIT_S:.0f} req/s per OSM policy)."
+            )
+
+        # ── Download ──────────────────────────────────────────────────────────
+        def _start(self) -> None:
+            box = self._parse_box()
+            if not box:
+                return
+            zoom = self._validate_zoom()
+            if not zoom:
+                return
+            outdir = self._outdir.get().strip()
+            if not outdir:
+                messagebox.showerror("Invalid input", "Select an output directory.")
+                return
+
+            n, s, w, e = box
+            z_min, z_max = zoom
+            self._running = True
+            self._dl_btn.config(state="disabled")
+            self._stop_btn.config(state="normal")
+            self._pbar["value"] = 0
+
+            threading.Thread(
+                target=self._worker,
+                args=(n, s, w, e, z_min, z_max, outdir),
+                daemon=True,
+            ).start()
+
+        def _stop(self) -> None:
+            self._running = False
+
+        def _worker(self, n: float, s: float, w: float, e: float,
+                    z_min: int, z_max: int, outdir: str) -> None:
+            total = count_tiles(n, s, w, e, z_min, z_max)
+            done = skipped = errors = 0
+            session = requests.Session()
+            session.headers["User-Agent"] = USER_AGENT
+
+            for z in range(z_min, z_max + 1):
+                if not self._running:
+                    break
+                x0, y0 = lat_lng_to_tile(n, w, z)
+                x1, y1 = lat_lng_to_tile(s, e, z)
+                for x in range(min(x0, x1), max(x0, x1) + 1):
+                    if not self._running:
+                        break
+                    for y in range(min(y0, y1), max(y0, y1) + 1):
+                        if not self._running:
+                            break
+
+                        path = os.path.join(outdir, str(z), str(x), f"{y}.png")
+                        if os.path.exists(path):
+                            skipped += 1
+                        else:
+                            os.makedirs(os.path.dirname(path), exist_ok=True)
+                            url = OSM_TILE_URL.format(z=z, x=x, y=y)
+                            try:
+                                resp = session.get(url, timeout=REQUEST_TIMEOUT_S)
+                                resp.raise_for_status()
+                                with open(path, "wb") as f:
+                                    f.write(resp.content)
+                            except Exception as exc:
+                                errors += 1
+                                self._set_status(f"Error on z={z} x={x} y={y}: {exc}")
+                            time.sleep(RATE_LIMIT_S)
+
+                        done += 1
+                        self._set_progress(done / total * 100 if total else 100)
+                        self._set_status(
+                            f"Zoom {z} — tile ({x}, {y})  "
+                            f"{done}/{total}  |  {skipped} cached  |  {errors} errors"
+                        )
+
+            stopped = not self._running
+            self._running = False
+            self.after(0, lambda: self._finish(done, total, skipped, errors, stopped))
+
+        def _set_status(self, msg: str) -> None:
+            self.after(0, lambda: self._status.set(msg))
+
+        def _set_progress(self, pct: float) -> None:
+            self.after(0, lambda: self._pbar.__setitem__("value", pct))
+
+        def _finish(self, done: int, total: int, skipped: int,
+                    errors: int, stopped: bool) -> None:
+            self._dl_btn.config(state="normal")
+            self._stop_btn.config(state="disabled")
+            self._pbar["value"] = done / total * 100 if total else 100
+            word = "Stopped" if stopped else "Done"
+            self._status.set(
+                f"{word}. {done}/{total} processed — "
+                f"{done - skipped - errors} downloaded, "
+                f"{skipped} already cached, {errors} errors."
+            )
+
+    App().mainloop()
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def _parse_args() -> argparse.Namespace | None:
+    """Return parsed args if any CLI args were given, else None (GUI mode)."""
+    if len(sys.argv) == 1:
+        return None
+    p = argparse.ArgumentParser(
+        description="Download OSM tiles for offline use on the boat's SD card.")
+    p.add_argument("--north",    type=float, required=True, help="North latitude (decimal)")
+    p.add_argument("--south",    type=float, required=True, help="South latitude (decimal)")
+    p.add_argument("--west",     type=float, required=True, help="West longitude (decimal)")
+    p.add_argument("--east",     type=float, required=True, help="East longitude (decimal)")
+    p.add_argument("--zoom-min", type=int,   default=14,    help="Minimum zoom level (default 14)")
+    p.add_argument("--zoom-max", type=int,   default=16,    help="Maximum zoom level (default 16)")
+    p.add_argument("--output",   type=str,   default="tiles", help="Output directory (default ./tiles)")
+    args = p.parse_args()
+    if args.north <= args.south:
+        p.error("--north must be greater than --south")
+    if args.east <= args.west:
+        p.error("--east must be greater than --west")
+    if args.zoom_min > args.zoom_max:
+        p.error("--zoom-min must be ≤ --zoom-max")
+    return args
 
 
 if __name__ == "__main__":
-    App().mainloop()
+    args = _parse_args()
+    if args is None:
+        run_gui()
+    else:
+        download_headless(args.north, args.south, args.west, args.east,
+                          args.zoom_min, args.zoom_max, args.output)

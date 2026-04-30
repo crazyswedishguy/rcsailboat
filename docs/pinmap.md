@@ -84,6 +84,17 @@ I²C address is `0x6A` or `0x6B` depending on the SDO/SA0 strap. **Verify with `
 
 These are connected through the P1/P2 headers, so the GPIO assignments are choices, not constraints.
 
+### GPS module (BN-880, NMEA over UART, 9 600 baud)
+
+| Signal       | GPIO | Notes |
+|--------------|------|-------|
+| MCU RX ← GPS TX | 15 | UART2; on header P1, free |
+| MCU TX → GPS RX | 18 | UART2; on header P1, free; optional (module works receive-only) |
+
+The BN-880 also carries an **HMC5883L compass** on I²C (address `0x1E`). Wire SDA/SCL to the shared I²C bus on header P2 alongside the PCA9685 and INA219.
+
+---
+
 ### ELRS receiver (CRSF over UART, 420 000 baud, 8N1)
 
 | Signal       | GPIO | Notes |
@@ -127,12 +138,13 @@ Channel assignments:
 
 A single I²C bus on GPIO47/48 carries everything. Confirmed devices and addresses:
 
-| Address | Device   | Notes |
-|---------|----------|-------|
-| 0x38    | FT3168   | touch controller (onboard) — confirmed from Waveshare demo |
-| 0x40    | PCA9685  | servo driver (external) |
-| 0x41    | INA219   | current sensor (external, address strapped) |
-| 0x6A/0x6B | QMI8658 | IMU (onboard) — verify which |
+| Address   | Device    | Notes |
+|-----------|-----------|-------|
+| 0x1E      | HMC5883L  | compass on BN-880 GPS module (external) |
+| 0x38      | FT3168    | touch controller (onboard) — confirmed from Waveshare demo |
+| 0x40      | PCA9685   | servo driver (external) |
+| 0x41      | INA219    | current sensor (external, address strapped) |
+| 0x6A/0x6B | QMI8658   | IMU (onboard) — verify which |
 
 Run `i2cdetect`-equivalent at first power-up and check this list matches.
 
@@ -142,11 +154,12 @@ Run `i2cdetect`-equivalent at first power-up and check this list matches.
 
 Broken out on header P1 or P2 with no onboard function:
 
-`GPIO1, GPIO2, GPIO3, GPIO5, GPIO6, GPIO7, GPIO8, GPIO15, GPIO16, GPIO17, GPIO18, GPIO42, GPIO45`
+`GPIO1, GPIO5, GPIO6, GPIO7, GPIO8, GPIO42, GPIO45`
+
+*(GPIO2/3 = bilge sensor/pump; GPIO15/18 = GPS UART2; GPIO16/17 = ELRS UART1 — all taken)*
 
 **Caveats:**
 - GPIO45 is a strapping pin — fine as input or as output after boot, but don't pull it during reset.
-- GPIO16/17 are the recommended ELRS UART pins (see above), so treat them as taken once CRSF is wired.
 - GPIO42 is unlabeled in the schematic's GPIO table — verify it's actually broken out before planning to use it.
 
 ## Reserved / strapping pins (avoid unless you know what you're doing)

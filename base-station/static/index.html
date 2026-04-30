@@ -156,6 +156,25 @@
       padding: 0 2px;
     }
 
+    /* ── Telemetry strip ── */
+    .telem-strip {
+      width: 100%; max-width: 480px;
+      flex-direction: row;
+      justify-content: space-between;
+      padding: 0.5rem 0.75rem;
+      gap: 0;
+    }
+    .telem-group {
+      display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
+    }
+    .telem-val {
+      font-size: 0.78rem; font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+    }
+    .telem-val.warn { color: #f4a261; }
+    .telem-val.danger { color: var(--danger); }
+
     /* ── Small neutral button (CTR, nudge, ◄ ►, MAP) ── */
     .ctr-btn {
       background: var(--surface2); color: var(--dim);
@@ -351,6 +370,31 @@
     <button class="act-btn" id="btn-arm">Disarmed</button>
     <!-- STOP: immediately disarms + zeroes throttle (hard safety stop) -->
     <button class="act-btn" id="btn-stop">&#9632; Stop</button>
+  </div>
+
+  <!-- ── Telemetry strip: live data from the boat ── -->
+  <div class="card telem-strip">
+    <div class="telem-group">
+      <div class="lbl">Battery</div>
+      <div class="telem-val" id="tl-volts">--.-V</div>
+      <div class="telem-val" id="tl-amps">-.-A</div>
+      <div class="telem-val" id="tl-pct" style="color:var(--dim)">--%</div>
+    </div>
+    <div class="telem-group">
+      <div class="lbl">GPS</div>
+      <div class="telem-val" id="tl-sats">-- sats</div>
+      <div class="telem-val" id="tl-speed">-- km/h</div>
+    </div>
+    <div class="telem-group">
+      <div class="lbl">Attitude</div>
+      <div class="telem-val" id="tl-pitch">P ---°</div>
+      <div class="telem-val" id="tl-roll">R ---°</div>
+    </div>
+    <div class="telem-group">
+      <div class="lbl">Boat</div>
+      <div class="telem-val" id="tl-temp">--°C</div>
+      <div class="telem-val" id="tl-bridge" style="color:var(--dim)">no link</div>
+    </div>
   </div>
 
   <!-- ── Map panel: hidden by default; toggled by the MAP button in the header ── -->
@@ -659,36 +703,74 @@ btnMap.addEventListener('click', () => {
 });
 
 // -----------------------------------------------------------------------------
-// handleGps(msg)
-// Called when the server pushes a GPS telemetry message over the WebSocket.
-// msg shape: { type:"gps", lat, lng, speed, heading, alt, sats, fix }
+// Telemetry handlers — called on each incoming "telemetry" WebSocket message.
+// msg shape: { type:"telemetry", bridge, gps:{...}, battery:{...},
+//              attitude:{...}, sailboat:{...} }
 // -----------------------------------------------------------------------------
-function handleGps(msg) {
-  if (!msg.fix) return;   // no valid fix yet — leave "No GPS fix" overlay in place
 
-  // Lazily init the map when the first fix arrives (even if the panel isn't open)
+function handleTelemetry(msg) {
+  // Bridge connection indicator
+  const bridgeEl = document.getElementById('tl-bridge');
+  bridgeEl.textContent = msg.bridge ? 'linked' : 'no link';
+  bridgeEl.style.color = msg.bridge ? 'var(--safe)' : 'var(--dim)';
+
+  if (msg.gps)      _handleGps(msg.gps);
+  if (msg.battery)  _handleBattery(msg.battery);
+  if (msg.attitude) _handleAttitude(msg.attitude);
+  if (msg.sailboat) _handleSailboat(msg.sailboat);
+}
+
+function _handleGps(gps) {
+  document.getElementById('tl-sats').textContent  = `${gps.satellites} sats`;
+  document.getElementById('tl-speed').textContent = `${gps.speed_kmh.toFixed(1)} km/h`;
+
+  if (!gps.has_fix) return;
+
   initMap();
-
-  // Hide the "no fix" overlay and show the telemetry info bar
   gpsNofix.hidden = true;
   gpsInfo.hidden  = false;
   gpsInfo.textContent =
-    `${msg.sats} sats · ${msg.speed.toFixed(1)} km/h · ${msg.alt.toFixed(0)} m`;
+    `${gps.satellites} sats · ${gps.speed_kmh.toFixed(1)} km/h · ${gps.altitude_m.toFixed(0)} m`;
 
   if (!boatMarker) return;
+  boatMarker.setLatLng([gps.lat, gps.lng]);
 
-  // Move the marker to the new position
-  boatMarker.setLatLng([msg.lat, msg.lng]);
-
-  // Rotate the arrow icon to match the boat's heading
   const iconEl = boatMarker.getElement();
   if (iconEl) {
     const arrow = iconEl.querySelector('.boat-marker-icon');
-    if (arrow) arrow.style.transform = `rotate(${msg.heading}deg)`;
+    if (arrow) arrow.style.transform = `rotate(${gps.heading_deg}deg)`;
   }
 
-  // Pan the map to follow the boat, but only if the panel is currently open
-  if (!mapPanel.hidden && leafletMap) leafletMap.panTo([msg.lat, msg.lng]);
+  if (!mapPanel.hidden && leafletMap) leafletMap.panTo([gps.lat, gps.lng]);
+}
+
+function _handleBattery(bat) {
+  const vEl  = document.getElementById('tl-volts');
+  const aEl  = document.getElementById('tl-amps');
+  const pEl  = document.getElementById('tl-pct');
+
+  vEl.textContent = `${bat.voltage_v.toFixed(1)}V`;
+  aEl.textContent = `${bat.current_a.toFixed(1)}A`;
+  pEl.textContent = `${bat.battery_pct}%`;
+
+  // Colour-code voltage: green ≥12V, orange ≥11.4V, red below
+  vEl.className = 'telem-val' +
+    (bat.voltage_v >= 12.0 ? '' : bat.voltage_v >= 11.4 ? ' warn' : ' danger');
+  pEl.style.color = bat.battery_pct >= 30 ? 'var(--dim)'
+                  : bat.battery_pct >= 15 ? '#f4a261' : 'var(--danger)';
+}
+
+function _handleAttitude(att) {
+  const sign = v => v >= 0 ? '+' : '';
+  document.getElementById('tl-pitch').textContent = `P ${sign(att.pitch_deg)}${att.pitch_deg.toFixed(1)}°`;
+  document.getElementById('tl-roll').textContent  = `R ${sign(att.roll_deg)}${att.roll_deg.toFixed(1)}°`;
+}
+
+function _handleSailboat(sb) {
+  const tEl = document.getElementById('tl-temp');
+  tEl.textContent = `${sb.mcu_temp_c.toFixed(0)}°C`;
+  tEl.className = 'telem-val' +
+    (sb.mcu_temp_c < 60 ? '' : sb.mcu_temp_c < 80 ? ' warn' : ' danger');
 }
 
 // =============================================================================
@@ -723,11 +805,10 @@ function connect() {
 
   ws.onerror = () => ws.close();   // let onclose handle the retry
 
-  // Handle server-to-client push messages (currently only GPS)
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
-      if (msg.type === 'gps') handleGps(msg);
+      if (msg.type === 'telemetry') handleTelemetry(msg);
     } catch (_) { /* ignore malformed messages */ }
   };
 }

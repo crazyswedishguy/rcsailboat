@@ -12,6 +12,9 @@
 #ifdef GPS_ENABLED
 #include "gps.h"
 #endif
+#ifdef COMPASS_ENABLED
+#include "compass.h"
+#endif
 
 // ---------------------------------------------------------------------------
 // CRSF frame builder
@@ -84,7 +87,11 @@ static void send_battery() {
 static void send_attitude() {
     float roll_rad  = imu_roll_deg()  * ((float)M_PI / 180.0f);
     float pitch_rad = imu_pitch_deg() * ((float)M_PI / 180.0f);
-    float yaw_rad   = 0.0f;  // Phase 6c: replace with compass_heading_deg() * PI/180
+#ifdef COMPASS_ENABLED
+    float yaw_rad = compass_heading_deg() * ((float)M_PI / 180.0f);
+#else
+    float yaw_rad = 0.0f;
+#endif
 
     uint8_t p[6];
     put_i16be(p + 0, (int16_t)(pitch_rad * 10000.0f));
