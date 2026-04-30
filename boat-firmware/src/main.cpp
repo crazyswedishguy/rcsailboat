@@ -17,6 +17,9 @@
 #ifdef GPS_ENABLED
 #include "gps.h"
 #endif
+#ifdef COMPASS_ENABLED
+#include "compass.h"
+#endif
 
 void setup()
 {
@@ -40,6 +43,9 @@ void setup()
 
 #ifdef GPS_ENABLED
     gps_init();
+#endif
+#ifdef COMPASS_ENABLED
+    compass_init();
 #endif
 
     Serial.println("rcsailboat firmware ready");
@@ -106,5 +112,13 @@ void loop()
 
 #ifdef GPS_ENABLED
     gps_update();
+#endif
+
+#ifdef COMPASS_ENABLED
+    static unsigned long s_compass_ms = 0;
+    if (millis() - s_compass_ms >= 100) {  // 10 Hz
+        s_compass_ms = millis();
+        compass_update();
+    }
 #endif
 }

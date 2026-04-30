@@ -9,6 +9,9 @@
 #ifdef GPS_ENABLED
 #include "gps.h"
 #endif
+#ifdef COMPASS_ENABLED
+#include "compass.h"
+#endif
 #include "wifi_ctrl.h"
 
 #include <Arduino.h>
@@ -529,7 +532,7 @@ static void build_tile_attitude(lv_obj_t *t)
                                      &lv_font_montserrat_14,
                                      lv_color_make(120,120,120));
     make_label_font(t, 10, 296,
-                    "Add QMC5883L + build with",
+                    "Add HMC5883L + build with",
                     &lv_font_montserrat_14, lv_color_make(100,100,100));
     make_label_font(t, 10, 318,
                     "esp32-s3-compass env",
@@ -602,7 +605,11 @@ static void build_screens()
     s_tileview  = tv;
     s_tile_wifi = tw;
     s_tile_att  = t4;
-    lv_obj_add_event_cb(tv, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
+    // LVGL 8.3 fires LV_EVENT_GESTURE on the pressed tile, not the tileview.
+    // Register on the two edge tiles only; also bubble swipes from the mode button.
+    lv_obj_add_event_cb(tw, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
+    lv_obj_add_event_cb(t4, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
+    lv_obj_add_flag(s0_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     // Start on Main, not WiFi
     lv_obj_set_tile_id(tv, 1, 0, LV_ANIM_OFF);
@@ -866,8 +873,17 @@ void display_update()
     lv_obj_set_style_text_color(s5_lbl_pitch, color_angle(pit), LV_PART_MAIN);
 
 #ifdef COMPASS_ENABLED
-    // Placeholder — fill in once QMC5883L driver is wired
-    lv_label_set_text(s5_lbl_heading, "--- \xC2\xB0");
+    {
+        float hdg = compass_heading_deg();
+        const char *card = hdg < 22.5f || hdg >= 337.5f ? "N"  :
+                           hdg < 67.5f                  ? "NE" :
+                           hdg < 112.5f                 ? "E"  :
+                           hdg < 157.5f                 ? "SE" :
+                           hdg < 202.5f                 ? "S"  :
+                           hdg < 247.5f                 ? "SW" :
+                           hdg < 292.5f                 ? "W"  : "NW";
+        lv_label_set_text_fmt(s5_lbl_heading, "%.0f\xC2\xB0  %s", hdg, card);
+    }
 #endif
 #ifdef GPS_ENABLED
     lv_label_set_text_fmt(s5_lbl_speed, "%.1f km/h", spd_kmh);

@@ -29,6 +29,7 @@ namespace i2c_addr {
 constexpr uint8_t FT3168   = 0x38;        // capacitive touch (onboard) — confirmed from Waveshare demo lcd_config.h
 constexpr uint8_t PCA9685  = 0x40;        // servo driver (external)
 constexpr uint8_t INA219   = 0x41;        // current sensor (external; strapped off default 0x40)
+constexpr uint8_t HMC5883L = 0x1E;        // compass on BN-880 GPS module (external)
 constexpr uint8_t QMI8658  = 0x6B;        // IMU (onboard); verify with i2cdetect — may be 0x6A
 }  // namespace i2c_addr
 
@@ -63,6 +64,17 @@ constexpr uint16_t SERVO_PULSE_MIN_US = 1000;
 constexpr uint16_t SERVO_PULSE_MID_US = 1500;
 constexpr uint16_t SERVO_PULSE_MAX_US = 2000;
 
+
+// =============================================================================
+// GPS module — NMEA over UART2 (BN-880, u-blox M8N, 9600 baud default)
+// =============================================================================
+namespace pins {
+constexpr uint8_t GPS_RX = 15;   // MCU RX ← GPS TX  (free on header P1)
+constexpr uint8_t GPS_TX = 18;   // MCU TX → GPS RX  (free on header P1; optional)
+}  // namespace pins
+
+constexpr uint8_t  GPS_UART_NUM = 2;    // UART2 (UART0 = console, UART1 = CRSF)
+constexpr uint32_t GPS_BAUD     = 9600; // BN-880 factory default
 
 // =============================================================================
 // Bilge monitoring
