@@ -58,9 +58,14 @@ static const sh8601_lcd_init_cmd_t s_init_cmds[] = {
 };
 
 // ── Module state ──────────────────────────────────────────────────────────────
-static SemaphoreHandle_t s_mux   = nullptr;
+static SemaphoreHandle_t s_mux      = nullptr;
 static lv_disp_drv_t     s_drv;
-static bool              s_ready = false;
+static bool              s_ready   = false;
+
+// Tileview reference + edge-tile pointers for wrap-around gesture handling
+static lv_obj_t *s_tileview  = nullptr;
+static lv_obj_t *s_tile_wifi = nullptr;   // col 0 — leftmost
+static lv_obj_t *s_tile_att  = nullptr;   // col 5 — rightmost
 
 // ── Screen 0 (WiFi / ELRS control) — label handles ───────────────────────────
 static lv_obj_t *s0_lbl_mode  = nullptr;   // "WIFI AP" / "ELRS CTRL"
@@ -542,6 +547,24 @@ static void build_tile_attitude(lv_obj_t *t)
 #endif
 }
 
+// ── Wrap-around gesture handler ───────────────────────────────────────────────
+// LVGL fires LV_EVENT_GESTURE on the tileview even when scroll is clamped at
+// the boundary (elastic is disabled but gesture detection is independent).
+// A right-swipe at col 0 (WiFi) jumps to col 5 (Attitude) and vice-versa.
+static void tv_gesture_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    lv_indev_t *indev = lv_indev_get_act();
+    if (!indev) return;
+    lv_dir_t    dir  = lv_indev_get_gesture_dir(indev);
+    lv_obj_t   *tile = lv_tileview_get_tile_act(s_tileview);
+    if (tile == s_tile_wifi && dir == LV_DIR_RIGHT) {
+        lv_obj_set_tile_id(s_tileview, 5, 0, LV_ANIM_ON);
+    } else if (tile == s_tile_att && dir == LV_DIR_LEFT) {
+        lv_obj_set_tile_id(s_tileview, 0, 0, LV_ANIM_ON);
+    }
+}
+
 // ── Assemble tileview with all 6 screens ─────────────────────────────────────
 // Layout (col): [WiFi/ELRS(0)] [Main(1)] [Link(2)] [Battery(3)] [Controls(4)] [Attitude(5)]
 // Swipe right from Main → WiFi.  Swipe left from Main → Link.
@@ -577,6 +600,12 @@ static void build_screens()
     build_tile_battery(t2);
     build_tile_controls(t3);
     build_tile_attitude(t4);
+
+    // Store references for the wrap-around gesture callback
+    s_tileview  = tv;
+    s_tile_wifi = tw;
+    s_tile_att  = t4;
+    lv_obj_add_event_cb(tv, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
 
     // Start on Main, not WiFi
     lv_obj_set_tile_id(tv, 1, 0, LV_ANIM_OFF);
