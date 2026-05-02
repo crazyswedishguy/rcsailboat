@@ -67,12 +67,20 @@ static bool qmi_write(uint8_t reg, uint8_t val)
 // so we can read all 6 accel bytes in a single I²C transaction.
 static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len)
 {
+    static uint8_t s_err = 0;
     Wire.beginTransmission(i2c_addr::QMI8658);
     Wire.write(reg);
-    // Use STOP (true) not repeated-start (false): the esp32-s3 i2c-ng driver's
-    // combined write-read path (i2c_master_transmit_receive) returns
-    // ESP_ERR_INVALID_STATE (259) under load. Two separate transactions are reliable.
-    if (Wire.endTransmission(true) != 0) return false;
+    if (Wire.endTransmission(true) != 0) {
+        // ESP32-S3 i2c-ng driver sets I2C_BUS_STATUS_ERROR on failure and never
+        // self-recovers. Reinitialise after 3 consecutive failures. QMI8658
+        // register values survive the reset (on-chip hardware, still powered).
+        if (++s_err >= 3) {
+            Wire.end(); delay(5); Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
+            s_err = 0;
+        }
+        return false;
+    }
+    s_err = 0;
     Wire.requestFrom((int)i2c_addr::QMI8658, (int)len);
     for (uint8_t i = 0; i < len; i++) buf[i] = Wire.read();
     return true;

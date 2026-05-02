@@ -715,16 +715,28 @@ void display_init()
 
 // Called from main loop at ~50 Hz — polls FT3168 touch via Wire and caches
 // the result so the LVGL task can read it safely from touch_read_cb().
+// Reinitialise the I2C bus. Called after consecutive failures because the
+// ESP32-S3 i2c-ng driver sets its internal status to I2C_BUS_STATUS_ERROR on
+// any failed transaction and never self-recovers — every subsequent call then
+// immediately returns ESP_ERR_INVALID_STATE (259).
+static void i2c_bus_recover()
+{
+    Wire.end();
+    delay(5);
+    Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
+}
+
 void display_poll_touch()
 {
+    static uint8_t s_err = 0;
     Wire.beginTransmission(i2c_addr::FT3168);
     Wire.write(0x02);   // touch-count register
-    // STOP (true) avoids the i2c-ng combined write-read path that returns
-    // ESP_ERR_INVALID_STATE (259) under load on ESP32-S3.
     if (Wire.endTransmission(true) != 0) {
         s_touch_state = LV_INDEV_STATE_REL;
+        if (++s_err >= 3) { i2c_bus_recover(); s_err = 0; }
         return;
     }
+    s_err = 0;
     Wire.requestFrom((int)i2c_addr::FT3168, 5);
     if (Wire.available() < 5) { s_touch_state = LV_INDEV_STATE_REL; return; }
     uint8_t count = Wire.read() & 0x0F;

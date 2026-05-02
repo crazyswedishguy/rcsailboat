@@ -35,7 +35,6 @@
 #include "sdlog.h"
 
 #include <Arduino.h>
-#include <DNSServer.h>
 #include <SD.h>
 #include <Update.h>
 #include <WiFi.h>
@@ -363,7 +362,6 @@ function doUpload(){
 )html";
 
 // ── Module state ──────────────────────────────────────────────────────────────
-static DNSServer s_dns;
 static WebServer s_srv(80);
 static CtrlMode  s_mode     = CtrlMode::WIFI;
 static bool      s_ap_up    = false;
@@ -566,11 +564,6 @@ static void start_ap()
     Serial.printf("wifi_ctrl: AP up — SSID=%s  IP=%s\n",
                   WIFI_AP_SSID, WiFi.softAPIP().toString().c_str());
 
-    // Intercept all DNS queries and respond with our IP.
-    // Combined with handle_not_found()'s 302 redirect, this makes iOS show a
-    // "Sign In to Network" mini-browser so the user lands on our control page.
-    s_dns.start(53, "*", ip);
-
     s_srv.on("/",          handle_root);
     s_srv.on("/map",       handle_map);
     s_srv.on("/control",   handle_control);
@@ -600,7 +593,6 @@ static void start_ap()
 
 static void stop_ap()
 {
-    s_dns.stop();
     s_srv.stop();
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_OFF);
@@ -635,7 +627,6 @@ void wifi_ctrl_update()
 
     if (!s_ap_up) return;
 
-    s_dns.processNextRequest();
     s_srv.handleClient();
     s_clients = (uint8_t)WiFi.softAPgetStationNum();
 
