@@ -69,7 +69,10 @@ static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len)
 {
     Wire.beginTransmission(i2c_addr::QMI8658);
     Wire.write(reg);
-    if (Wire.endTransmission(false) != 0) return false;  // false = repeated start
+    // Use STOP (true) not repeated-start (false): the esp32-s3 i2c-ng driver's
+    // combined write-read path (i2c_master_transmit_receive) returns
+    // ESP_ERR_INVALID_STATE (259) under load. Two separate transactions are reliable.
+    if (Wire.endTransmission(true) != 0) return false;
     Wire.requestFrom((int)i2c_addr::QMI8658, (int)len);
     for (uint8_t i = 0; i < len; i++) buf[i] = Wire.read();
     return true;

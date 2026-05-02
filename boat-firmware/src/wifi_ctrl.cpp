@@ -35,6 +35,7 @@
 #include "sdlog.h"
 
 #include <Arduino.h>
+#include <DNSServer.h>
 #include <SD.h>
 #include <Update.h>
 #include <WiFi.h>
@@ -362,6 +363,7 @@ function doUpload(){
 )html";
 
 // ── Module state ──────────────────────────────────────────────────────────────
+static DNSServer s_dns;
 static WebServer s_srv(80);
 static CtrlMode  s_mode     = CtrlMode::WIFI;
 static bool      s_ap_up    = false;
@@ -454,8 +456,18 @@ static void handle_track()
 #endif
 }
 
+// Redirect any unrecognised URL to the control page.
+// The DNS server (below) resolves all hostnames to 192.168.4.1, so when iOS
+// or Android try connectivity-check URLs (captive.apple.com, etc.) they land
+// here, get a 302 → /, and iOS shows a "Sign In to Network" mini-browser.
+static void handle_captive_redirect()
+{
+    s_srv.sendHeader("Location", "http://192.168.4.1/");
+    s_srv.send(302, "text/plain", "");
+}
+
 // Serves /tiles/{z}/{x}/{y}.png from the SD card (if mounted).
-// All other unrecognised paths get a plain 404.
+// All other unrecognised paths redirect to the control page (captive portal).
 static void handle_not_found()
 {
     String path = s_srv.uri();
@@ -468,7 +480,7 @@ static void handle_not_found()
         }
         if (f) f.close();
     }
-    s_srv.send(404, "text/plain", "Not found");
+    handle_captive_redirect();
 }
 
 // ── OTA handlers ─────────────────────────────────────────────────────────────
@@ -544,6 +556,11 @@ static void start_ap()
     Serial.printf("wifi_ctrl: AP up — SSID=%s  IP=%s\n",
                   WIFI_AP_SSID, WiFi.softAPIP().toString().c_str());
 
+    // Intercept all DNS queries and respond with our IP.
+    // Combined with handle_not_found()'s 302 redirect, this makes iOS show a
+    // "Sign In to Network" mini-browser so the user lands on our control page.
+    s_dns.start(53, "*", ip);
+
     s_srv.on("/",          handle_root);
     s_srv.on("/map",       handle_map);
     s_srv.on("/control",   handle_control);
@@ -554,6 +571,13 @@ static void start_ap()
     // OTA: GET serves the upload page; POST receives the binary + flashes + reboots.
     s_srv.on("/update", HTTP_GET,  handle_ota_get);
     s_srv.on("/update", HTTP_POST, handle_ota_post, handle_ota_upload);
+    // Explicit captive-portal routes (iOS, Android, Windows connectivity checks)
+    s_srv.on("/hotspot-detect.html",       handle_captive_redirect);
+    s_srv.on("/library/test/success.html", handle_captive_redirect);
+    s_srv.on("/hotspotdetect.html",        handle_captive_redirect);
+    s_srv.on("/generate_204",              []() { s_srv.send(204, "text/plain", ""); });
+    s_srv.on("/ncsi.txt",                  handle_captive_redirect);
+    s_srv.on("/connecttest.txt",           handle_captive_redirect);
     s_srv.onNotFound(handle_not_found);
     s_srv.begin();
 
@@ -566,6 +590,7 @@ static void start_ap()
 
 static void stop_ap()
 {
+    s_dns.stop();
     s_srv.stop();
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_OFF);
@@ -600,6 +625,7 @@ void wifi_ctrl_update()
 
     if (!s_ap_up) return;
 
+    s_dns.processNextRequest();
     s_srv.handleClient();
     s_clients = (uint8_t)WiFi.softAPgetStationNum();
 

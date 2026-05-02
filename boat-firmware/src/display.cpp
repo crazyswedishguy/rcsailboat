@@ -719,7 +719,9 @@ void display_poll_touch()
 {
     Wire.beginTransmission(i2c_addr::FT3168);
     Wire.write(0x02);   // touch-count register
-    if (Wire.endTransmission(false) != 0) {
+    // STOP (true) avoids the i2c-ng combined write-read path that returns
+    // ESP_ERR_INVALID_STATE (259) under load on ESP32-S3.
+    if (Wire.endTransmission(true) != 0) {
         s_touch_state = LV_INDEV_STATE_REL;
         return;
     }
