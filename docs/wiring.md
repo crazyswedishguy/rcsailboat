@@ -121,7 +121,7 @@ Powers the ESP32 and all logic devices. Input comes from the **UBEC's 6V output*
 
 > **Powering the ESP32:** The Waveshare AMOLED board accepts 5 V via its USB-C port. Connect the buck converter's 5 V output to a short USB-C cable or pigtail (VBUS + GND only — no data lines needed). Do not connect a LiPo to the MX1.25 battery connector at the same time.
 
-> **GPIO4 battery ADC note:** The onboard BAT_ADC divider on GPIO4 is calibrated for a 3.7 V LiPo cell. With 3S voltage (up to 12.6 V) the divider output would exceed the ESP32's 3.3 V ADC limit — **do not wire the 3S battery to GPIO4.** Battery voltage is monitored by the INA219 instead.
+> **GPIO4 battery ADC note:** The onboard BAT_ADC divider on GPIO4 is calibrated for a 3.7 V LiPo cell. With 3S voltage (up to 12.6 V) the divider output would exceed the ESP32's 3.3 V ADC limit — **do not wire the 3S battery to GPIO4.** Battery voltage is monitored by the INA228 instead.
 
 ---
 
@@ -157,7 +157,7 @@ One bus carries all I²C devices. Connect SDA and SCL in parallel across every d
 | INA228 current/voltage sensor | External breakout + bus bar shunt | **0x41** | VCC: 3.3 V — A0=VS, A1=GND |
 | HMC5883L compass | On BN-880 GPS module | **0x1E** | VCC: 3.3 V |
 
-> **Address conflict:** INA219 ships with default address 0x40, same as PCA9685. Bridge the A0 solder jumper on the INA219 breakout before wiring.
+> **No address conflict:** INA228 is configured to 0x41 (A0=VS, A1=GND), clear of the PCA9685 at 0x40.
 
 ---
 
@@ -298,7 +298,7 @@ Mount two waterproof panel connectors in the hull (e.g. XT30 + JST-XH with O-rin
 
 ### Safety rules for charging
 
-- **Switch the boat off** (via the power switch) before connecting the charger. Do not charge while electronics are running — charge current and operating draw through the same wiring confuses the INA219 readings and can cause voltage spikes.
+- **Switch the boat off** (via the power switch) before connecting the charger. Do not charge while electronics are running — charge current and operating draw through the same wiring confuses the INA228 readings and can cause voltage spikes.
 - **Never charge unattended** or inside the sealed hull. LiPo thermal runaway produces gas and heat that can split a hull.
 - **Charge at 1C or less** through a cable gland — the wiring gauge (22–20 AWG) limits safe sustained current; 5A is the practical ceiling.
 
@@ -412,7 +412,7 @@ Power connections (use thick lines for high-current paths):
   ESP32 3.3V → INA228 VCC, BN-880 VCC (thin red)
 
 I2C bus (SDA=GPIO47, SCL=GPIO48 on ESP32):
-  Connect in parallel to: PCA9685 (0x40), INA219 (0x41, A0 bridged), BN-880 compass (0x1E)
+  Connect in parallel to: PCA9685 (0x40), INA228 (0x41, A0=VS), BN-880 compass (0x1E)
   Add 4.7kΩ pull-ups: SDA → 3.3V, SCL → 3.3V
 
 UART1 (GPIO16 RX, GPIO17 TX) → ELRS receiver TX, RX
@@ -430,7 +430,7 @@ GPIO:
 
 Important callouts:
   ⚠ ESC SBEC red wire must be taped off and NOT connected — UBEC owns the servo rail; connecting both BECs causes a voltage conflict
-  ⚠ INA219 measures servo + logic current only — motor current bypasses it entirely through the ESC
+  ⚠ INA228 sits before the ESC/UBEC split and measures total battery current including motor draw
   ⚠ PCA9685 VCC must be 5V from buck — do NOT connect 6V UBEC directly to VCC (max 5.5V)
   ⚠ ELRS receiver VCC must be 5V from buck — not 3.3V from ESP32
   ⚠ Do NOT connect 3S battery to ESP32 MX1.25 LiPo port (BAT_ADC calibrated for 3.7V only)
