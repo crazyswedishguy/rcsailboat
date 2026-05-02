@@ -72,10 +72,9 @@ void setup()
 #endif
 
     // Hardware I2C bus recovery after init sequence.
-    // Absent peripherals (PCA9685, INA228) produce NACKs that leave the
-    // ESP32-S3 i2c-ng driver in ESP_ERR_INVALID_STATE and may leave a
-    // device holding SDA low. Clock SCL 9 times to release any stuck device,
-    // then reinit the driver before loop() starts.
+    // Wire.end() first — releases the peripheral's GPIO matrix control, then
+    // SCL is clocked 9× to unstick any device, then driver reinitialised.
+    Wire.end();
     pinMode(pins::I2C_SDA, OUTPUT_OPEN_DRAIN);
     pinMode(pins::I2C_SCL, OUTPUT_OPEN_DRAIN);
     digitalWrite(pins::I2C_SDA, HIGH);
@@ -85,7 +84,6 @@ void setup()
     }
     digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
     digitalWrite(pins::I2C_SDA, HIGH); delayMicroseconds(10);
-    Wire.end();
     Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
 
     Serial.println("rcsailboat firmware ready");

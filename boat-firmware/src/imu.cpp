@@ -72,8 +72,9 @@ static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len)
     Wire.write(reg);
     if (Wire.endTransmission(true) != 0) {
         if (++s_err >= 3) {
-            // Hardware I2C bus recovery: clock SCL 9× to unstick a device
-            // holding SDA low, then STOP, then reinit driver.
+            // Wire.end() first — releases the I2C peripheral's GPIO matrix
+            // control so our bit-bang is not silently overridden by hardware.
+            Wire.end();
             pinMode(pins::I2C_SDA, OUTPUT_OPEN_DRAIN);
             pinMode(pins::I2C_SCL, OUTPUT_OPEN_DRAIN);
             digitalWrite(pins::I2C_SDA, HIGH);
@@ -83,7 +84,6 @@ static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len)
             }
             digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
             digitalWrite(pins::I2C_SDA, HIGH); delayMicroseconds(10);
-            Wire.end();
             Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
             s_err = 0;
         }

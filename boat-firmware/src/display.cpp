@@ -722,6 +722,11 @@ void display_init()
 // and release SDA, then generate a STOP before reinitialising the driver.
 static void i2c_bus_recover()
 {
+    // Release the I2C peripheral's control of the pins BEFORE touching them.
+    // The hardware peripheral drives SCL/SDA through the GPIO matrix; any
+    // bit-bang done while it still owns the pins is silently overridden.
+    Wire.end();
+    // Now we own the pins — clock SCL 9× to release a stuck slave, then STOP.
     pinMode(pins::I2C_SDA, OUTPUT_OPEN_DRAIN);
     pinMode(pins::I2C_SCL, OUTPUT_OPEN_DRAIN);
     digitalWrite(pins::I2C_SDA, HIGH);
@@ -729,10 +734,8 @@ static void i2c_bus_recover()
         digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
         digitalWrite(pins::I2C_SCL, LOW);  delayMicroseconds(10);
     }
-    // STOP: SDA rises while SCL is high
     digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
     digitalWrite(pins::I2C_SDA, HIGH); delayMicroseconds(10);
-    Wire.end();
     Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
 }
 
