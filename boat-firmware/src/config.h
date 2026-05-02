@@ -28,7 +28,7 @@ constexpr uint32_t I2C_FREQ_HZ = 400'000;  // 400 kHz fast mode
 namespace i2c_addr {
 constexpr uint8_t FT3168   = 0x38;        // capacitive touch (onboard) — confirmed from Waveshare demo lcd_config.h
 constexpr uint8_t PCA9685  = 0x40;        // servo driver (external)
-constexpr uint8_t INA219   = 0x41;        // current sensor (external; strapped off default 0x40)
+constexpr uint8_t INA228   = 0x41;        // current/voltage sensor (external; A0=VS, A1=GND → 0x41)
 constexpr uint8_t HMC5883L = 0x1E;        // compass on BN-880 GPS module (external)
 constexpr uint8_t QMI8658  = 0x6B;        // IMU (onboard); verify with i2cdetect — may be 0x6A
 }  // namespace i2c_addr

@@ -9,21 +9,21 @@ Complete connection guide for the RC sailboat bench assembly. Pin numbers are GP
 The boat runs from a **3S LiPo** (11.1 V nominal, 9.0–12.6 V range, T-Plug connector). A dedicated **10A UBEC** (set to 6V) is the sole electronics power source — it feeds both the servo rail and the 5V buck converter. The Quicrun 1060 ESC handles motor control only; its built-in SBEC red wire is left **disconnected** from the servo rail to prevent a BEC voltage conflict.
 
 ```
-  3S LiPo ──→ Quicrun 1060 ESC ──→ Motor
-  3S LiPo ──→ INA219 ──→ 10A UBEC (6V) ──→ PCA9685 V+ (servo rail) ──→ Rudder servo
-                                         │                            └──→ Sail winch servo
-                                         └──→ 5V Buck converter ──→ ESP32 (USB-C), PCA9685 VCC, ELRS receiver
-                                                                └──→ INA219 VCC, BN-880 VCC (via ESP32 3.3V)
+  3S LiPo ──→ [Bus bar shunt + INA228] ──┬──→ Quicrun 1060 ESC ──→ Motor
+                                          └──→ 10A UBEC (6V) ──→ PCA9685 V+ (servo rail) ──→ Rudder servo
+                                                             │                            └──→ Sail winch servo
+                                                             └──→ 5V Buck converter ──→ ESP32 (USB-C), PCA9685 VCC, ELRS receiver
+                                                                                    └──→ BN-880 VCC (via ESP32 3.3V)
 ```
 
-> The INA219 sits in series on the UBEC's input wire (between the battery tap and the UBEC), not on its output. This exposes the full battery voltage (9–12.6 V) at the INA219 bus pin, making `power_voltage_v()` a genuine state-of-charge indicator. Motor current bypasses the INA219 entirely through the ESC branch.
+> The INA228 and its 50A/1.5mΩ bus bar shunt sit in the main battery positive line **before the ESC/UBEC split**, so `power_voltage_v()` reads true battery voltage (9–12.6V) and `power_current_a()` includes motor current. The INA219 is not used.
 
 | Rail | Voltage | Source | Consumers |
 |---|---|---|---|
 | Motor | 9–12.6 V (direct battery) | Quicrun 1060 ESC | Brushed drive motor |
 | Servo power | 6 V | 10A UBEC | PCA9685 V+ rail, all servo power pins |
 | Logic 5 V | 5 V | 3A 5V buck converter (fed from UBEC 6V output) | ESP32 (via USB-C), PCA9685 VCC, ELRS receiver |
-| Logic 3.3 V | 3.3 V | ESP32 onboard regulator | INA219, BN-880 GPS/compass |
+| Logic 3.3 V | 3.3 V | ESP32 onboard regulator | BN-880 GPS/compass |
 
 ### UBEC power budget (10A rated — total load is well within spec)
 
@@ -43,7 +43,7 @@ The 10A UBEC runs at ~10–30% load under normal conditions, so its output stays
 | Battery → ESC (T-Plug) | 14–12 AWG silicone | Motor can draw 20+ A |
 | ESC → motor | 14–12 AWG silicone | Same high current path |
 | Battery → UBEC input | 16–14 AWG silicone | UBEC rated 10A; wire to match |
-| Battery → INA219 → UBEC input | 16–14 AWG silicone | Same current as UBEC input wire |
+| Battery → shunt → ESC/UBEC split | 14–12 AWG silicone | Full battery current passes through shunt |
 | UBEC out → PCA9685 V+ | 20–18 AWG | Up to 2.5 A servo rail |
 | UBEC out → buck converter input | 22–20 AWG | <600 mA logic load |
 | Buck output → ESP32 USB-C | 22–20 AWG | <500 mA |
@@ -98,9 +98,9 @@ The UBEC connects in parallel with the ESC directly to the 3S battery. Set its o
 
 | UBEC connection | Connects to | Notes |
 |---|---|---|
-| Input + | INA219 V− (INA219 V+ connects to battery positive) | INA219 shunt sits in this wire — see INA219 section |
+| Input + | Battery positive (after bus bar shunt) | Parallel with ESC — 16–14 AWG silicone |
 | Input − | GND rail | |
-| Output + (6V) | PCA9685 V+ servo rail | Direct — no INA219 on the output side |
+| Output + (6V) | PCA9685 V+ servo rail | |
 | Output + (6V) | 5V buck converter input + | Logic supply chain |
 | Output − | GND rail | |
 
@@ -125,23 +125,23 @@ Powers the ESP32 and all logic devices. Input comes from the **UBEC's 6V output*
 
 ---
 
-## INA219 current sensor — UBEC input wire
+## INA228 + bus bar shunt — total battery current monitor
 
-The INA219's default 0.1 Ω shunt is rated for ~3.2 A. The motor draws 20–60 A through the ESC and must never be measured by the INA219. Instead, wire it in series on the **UBEC's input wire** (between the battery tap and the UBEC), so motor current bypasses it entirely through the ESC branch.
+The INA228 is a 20-bit I²C current/voltage sensor paired with a dedicated **50A/75mV bus bar shunt** (R = 1.5 mΩ) in the main battery positive line. Because it sits before the ESC/UBEC split, it measures total current (motor + electronics) and true battery voltage — both values are unavailable from the UBEC output side. The INA219 is not used.
 
-This placement has two advantages over the UBEC output:
-- **Bus voltage = battery voltage (9–12.6 V)** — `power_voltage_v()` reads true state of charge, not a fixed 6V regulated output.
-- **Current = UBEC input current** — at ~85–90% UBEC efficiency, this is slightly less than the output current but a valid electronics load proxy (~0.7–3 A, within shunt spec).
+The bus bar shunt has two large terminals (main power wire) and two small sense terminals (connected to the INA228 IN+/IN−). Keep the sense wire leads short and route them away from motor wires to minimise noise pickup.
 
-| INA219 connection | Connects to | Notes |
+| INA228 connection | Connects to | Notes |
 |---|---|---|
 | VCC | ESP32 3.3 V | Logic supply |
 | GND | GND | |
 | SDA | GPIO47 | Shared I²C bus |
 | SCL | GPIO48 | Shared I²C bus |
-| V+ | Battery positive (UBEC branch, after split from ESC) | High side — battery voltage visible here |
-| V− | UBEC input + | After shunt — UBEC draws current through this point |
-| A0 pad | **Bridge to VS** | Shifts I²C address 0x40 → 0x41 (avoids clash with PCA9685) |
+| IN+ | Bus bar shunt high-side terminal | Battery positive before the split |
+| IN− | Bus bar shunt low-side terminal | After shunt — ESC and UBEC connect here |
+| A0 | VS (bridge pad) | Sets I²C address 0x41; A1 = GND (leave unconnected or tie to GND) |
+
+> **Address:** A0=VS, A1=GND → 0x41. This reuses the address previously occupied by the INA219, so no firmware address changes are needed.
 
 ---
 
@@ -153,8 +153,8 @@ One bus carries all I²C devices. Connect SDA and SCL in parallel across every d
 |---|---|---|---|
 | FT3168 touch | Onboard | 0x38 | Onboard — no wiring needed |
 | QMI8658 IMU | Onboard | 0x6A or 0x6B | Onboard — no wiring needed |
-| PCA9685 servo driver | Teyleten Robot PCA9685 breakout | **0x40** | VCC: 5 V (from buck); V+: 6 V (from UBEC output directly) |
-| INA219 current sensor | External breakout | **0x41** | VCC: 3.3 V — A0 pad must be bridged |
+| PCA9685 servo driver | Teyleten Robot PCA9685 breakout | **0x40** | VCC: 5 V (from buck); V+: 6 V (from UBEC output) |
+| INA228 current/voltage sensor | External breakout + bus bar shunt | **0x41** | VCC: 3.3 V — A0=VS, A1=GND |
 | HMC5883L compass | On BN-880 GPS module | **0x1E** | VCC: 3.3 V |
 
 > **Address conflict:** INA219 ships with default address 0x40, same as PCA9685. Bridge the A0 solder jumper on the INA219 breakout before wiring.
@@ -309,13 +309,12 @@ Mount two waterproof panel connectors in the hull (e.g. XT30 + JST-XH with O-rin
 ```mermaid
 graph TD
     LIPO["3S LiPo\n11.1 V T-Plug"]
+    SHUNT["Bus bar shunt\n50A / 1.5mΩ\n+ INA228 sense"]
 
-    LIPO -->|T-Plug heavy gauge| ESC["Quicrun 1060\nBrushed ESC\n(motor only — SBEC not used)"]
-    LIPO -->|UBEC branch\n16-14 AWG| INA_VIN["INA219 V+\nbattery voltage"]
+    LIPO -->|T-Plug heavy gauge| SHUNT
+    SHUNT -->|heavy gauge| ESC["Quicrun 1060\nBrushed ESC\n(motor only — SBEC not used)"]
+    SHUNT -->|16-14 AWG| UBEC["10A UBEC\n6V regulated"]
     ESC -->|motor wires| MOTOR["Brushed motor"]
-
-    INA_VIN -->|0.1Ω shunt| INA_VOUT["INA219 V−\n= UBEC input"]
-    INA_VOUT --> UBEC["10A UBEC\n6V regulated"]
 
     UBEC --> PCA_V["PCA9685 V+\nservo power rail"]
     UBEC --> BUCK["5V Buck\n3A converter"]
@@ -329,11 +328,12 @@ graph TD
     BUCK -->|5V| PCA_VCC["PCA9685 VCC\nlogic"]
     BUCK -->|5V| ELRS_RX["ELRS receiver"]
 
-    ESP -->|3.3V| SENSORS["INA219 VCC\nBN-880 VCC"]
+    ESP -->|3.3V| SENSORS["INA228 VCC\nBN-880 VCC"]
 
     ESP <-->|I2C\nGPIO47 SDA / GPIO48 SCL| I2C_BUS["I²C bus"]
     I2C_BUS --- PCA["PCA9685\n0x40"]
-    I2C_BUS --- INA["INA219\n0x41"]
+    I2C_BUS --- INA228_I2C["INA228\n0x41"]
+    SHUNT -.-|sense leads| INA228_I2C
     I2C_BUS --- HMAG["BN-880 HMC5883L\n0x1E"]
     I2C_BUS --- TOUCH["FT3168 touch\n0x38 (onboard)"]
     I2C_BUS --- IMU["QMI8658 IMU\n0x6A/6B (onboard)"]
@@ -379,7 +379,7 @@ Components:
   5. 3A 5V buck converter (input from UBEC 6V output, output 5V)
   6. Waveshare ESP32-S3-Touch-AMOLED-1.64 dev board (USB-C port for 5V power input)
   7. Teyleten Robot PCA9685 16-channel PWM servo driver breakout (VCC pin for 5V logic, V+ pin for 6V servo power)
-  8. INA219 current sensor breakout (A0 jumper bridged; in series on UBEC input wire — between battery positive tap and UBEC input, so battery voltage is visible and motor current bypasses)
+  8. INA228 current/voltage sensor breakout (A0=VS, A1=GND for address 0x41) with a 50A/75mV bus bar shunt in the main battery positive line before the ESC/UBEC split
   9. BN-880 GPS module (UART pins + separate I2C compass pads)
   10. ELRS receiver module
   11. Bilge float switch sensor
@@ -395,8 +395,10 @@ Power connections (use thick lines for high-current paths):
     GND (black) → GND rail
     +BEC red wire → TAPED OFF, not connected
 
-  Battery → INA219 V+ (UBEC branch, 16-14 AWG dark red)
-  INA219 V− → UBEC input+
+  Battery T-Plug → bus bar shunt high-side terminal (thick dark red)
+  Bus bar shunt low-side terminal → ESC input+ AND UBEC input+ (split point, heavy gauge)
+  INA228 IN+ → shunt high-side sense terminal (thin wire, keep short)
+  INA228 IN− → shunt low-side sense terminal (thin wire, keep short)
   UBEC output+ → PCA9685 V+ servo rail (orange, 6V)
   UBEC output+ → buck converter input+ (orange, branch wire)
 
@@ -407,7 +409,7 @@ Power connections (use thick lines for high-current paths):
   Buck converter output 5V → ELRS receiver VCC
   Buck converter GND → GND rail
 
-  ESP32 3.3V → INA219 VCC, BN-880 VCC (thin red)
+  ESP32 3.3V → INA228 VCC, BN-880 VCC (thin red)
 
 I2C bus (SDA=GPIO47, SCL=GPIO48 on ESP32):
   Connect in parallel to: PCA9685 (0x40), INA219 (0x41, A0 bridged), BN-880 compass (0x1E)
