@@ -71,6 +71,15 @@ void setup()
     compass_init();
 #endif
 
+    // Reset I2C bus after the init sequence. Any peripheral that was absent
+    // (PCA9685, INA228) produced a NACK during its init call. The ESP32-S3
+    // i2c-ng driver does not auto-reset bus state on NACK, so those can
+    // leave the driver in ESP_ERR_INVALID_STATE. Re-init clears this before
+    // loop() begins so the onboard devices (FT3168 touch, QMI8658 IMU) work.
+    Wire.end();
+    delay(10);
+    Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
+
     Serial.println("rcsailboat firmware ready");
 }
 

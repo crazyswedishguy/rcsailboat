@@ -456,10 +456,20 @@ static void handle_track()
 #endif
 }
 
-// Redirect any unrecognised URL to the control page.
-// The DNS server (below) resolves all hostnames to 192.168.4.1, so when iOS
-// or Android try connectivity-check URLs (captive.apple.com, etc.) they land
-// here, get a 302 → /, and iOS shows a "Sign In to Network" mini-browser.
+// Return Apple's expected captive-portal success page.
+// iOS makes an HTTP request to captive.apple.com/hotspot-detect.html on every
+// new WiFi association. If the response is anything other than this exact page,
+// iOS shows a "Sign In to Network" popup. The user dismissing that popup causes
+// iOS to forget the session and prompt for the password again — the "strange
+// loop". Returning 200 + success content tells iOS the network has internet and
+// skips the popup entirely.
+static void handle_apple_connectivity_check()
+{
+    s_srv.send(200, "text/html",
+        "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>");
+}
+
+// Redirect any unrecognised URL to the control page (catch-all captive portal).
 static void handle_captive_redirect()
 {
     s_srv.sendHeader("Location", "http://192.168.4.1/");
@@ -572,9 +582,9 @@ static void start_ap()
     s_srv.on("/update", HTTP_GET,  handle_ota_get);
     s_srv.on("/update", HTTP_POST, handle_ota_post, handle_ota_upload);
     // Explicit captive-portal routes (iOS, Android, Windows connectivity checks)
-    s_srv.on("/hotspot-detect.html",       handle_captive_redirect);
-    s_srv.on("/library/test/success.html", handle_captive_redirect);
-    s_srv.on("/hotspotdetect.html",        handle_captive_redirect);
+    s_srv.on("/hotspot-detect.html",       handle_apple_connectivity_check);
+    s_srv.on("/library/test/success.html", handle_apple_connectivity_check);
+    s_srv.on("/hotspotdetect.html",        handle_apple_connectivity_check);
     s_srv.on("/generate_204",              []() { s_srv.send(204, "text/plain", ""); });
     s_srv.on("/ncsi.txt",                  handle_captive_redirect);
     s_srv.on("/connecttest.txt",           handle_captive_redirect);

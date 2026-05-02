@@ -54,7 +54,11 @@ static void i2c_scan() {
 }
 
 void servos_init() {
-    i2c_scan();
+    // i2c_scan() is NOT called here. Scanning all 126 addresses sends 126
+    // consecutive NACKs when no external devices are wired; the ESP32-S3
+    // i2c-ng driver does not auto-reset the bus handle state after a NACK,
+    // so it accumulates into ESP_ERR_INVALID_STATE and breaks all subsequent
+    // I2C traffic (touch, IMU). Call i2c_scan() manually from a debug build.
 
     // Check that the PCA9685 is present before calling begin() — begin() on a
     // missing device hangs the I²C bus on some hardware revisions.
