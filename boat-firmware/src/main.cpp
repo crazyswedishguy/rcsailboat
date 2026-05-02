@@ -106,11 +106,21 @@ void loop()
         }
     }
 
-    // Read INA219 power data.
-    power_update();
+    // Read INA228 power data at 10 Hz — rate-limited to avoid saturating the I2C bus.
+    static unsigned long s_power_ms = 0;
+    if (millis() - s_power_ms >= 100) {
+        s_power_ms = millis();
+        power_update();
+    }
 
-    // Update IMU orientation estimate and capsize detection.
-    imu_update();
+    // Update IMU orientation estimate and capsize detection at 50 Hz.
+    // Rate-limited: calling imu_update() every loop saturates the I2C bus with
+    // repeated-start transactions and triggers ESP_ERR_INVALID_STATE (259) errors.
+    static unsigned long s_imu_ms = 0;
+    if (millis() - s_imu_ms >= 20) {
+        s_imu_ms = millis();
+        imu_update();
+    }
 
     // Poll bilge sensor and drive pump relay.
     bilge_update();

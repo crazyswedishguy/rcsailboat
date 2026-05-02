@@ -39,7 +39,7 @@ static const char *TAG = "display";
 // ── LVGL task parameters ──────────────────────────────────────────────────────
 #define LVGL_BUF_ROWS      (LCD_V_RES / 4)
 #define LVGL_TICK_MS       2
-#define LVGL_TASK_STACK    (8 * 1024)   // 8 KB — extra headroom for 5-screen UI
+#define LVGL_TASK_STACK    (16 * 1024)  // 16 KB — 6-screen UI needs headroom; 8 KB caused stack overflow
 #define LVGL_TASK_PRIORITY 2
 
 // ── Panel init sequence (verbatim from Waveshare 06_LVGL_Test/lcd_bsp.c) ─────
@@ -600,6 +600,13 @@ static void build_screens()
     build_tile_battery(t2);
     build_tile_controls(t3);
     build_tile_attitude(t4);
+
+    // LVGL 8.3 requires at least one event listener registered directly on the
+    // tileview for scroll-chain propagation from child tiles to reach it.
+    // Without these, horizontal swipes on tiles are not forwarded to the tileview
+    // and tile navigation silently breaks. Empty callbacks are sufficient.
+    lv_obj_add_event_cb(tv, [](lv_event_t *) {}, LV_EVENT_SCROLL, nullptr);
+    lv_obj_add_event_cb(tv, [](lv_event_t *) {}, LV_EVENT_VALUE_CHANGED, nullptr);
 
     // Store references for the wrap-around gesture callback
     s_tileview  = tv;

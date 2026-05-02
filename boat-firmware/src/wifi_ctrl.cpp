@@ -531,7 +531,16 @@ static void handle_ota_post()
 static void start_ap()
 {
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS);
+    // Explicit DHCP config required for reliable iOS association.
+    // Without softAPConfig(), the ESP32 DHCP server sometimes delays
+    // responding, causing iOS to show a spinning wheel indefinitely.
+    IPAddress ip(192, 168, 4, 1);
+    IPAddress gw(192, 168, 4, 1);
+    IPAddress nm(255, 255, 255, 0);
+    WiFi.softAPConfig(ip, gw, nm);
+    // Channel 6 is clear of channels 1 and 11; avoids co-channel issues
+    // with most home routers and improves iOS DHCP reliability.
+    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, 6);
     Serial.printf("wifi_ctrl: AP up — SSID=%s  IP=%s\n",
                   WIFI_AP_SSID, WiFi.softAPIP().toString().c_str());
 
