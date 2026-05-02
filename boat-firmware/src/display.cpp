@@ -715,14 +715,24 @@ void display_init()
 
 // Called from main loop at ~50 Hz — polls FT3168 touch via Wire and caches
 // the result so the LVGL task can read it safely from touch_read_cb().
-// Reinitialise the I2C bus. Called after consecutive failures because the
-// ESP32-S3 i2c-ng driver sets its internal status to I2C_BUS_STATUS_ERROR on
-// any failed transaction and never self-recovers — every subsequent call then
-// immediately returns ESP_ERR_INVALID_STATE (259).
+// Hardware I2C bus recovery.
+// If a device is holding SDA low after an interrupted transaction, the
+// ESP32-S3 i2c-ng driver reinit alone won't help — the bus is physically
+// stuck. Clock SCL 9 times to force the stuck device to complete its byte
+// and release SDA, then generate a STOP before reinitialising the driver.
 static void i2c_bus_recover()
 {
+    pinMode(pins::I2C_SDA, OUTPUT_OPEN_DRAIN);
+    pinMode(pins::I2C_SCL, OUTPUT_OPEN_DRAIN);
+    digitalWrite(pins::I2C_SDA, HIGH);
+    for (int i = 0; i < 9; i++) {
+        digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
+        digitalWrite(pins::I2C_SCL, LOW);  delayMicroseconds(10);
+    }
+    // STOP: SDA rises while SCL is high
+    digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
+    digitalWrite(pins::I2C_SDA, HIGH); delayMicroseconds(10);
     Wire.end();
-    delay(5);
     Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
 }
 

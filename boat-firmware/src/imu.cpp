@@ -71,11 +71,20 @@ static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len)
     Wire.beginTransmission(i2c_addr::QMI8658);
     Wire.write(reg);
     if (Wire.endTransmission(true) != 0) {
-        // ESP32-S3 i2c-ng driver sets I2C_BUS_STATUS_ERROR on failure and never
-        // self-recovers. Reinitialise after 3 consecutive failures. QMI8658
-        // register values survive the reset (on-chip hardware, still powered).
         if (++s_err >= 3) {
-            Wire.end(); delay(5); Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
+            // Hardware I2C bus recovery: clock SCL 9× to unstick a device
+            // holding SDA low, then STOP, then reinit driver.
+            pinMode(pins::I2C_SDA, OUTPUT_OPEN_DRAIN);
+            pinMode(pins::I2C_SCL, OUTPUT_OPEN_DRAIN);
+            digitalWrite(pins::I2C_SDA, HIGH);
+            for (int i = 0; i < 9; i++) {
+                digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
+                digitalWrite(pins::I2C_SCL, LOW);  delayMicroseconds(10);
+            }
+            digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
+            digitalWrite(pins::I2C_SDA, HIGH); delayMicroseconds(10);
+            Wire.end();
+            Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
             s_err = 0;
         }
         return false;
