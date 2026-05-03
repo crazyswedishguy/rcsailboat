@@ -1108,21 +1108,28 @@ function updateDevices() {
     d.forEach(function(item) {
       var card = document.getElementById('dev-'+item.id);
       if (!card) return;
-      var st = item.stat || 'absent';
-      card.className = 'dev-card ' + st;
+      var level = item.level || 'absent';
+      card.className = 'dev-card ' + level;
       var dot = card.querySelector('.dev-dot');
-      if (dot) dot.className = 'dev-dot ' + st;
+      if (dot) dot.className = 'dev-dot ' + level;
       var statusEl = card.querySelector('.dev-status');
-      if (statusEl) { statusEl.className = 'dev-status ' + st; statusEl.textContent = {ok:'OK',warn:'WARN',error:'FAULT',absent:'N/A'}[st]||'--'; }
+      if (statusEl) { statusEl.className = 'dev-status ' + level; statusEl.textContent = {ok:'OK',warn:'WARN',error:'FAULT',absent:'N/A'}[level]||'--'; }
+      var noteEl = card.querySelector('.dev-note');
+      if (noteEl && item.stat !== undefined) noteEl.textContent = item.stat;
+      // Repair button: show for repairable absent/error devices
+      var repBtn = card.querySelector('.repair-btn');
+      if (item.repairable && level !== 'ok') {
+        if (!repBtn) {
+          repBtn = document.createElement('button');
+          repBtn.onclick = (function(nid, b) { return function() { repairDev(nid, b); }; })(item.numId, repBtn);
+          card.appendChild(repBtn);
+        }
+        repBtn.textContent = '↻ Repair';
+        repBtn.className = 'repair-btn ' + level;
+      } else {
+        if (repBtn) repBtn.remove();
+      }
     });
-  }).catch(function(){});
-  fetch('/status').then(function(r){return r.json();}).then(function(d) {
-    var bNote = document.getElementById('dev-bilge-note');
-    if (bNote) bNote.textContent = d.wet ? 'WET ⚠' : 'Dry';
-    var bCard = document.getElementById('dev-bilge');
-    if (bCard) bCard.className = 'dev-card ' + (d.wet ? 'warn' : 'ok');
-    var pNote = document.getElementById('dev-pump-note');
-    if (pNote) pNote.textContent = d.pump ? 'Running' : 'Off';
   }).catch(function(){});
 }
 
@@ -1429,23 +1436,24 @@ static void handle_diag_page()
 
 static void handle_diag_json()
 {
-    // String IDs match the HTML card element IDs (dev-{id}).
-    char buf[1024];
+    // String IDs match HTML card element IDs. numId is the numeric DEV_* index
+    // for the repair endpoint (/repair?id=numId). Non-I2C devices omit numId.
+    char buf[1500];
     int  n = 0;
 
     static const char *DEV_IDS[] = {"ft", "qmi", "pca", "ina"};
 
     n += snprintf(buf, sizeof(buf), "[");
 
-    // ── I2C devices (repairable via /repair?id=N) ──────────────────────────
+    // ── I2C devices (repairable via /repair?id=numId) ──────────────────────
     for (uint8_t i = 0; i < DEV_COUNT; i++) {
         const DeviceInfo *d  = diag_info((DevId)i);
         bool              ok = d->present && d->enabled;
         n += snprintf(buf + n, sizeof(buf) - n,
-            "%s{\"id\":\"%s\",\"name\":\"%s\",\"role\":\"%s\","
+            "%s{\"id\":\"%s\",\"numId\":%d,\"name\":\"%s\",\"role\":\"%s\","
             "\"addr\":\"0x%02X\",\"level\":\"%s\",\"stat\":\"%s\","
             "\"repairable\":true}",
-            i ? "," : "", DEV_IDS[i], d->name, d->role, d->addr,
+            i ? "," : "", DEV_IDS[i], (int)i, d->name, d->role, d->addr,
             ok ? "ok" : "absent",
             ok ? "OK"  : "Absent");
     }
@@ -1468,6 +1476,16 @@ static void handle_diag_json()
             wet ? "warn" : "ok", wet ? "WET" : "Dry");
     }
 
+    // ── Bilge Pump ─────────────────────────────────────────────────────────
+    // No way to detect physical connection — absent until pump is running.
+    {
+        bool on = bilge_pump_active();
+        n += snprintf(buf + n, sizeof(buf) - n,
+            ",{\"id\":\"pump\",\"name\":\"Bilge Pump\",\"role\":\"Manual drain\","
+            "\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
+            on ? "warn" : "absent", on ? "Running" : "Unmonitored");
+    }
+
     // ── Actuators (Rudder / Sail Winch / Motor ESC) ────────────────────────
     static const char *ACT_IDS[]   = {"rudder",    "winch",      "esc"};
     static const char *ACT_NAMES[] = {"Rudder",    "Sail Winch", "Motor ESC"};
@@ -1483,7 +1501,7 @@ static void handle_diag_json()
             ",{\"id\":\"%s\",\"name\":\"%s\",\"role\":\"%s\","
             "\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
             ACT_IDS[i], ACT_NAMES[i], ACT_ROLES[i],
-            drv ? "ok" : "disabled", stat);
+            drv ? "ok" : "absent", stat);
     }
 
     n += snprintf(buf + n, sizeof(buf) - n, "]");
