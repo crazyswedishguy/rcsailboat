@@ -12,6 +12,7 @@
 
 void bilge_init();
 void bilge_update();           // call every loop() — debounces sensor
-bool bilge_water_detected();   // true if sensor wet for > 2 s
+bool bilge_water_detected();    // true if sensor wet for > 2 s
+bool bilge_sensor_verified();   // true once sensor has triggered at least once this session
 bool bilge_pump_active();
 void bilge_pump_set(bool on);

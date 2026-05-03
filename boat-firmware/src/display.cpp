@@ -1,6 +1,7 @@
 #include "display.h"
 #include "bilge.h"
 #include "config.h"
+#include "diag.h"
 #include "elrs.h"
 #include "imu.h"
 #include "power.h"
@@ -69,7 +70,8 @@ static bool              s_ready   = false;
 // Tileview reference + edge-tile pointers for wrap-around gesture handling
 static lv_obj_t *s_tileview  = nullptr;
 static lv_obj_t *s_tile_wifi = nullptr;   // col 0 — leftmost
-static lv_obj_t *s_tile_att  = nullptr;   // col 5 — rightmost
+static lv_obj_t *s_tile_att  = nullptr;   // col 5 — Attitude
+static lv_obj_t *s_tile_diag = nullptr;   // col 6 — rightmost (Devices)
 
 // ── Screen 0 (WiFi / ELRS control) — label handles ───────────────────────────
 static lv_obj_t *s0_lbl_mode  = nullptr;   // "WIFI AP" / "ELRS CTRL"
@@ -117,6 +119,10 @@ static lv_obj_t *s4_lbl_thr     = nullptr;
 
 // ── Screen 5 (Attitude) ──────────────────────────────────────────────────────
 static lv_obj_t *s5_bar_roll    = nullptr;
+// ── Screen 6 (Devices) ───────────────────────────────────────────────────────
+static lv_obj_t *s6_dot[DEV_COUNT]        = {};
+static lv_obj_t *s6_lbl_status[DEV_COUNT] = {};
+static lv_obj_t *s6_btn[DEV_COUNT]        = {};
 #ifdef GPS_ENABLED
 static lv_obj_t *s5_lbl_speed  = nullptr;
 #endif
@@ -141,6 +147,7 @@ static bool          s_was_linked      = false;
 #define C_BATT  lv_color_make(183,  28,  28)   // Red 900  (battery/power)
 #define C_CTRL  lv_color_make( 74,  20, 140)   // Purple 900
 #define C_ATT   lv_color_make( 26,  35, 126)   // Indigo 900
+#define C_DIAG  lv_color_make( 31,  41,  55)   // Dark Blue Grey (system health)
 
 // ── LVGL / panel callbacks ────────────────────────────────────────────────────
 static bool flush_ready_cb(esp_lcd_panel_io_handle_t,
@@ -559,15 +566,68 @@ static void tv_gesture_cb(lv_event_t *e)
     lv_dir_t    dir  = lv_indev_get_gesture_dir(indev);
     lv_obj_t   *tile = lv_tileview_get_tile_act(s_tileview);
     if (tile == s_tile_wifi && dir == LV_DIR_RIGHT) {
-        lv_obj_set_tile_id(s_tileview, 5, 0, LV_ANIM_ON);
-    } else if (tile == s_tile_att && dir == LV_DIR_LEFT) {
+        lv_obj_set_tile_id(s_tileview, 6, 0, LV_ANIM_ON);   // wrap → Devices
+    } else if (tile == s_tile_diag && dir == LV_DIR_LEFT) {
         lv_obj_set_tile_id(s_tileview, 0, 0, LV_ANIM_ON);
     }
 }
 
-// ── Assemble tileview with all 6 screens ─────────────────────────────────────
-// Layout (col): [WiFi/ELRS(0)] [Main(1)] [Link(2)] [Battery(3)] [Controls(4)] [Attitude(5)]
-// Swipe right from Main → WiFi.  Swipe left from Main → Link.
+static void repair_btn_cb(lv_event_t *e)
+{
+    diag_request_reprobe((DevId)(uintptr_t)lv_event_get_user_data(e));
+}
+
+static void build_tile_diag(lv_obj_t *t)
+{
+    make_banner(t, "DEVICES", C_DIAG);
+
+    // 4 rows of 101 px each, starting just below the banner accent line at y=52.
+    for (uint8_t i = 0; i < DEV_COUNT; i++) {
+        const DeviceInfo *d = diag_info((DevId)i);
+        lv_coord_t ry = 52 + (lv_coord_t)i * 101;
+
+        if (i > 0)
+            make_rect(t, 0, ry, LCD_H_RES, 1, lv_color_make(50, 50, 50));
+
+        // Status dot — color updated dynamically in display_update()
+        s6_dot[i] = make_rect(t, 8, ry + 14, 20, 20, lv_palette_main(LV_PALETTE_GREY));
+        lv_obj_set_style_radius(s6_dot[i], 10, LV_PART_MAIN);
+
+        // Device name (static)
+        char name_buf[12];
+        snprintf(name_buf, sizeof(name_buf), "%s", d->name);
+        make_label_font(t, 36, ry + 8, name_buf, &lv_font_montserrat_20, lv_color_white());
+
+        // Address and role (static, grey)
+        char meta_buf[24];
+        snprintf(meta_buf, sizeof(meta_buf), "0x%02X  %s", d->addr, d->role);
+        make_label_font(t, 36, ry + 36, meta_buf, &lv_font_montserrat_14,
+                        lv_color_make(140, 140, 140));
+
+        // Status text (dynamic — "OK" / "ABSENT")
+        s6_lbl_status[i] = make_label_font(t, 36, ry + 60, "—",
+                                           &lv_font_montserrat_14,
+                                           lv_color_make(140, 140, 140));
+
+        // Repair button — turns red when device is absent
+        lv_obj_t *btn = lv_btn_create(t);
+        lv_obj_set_size(btn, 82, 30);
+        lv_obj_set_pos(btn, LCD_H_RES - 92, ry + 34);
+        lv_obj_set_style_bg_color(btn, lv_color_make(55, 55, 55), LV_PART_MAIN);
+        lv_obj_set_style_radius(btn, 4, LV_PART_MAIN);
+        lv_obj_t *lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, "REPAIR");
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, LV_PART_MAIN);
+        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_add_event_cb(btn, repair_btn_cb, LV_EVENT_CLICKED,
+                            (void *)(uintptr_t)(uint8_t)i);
+        s6_btn[i] = btn;
+    }
+}
+
+// ── Assemble tileview with all 7 screens ─────────────────────────────────────
+// Layout (col): [WiFi(0)] [Main(1)] [Link(2)] [Battery(3)] [Controls(4)] [Attitude(5)] [Devices(6)]
+// Swipe right from WiFi → Devices (wrap).  Swipe left from Devices → WiFi (wrap).
 // Boot view: Main (col 1).
 static void build_screens()
 {
@@ -587,9 +647,10 @@ static void build_screens()
     lv_obj_t *t1 = lv_tileview_add_tile(tv, 2, 0, LV_DIR_HOR);   // Link
     lv_obj_t *t2 = lv_tileview_add_tile(tv, 3, 0, LV_DIR_HOR);   // Battery
     lv_obj_t *t3 = lv_tileview_add_tile(tv, 4, 0, LV_DIR_HOR);   // Controls
-    lv_obj_t *t4 = lv_tileview_add_tile(tv, 5, 0, LV_DIR_LEFT);  // Attitude (rightmost)
+    lv_obj_t *t4 = lv_tileview_add_tile(tv, 5, 0, LV_DIR_HOR);   // Attitude
+    lv_obj_t *t5 = lv_tileview_add_tile(tv, 6, 0, LV_DIR_LEFT);  // Devices (rightmost)
 
-    for (lv_obj_t *t : {tw, t0, t1, t2, t3, t4}) {
+    for (lv_obj_t *t : {tw, t0, t1, t2, t3, t4, t5}) {
         lv_obj_set_style_bg_color(t, lv_color_black(), LV_PART_MAIN);
         lv_obj_set_scrollbar_mode(t, LV_SCROLLBAR_MODE_OFF);
     }
@@ -600,6 +661,7 @@ static void build_screens()
     build_tile_battery(t2);
     build_tile_controls(t3);
     build_tile_attitude(t4);
+    build_tile_diag(t5);
 
     // LVGL 8.3 requires at least one event listener registered directly on the
     // tileview for scroll-chain propagation from child tiles to reach it.
@@ -612,10 +674,11 @@ static void build_screens()
     s_tileview  = tv;
     s_tile_wifi = tw;
     s_tile_att  = t4;
+    s_tile_diag = t5;
     // LVGL 8.3 fires LV_EVENT_GESTURE on the pressed tile, not the tileview.
     // Register on the two edge tiles only; also bubble swipes from the mode button.
     lv_obj_add_event_cb(tw, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
-    lv_obj_add_event_cb(t4, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
+    lv_obj_add_event_cb(t5, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
     lv_obj_add_flag(s0_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     // Start on Main, not WiFi
@@ -669,10 +732,14 @@ void display_init()
 
     lv_init();
 
+    // Allocate from PSRAM (8 MB OPI on this board) rather than internal SRAM.
+    // MALLOC_CAP_DMA forced 124 KB of render buffer into the 327 KB internal heap,
+    // leaving too little for WiFi WPA2-AES handshakes (causing "Failed to allocate
+    // memory" and connection failures). ESP32-S3 GDMA can access OPI PSRAM.
     lv_color_t *buf1 = (lv_color_t *)heap_caps_malloc(
-        LCD_H_RES * LVGL_BUF_ROWS * sizeof(lv_color_t), MALLOC_CAP_DMA);
+        LCD_H_RES * LVGL_BUF_ROWS * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
     lv_color_t *buf2 = (lv_color_t *)heap_caps_malloc(
-        LCD_H_RES * LVGL_BUF_ROWS * sizeof(lv_color_t), MALLOC_CAP_DMA);
+        LCD_H_RES * LVGL_BUF_ROWS * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
     assert(buf1 && buf2);
 
     static lv_disp_draw_buf_t draw_buf;
@@ -693,6 +760,19 @@ void display_init()
     indev_drv.type    = LV_INDEV_TYPE_POINTER;
     indev_drv.read_cb = touch_read_cb;
     lv_indev_drv_register(&indev_drv);
+
+    // FT3168 init: write 0x00 to register 0x00 — puts controller in normal
+    // operating mode (matches Waveshare 06_LVGL_Test/FT3168.cpp).
+    if (diag_ok(DEV_FT3168)) {
+        Wire.beginTransmission(i2c_addr::FT3168);
+        Wire.write((uint8_t)0x00);
+        Wire.write((uint8_t)0x00);
+        if (Wire.endTransmission(true) != 0) {
+            // FT3168 didn't ACK — bus may be stuck; recover before loop() starts.
+            Serial.println("display: FT3168 init write failed — recovering bus");
+            i2c_recover_bus();
+        }
+    }
 
     esp_timer_create_args_t tick_args = {};
     tick_args.callback = tick_cb;
@@ -715,43 +795,43 @@ void display_init()
 
 // Called from main loop at ~50 Hz — polls FT3168 touch via Wire and caches
 // the result so the LVGL task can read it safely from touch_read_cb().
-// Hardware I2C bus recovery.
-// If a device is holding SDA low after an interrupted transaction, the
-// ESP32-S3 i2c-ng driver reinit alone won't help — the bus is physically
-// stuck. Clock SCL 9 times to force the stuck device to complete its byte
-// and release SDA, then generate a STOP before reinitialising the driver.
-static void i2c_bus_recover()
-{
-    // Release the I2C peripheral's control of the pins BEFORE touching them.
-    // The hardware peripheral drives SCL/SDA through the GPIO matrix; any
-    // bit-bang done while it still owns the pins is silently overridden.
-    Wire.end();
-    // Now we own the pins — clock SCL 9× to release a stuck slave, then STOP.
-    pinMode(pins::I2C_SDA, OUTPUT_OPEN_DRAIN);
-    pinMode(pins::I2C_SCL, OUTPUT_OPEN_DRAIN);
-    digitalWrite(pins::I2C_SDA, HIGH);
-    for (int i = 0; i < 9; i++) {
-        digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
-        digitalWrite(pins::I2C_SCL, LOW);  delayMicroseconds(10);
-    }
-    digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
-    digitalWrite(pins::I2C_SDA, HIGH); delayMicroseconds(10);
-    Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
-}
-
 void display_poll_touch()
 {
-    static uint8_t s_err = 0;
-    Wire.beginTransmission(i2c_addr::FT3168);
-    Wire.write(0x02);   // touch-count register
-    if (Wire.endTransmission(true) != 0) {
+    if (!diag_ok(DEV_FT3168)) {
         s_touch_state = LV_INDEV_STATE_REL;
-        if (++s_err >= 3) { i2c_bus_recover(); s_err = 0; }
         return;
     }
-    s_err = 0;
+
+    static unsigned long s_err_since_ms = 0;
+
+    // i2c-ng enters INVALID_STATE after any NACK; recover by reinitialising Wire.
+    // Shared by both failure paths below. 200 ms debounce avoids tight reset loops.
+    auto on_error = [&]() {
+        s_touch_state = LV_INDEV_STATE_REL;
+        if (!s_err_since_ms) s_err_since_ms = millis();
+        if (millis() - s_err_since_ms >= 200) {
+            Serial.println("display: I2C bus recovery (bit-bang SCL)");
+            i2c_recover_bus();
+            s_err_since_ms = 0;
+        }
+    };
+
+    Wire.beginTransmission(i2c_addr::FT3168);
+    Wire.write(0x02);
+    if (Wire.endTransmission(true) != 0) {
+        on_error();
+        return;
+    }
+
     Wire.requestFrom((int)i2c_addr::FT3168, 5);
-    if (Wire.available() < 5) { s_touch_state = LV_INDEV_STATE_REL; return; }
+    if (Wire.available() < 5) {
+        // Drain any partial bytes — leaving them unread corrupts i2c-ng state.
+        while (Wire.available()) Wire.read();
+        on_error();
+        return;
+    }
+
+    s_err_since_ms = 0;
     uint8_t count = Wire.read() & 0x0F;
     uint8_t xh = Wire.read(), xl = Wire.read();
     uint8_t yh = Wire.read(), yl = Wire.read();
@@ -923,6 +1003,19 @@ void display_update()
     lv_label_set_text_fmt(s5_lbl_speed, "%.1f km/h", spd_kmh);
     lv_obj_set_style_text_color(s5_lbl_speed, spd_c, LV_PART_MAIN);
 #endif
+
+    // ── Screen 6: devices ─────────────────────────────────────────────────────
+    for (uint8_t i = 0; i < DEV_COUNT; i++) {
+        bool ok = diag_ok((DevId)i);
+        lv_color_t sc = ok ? lv_palette_main(LV_PALETTE_GREEN)
+                           : lv_palette_main(LV_PALETTE_RED);
+        lv_obj_set_style_bg_color(s6_dot[i], sc, LV_PART_MAIN);
+        lv_label_set_text(s6_lbl_status[i], ok ? "OK" : "ABSENT");
+        lv_obj_set_style_text_color(s6_lbl_status[i], sc, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(s6_btn[i],
+            ok ? lv_color_make(55, 55, 55) : lv_color_make(183, 28, 28),
+            LV_PART_MAIN);
+    }
 
     lvgl_unlock();
 }

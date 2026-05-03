@@ -1468,12 +1468,17 @@ static void handle_diag_json()
     }
 
     // ── Bilge Sensor ───────────────────────────────────────────────────────
+    // Shows "warn/Unverified" until the sensor has triggered at least once,
+    // confirming physical connection. With INPUT_PULLUP a disconnected pin
+    // reads HIGH (same as dry), so we cannot confirm connection any other way.
     {
-        bool wet = bilge_water_detected();
+        bool wet      = bilge_water_detected();
+        bool verified = bilge_sensor_verified();
         n += snprintf(buf + n, sizeof(buf) - n,
             ",{\"id\":\"bilge\",\"name\":\"Bilge Sensor\",\"role\":\"Water detection\","
             "\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
-            wet ? "warn" : "ok", wet ? "WET" : "Dry");
+            wet ? "warn" : (verified ? "ok" : "warn"),
+            wet ? "WET"  : (verified ? "Dry" : "Unverified"));
     }
 
     // ── Bilge Pump ─────────────────────────────────────────────────────────

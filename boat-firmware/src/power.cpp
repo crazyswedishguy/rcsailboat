@@ -14,10 +14,10 @@
 
 #include "power.h"
 #include "config.h"
-#include <Wire.h>
+#include "diag.h"
 #include <INA228.h>
 
-static INA228        s_ina(i2c_addr::INA228);   // address in constructor; uses global Wire
+static INA228        s_ina(i2c_addr::INA228);
 static bool          s_ok      = false;
 static float         s_voltage = 0.0f;
 static float         s_current = 0.0f;
@@ -25,14 +25,17 @@ static float         s_mah     = 0.0f;
 static unsigned long s_last_ms = 0;
 
 void power_init() {
-    if (!s_ina.begin()) {
-        Serial.println("power: INA228 not found at 0x41 — readings disabled");
+    s_ok = false;
+    if (!diag_ok(DEV_INA228)) {
+        Serial.println("power: INA228 absent — disabled");
         return;
     }
-    // 60A max, 1.5mΩ shunt (50A/75mV bus bar). Motor stall may briefly exceed 50A.
-    s_ina.setMaxCurrentShunt(60.0f, 0.0015f);
-    s_ok      = true;
+    if (!s_ina.begin()) {
+        Serial.println("power: INA228 init failed");
+        return;
+    }
     s_last_ms = millis();
+    s_ok = true;
     Serial.println("power: INA228 ready");
 }
 
@@ -40,8 +43,8 @@ void power_update() {
     if (!s_ok) return;
 
     unsigned long now = millis();
-    s_voltage = s_ina.getBusVoltage();   // volts at IN+ = battery voltage
-    s_current = s_ina.getCurrent();      // amps
+    s_voltage = s_ina.getBusVoltage();
+    s_current = s_ina.getCurrent();
 
     float dt_h = (now - s_last_ms) / 3600000.0f;
     if (s_current > 0.0f) s_mah += s_current * 1000.0f * dt_h;

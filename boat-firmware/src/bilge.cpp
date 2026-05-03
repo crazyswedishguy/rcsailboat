@@ -18,8 +18,9 @@
 
 #define WET_DEBOUNCE_MS 2000   // sensor must read wet for this long before we believe it
 
-static bool          s_water    = false;
-static bool          s_pump     = false;
+static bool          s_water     = false;
+static bool          s_verified  = false;   // true once sensor has ever triggered (confirms connection)
+static bool          s_pump      = false;
 static unsigned long s_wet_start = 0;
 
 void bilge_init()
@@ -39,7 +40,8 @@ void bilge_update()
     } else {
         if (!s_wet_start) s_wet_start = millis();
         if ((millis() - s_wet_start) >= WET_DEBOUNCE_MS) {
-            s_water = true;
+            s_water    = true;
+            s_verified = true;
             Serial.println("bilge: water detected");
         }
     }
@@ -48,8 +50,9 @@ void bilge_update()
     digitalWrite(pins::BILGE_PUMP, s_pump ? HIGH : LOW);
 }
 
-bool bilge_water_detected() { return s_water; }
-bool bilge_pump_active()    { return s_pump; }
+bool bilge_water_detected()  { return s_water; }
+bool bilge_sensor_verified() { return s_verified; }
+bool bilge_pump_active()     { return s_pump; }
 
 void bilge_pump_set(bool on)
 {

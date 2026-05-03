@@ -26,6 +26,7 @@
 
 #include "bilge.h"
 #include "config.h"
+#include "diag.h"
 #include "display.h"
 #include "elrs.h"
 #include "failsafe.h"
@@ -50,14 +51,27 @@ void setup()
     delay(300);
     Serial.println("rcsailboat firmware starting");
 
-    // Single I²C bus shared by PCA9685, INA219, FT3168 (touch), and QMI8658 (IMU).
+    // Single I²C bus shared by FT3168 (touch), QMI8658 (IMU), PCA9685, and INA228.
+    // Must use Wire (i2c-ng) — pioarduino 3.x pre-installs the i2c-ng driver before
+    // setup() runs. Calling i2c_driver_install() (legacy API) after that triggers a
+    // conflict abort.
     Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
+    Wire.setClock(I2C_FREQ_HZ);
+
+    // Probe all I²C devices before any module init.  diag_init() ACK-tests each
+    // address, marks absent devices as disabled, and recovers Wire after every
+    // NACK so the next probe starts clean.  Module inits then gate on diag_ok()
+    // and skip hardware access for absent devices — no more cascading 259 errors.
+    diag_register_reinit(DEV_QMI8658, imu_init);
+    diag_register_reinit(DEV_PCA9685, servos_init);
+    diag_register_reinit(DEV_INA228,  power_init);
+    diag_init();
 
     display_init();     // SH8601 AMOLED via QSPI + LVGL (starts FreeRTOS render task)
     imu_init();         // QMI8658 6-axis IMU (shared I²C bus)
     bilge_init();       // float switch (GPIO2) + pump MOSFET (GPIO3)
     servos_init();      // PCA9685 init + ESC arm sequence (blocks ~2 s at neutral)
-    power_init();       // INA219 current sensor (safe no-op if not wired)
+    power_init();       // INA228 current/voltage sensor
     sdlog_init();       // TF card CSV logger (SPI3; safe no-op if no card)
     wifi_ctrl_init();   // WiFi AP + web control server (default control mode)
     elrs_init();        // CRSF hardware init (inactive until mode switched to ELRS)
@@ -71,26 +85,21 @@ void setup()
     compass_init();
 #endif
 
-    // Hardware I2C bus recovery after init sequence.
-    // Wire.end() first — releases the peripheral's GPIO matrix control, then
-    // SCL is clocked 9× to unstick any device, then driver reinitialised.
-    Wire.end();
-    pinMode(pins::I2C_SDA, OUTPUT_OPEN_DRAIN);
-    pinMode(pins::I2C_SCL, OUTPUT_OPEN_DRAIN);
-    digitalWrite(pins::I2C_SDA, HIGH);
-    for (int i = 0; i < 9; i++) {
-        digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
-        digitalWrite(pins::I2C_SCL, LOW);  delayMicroseconds(10);
-    }
-    digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
-    digitalWrite(pins::I2C_SDA, HIGH); delayMicroseconds(10);
-    Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
-
     Serial.println("rcsailboat firmware ready");
 }
 
 void loop()
 {
+    // Dispatch any pending repair request from the display Repair button.
+    // Must run here on core 1 — Wire is not thread-safe.
+    {
+        DevId req = diag_pending_reprobe();
+        if (req < DEV_COUNT) {
+            diag_clear_reprobe();
+            diag_reprobe(req);
+        }
+    }
+
     // Handle WiFi HTTP requests and apply any queued mode switches.
     wifi_ctrl_update();
 
@@ -121,7 +130,7 @@ void loop()
         }
     }
 
-    // Read INA228 power data at 10 Hz — rate-limited to avoid saturating the I2C bus.
+    // Read INA228 power data at 10 Hz.
     static unsigned long s_power_ms = 0;
     if (millis() - s_power_ms >= 100) {
         s_power_ms = millis();
@@ -129,8 +138,6 @@ void loop()
     }
 
     // Update IMU orientation estimate and capsize detection at 50 Hz.
-    // Rate-limited: calling imu_update() every loop saturates the I2C bus with
-    // repeated-start transactions and triggers ESP_ERR_INVALID_STATE (259) errors.
     static unsigned long s_imu_ms = 0;
     if (millis() - s_imu_ms >= 20) {
         s_imu_ms = millis();

@@ -29,9 +29,11 @@ Environment variables:
 import asyncio
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -156,6 +158,36 @@ app.mount("/tiles",  StaticFiles(directory=_TILES),  name="tiles")
 async def root() -> FileResponse:
     """Serve the main web UI (index.html). Cache-Control: no-store for dev convenience."""
     return FileResponse(_STATIC / "index.html", headers={"Cache-Control": "no-store"})
+
+
+_ESP32_HOST = os.environ.get("ESP32_HOST", "192.168.4.1")
+
+
+@app.get("/api/esp32-diag")
+async def esp32_diag(host: str | None = None) -> JSONResponse:
+    """
+    Proxy a /diag.json request to the ESP32 web interface.
+
+    The ESP32 hosts its own WiFi AP ("darkandstormy", 192.168.4.1 by default).
+    Connect the Pi (or test machine) to that AP, then call this endpoint.
+    The host can be overridden via the query param or the ESP32_HOST env var.
+    """
+    target = host or _ESP32_HOST
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"http://{target}/diag.json")
+            resp.raise_for_status()
+            return JSONResponse({"ok": True, "host": target, "devices": resp.json()})
+    except httpx.HTTPStatusError as exc:
+        return JSONResponse(
+            {"ok": False, "host": target, "error": f"HTTP {exc.response.status_code}"},
+            status_code=502,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            {"ok": False, "host": target, "error": str(exc)},
+            status_code=503,
+        )
 
 
 @app.get("/telemetry")

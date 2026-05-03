@@ -63,9 +63,25 @@ static bool open_log_file()
 
 void sdlog_init()
 {
+    // Drive CS HIGH before the SPI clock starts.  If CS is left floating during
+    // bus init, some cards never enter SPI mode and CMD0 returns garbage.
+    pinMode(pins::SD_CS, OUTPUT);
+    digitalWrite(pins::SD_CS, HIGH);
+
     s_spi.begin(pins::SD_SCLK, pins::SD_MISO, pins::SD_MOSI);
-    if (!SD.begin(pins::SD_CS, s_spi)) {
-        Serial.println("sdlog: no SD card — logging disabled");
+
+    // SD cards occasionally need a few attempts on cold boot. Re-init the SPI
+    // bus between retries so the driver state is clean.
+    bool mounted = false;
+    for (int attempt = 1; attempt <= 4; attempt++) {
+        if (SD.begin(pins::SD_CS, s_spi, 400000)) { mounted = true; break; }
+        Serial.printf("sdlog: SD init attempt %d failed\n", attempt);
+        SD.end();
+        delay(100 * attempt);
+        s_spi.begin(pins::SD_SCLK, pins::SD_MISO, pins::SD_MOSI);
+    }
+    if (!mounted) {
+        Serial.println("sdlog: no SD card after 4 attempts — logging disabled");
         return;
     }
     Serial.printf("sdlog: card mounted, %llu MB\n",

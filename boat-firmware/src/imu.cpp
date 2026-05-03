@@ -23,6 +23,7 @@
 
 #include "imu.h"
 #include "config.h"
+#include "diag.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <math.h>
@@ -59,7 +60,7 @@ static bool qmi_write(uint8_t reg, uint8_t val)
     Wire.beginTransmission(i2c_addr::QMI8658);
     Wire.write(reg);
     Wire.write(val);
-    return Wire.endTransmission() == 0;
+    return Wire.endTransmission(true) == 0;
 }
 
 // Burst-read len bytes starting at reg into buf[]. Returns true on success.
@@ -67,29 +68,9 @@ static bool qmi_write(uint8_t reg, uint8_t val)
 // so we can read all 6 accel bytes in a single I²C transaction.
 static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len)
 {
-    static uint8_t s_err = 0;
     Wire.beginTransmission(i2c_addr::QMI8658);
     Wire.write(reg);
-    if (Wire.endTransmission(true) != 0) {
-        if (++s_err >= 3) {
-            // Wire.end() first — releases the I2C peripheral's GPIO matrix
-            // control so our bit-bang is not silently overridden by hardware.
-            Wire.end();
-            pinMode(pins::I2C_SDA, OUTPUT_OPEN_DRAIN);
-            pinMode(pins::I2C_SCL, OUTPUT_OPEN_DRAIN);
-            digitalWrite(pins::I2C_SDA, HIGH);
-            for (int i = 0; i < 9; i++) {
-                digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
-                digitalWrite(pins::I2C_SCL, LOW);  delayMicroseconds(10);
-            }
-            digitalWrite(pins::I2C_SCL, HIGH); delayMicroseconds(10);
-            digitalWrite(pins::I2C_SDA, HIGH); delayMicroseconds(10);
-            Wire.begin(pins::I2C_SDA, pins::I2C_SCL);
-            s_err = 0;
-        }
-        return false;
-    }
-    s_err = 0;
+    if (Wire.endTransmission(true) != 0) return false;
     Wire.requestFrom((int)i2c_addr::QMI8658, (int)len);
     for (uint8_t i = 0; i < len; i++) buf[i] = Wire.read();
     return true;
@@ -97,10 +78,13 @@ static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len)
 
 void imu_init()
 {
-    // Verify device identity before configuring — prevents corruption if address is wrong.
+    s_ok = false;
+    if (!diag_ok(DEV_QMI8658)) return;
+
+    // Verify device identity before configuring.
     uint8_t who = 0;
     if (!qmi_read(QMI8658_REG_WHOAMI, &who, 1) || who != 0x05) {
-        Serial.printf("imu: QMI8658 not found (WHOAMI=0x%02X, expected 0x05)\n", who);
+        Serial.printf("imu: QMI8658 WHOAMI failed (0x%02X, expected 0x05)\n", who);
         return;
     }
     qmi_write(QMI8658_REG_CTRL1, QMI8658_CTRL1_AUTOINC);   // enable burst reads
