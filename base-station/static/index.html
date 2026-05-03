@@ -2,832 +2,1008 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RC Sailboat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+  <title>Dark &amp; Stormy — Pi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;0,9..40,800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 
-  <!-- Leaflet CSS — served locally; run scripts/download_tiles.py --fetch-leaflet first -->
-  <link rel="stylesheet" href="/static/leaflet/leaflet.min.css">
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
   <style>
-    /* ── Reset & CSS variables ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg:        #0a1628;   /* page background */
-      --surface:   #112240;   /* card background */
-      --surface2:  #1a3a5c;   /* track / inactive button */
-      --accent:    #64d8f0;   /* cyan highlight */
-      --dim:       #8892b0;   /* muted text */
-      --text:      #ccd6f6;   /* body text */
-      --safe:      #52b788;   /* armed / connected green */
-      --danger:    #e63946;   /* stop / disconnected red */
-    }
-
-    /* ── Page layout ── */
+    html, body, #root { height: 100%; }
     body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100dvh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 1rem 1rem 1.5rem;
-      gap: 0.875rem;
-      /* prevent text selection / long-press menus on touch */
-      user-select: none;
-      -webkit-user-select: none;
-    }
-
-    /* ── Header ── */
-    header {
-      width: 100%;
-      max-width: 480px;
-      display: grid;
-      grid-template-columns: 1fr auto auto;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    h1 { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); }
-
-    /* Connection status pill: green when WebSocket is open, red when closed */
-    #status {
-      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em;
-      padding: 0.2rem 0.65rem; border-radius: 999px;
-      text-transform: uppercase;
-    }
-    #status.connected    { background: rgba(82,183,136,.15); color: var(--safe);   border: 1px solid var(--safe); }
-    #status.disconnected { background: rgba(230,57,70,.15);  color: var(--danger); border: 1px solid var(--danger); }
-
-    /* ── Generic card shell ── */
-    .card {
-      background: var(--surface);
-      border-radius: 1rem;
-      padding: 0.75rem;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    /* Small uppercase section label (e.g. "THROTTLE", "SAIL TRIM") */
-    .lbl {
-      font-size: 0.68rem; font-weight: 700;
-      letter-spacing: 0.1em; text-transform: uppercase;
-      color: var(--dim);
-    }
-    /* Numeric readout displayed below each control */
-    .val {
-      font-size: 0.95rem; font-weight: 700;
-      font-variant-numeric: tabular-nums;
-      color: var(--accent);
-      min-width: 3.2rem; text-align: center;
-    }
-
-    /* ── Middle row: throttle card (left) | sail card (right) ── */
-    .mid-row {
-      width: 100%; max-width: 480px;
-      display: flex; gap: 0.875rem;
-    }
-
-    /* ── Vertical throttle slider ── */
-    .throttle-card { width: 86px; }
-
-    /* Vertical range input rendered with writing-mode trick for cross-browser support */
-    input[type=range].vert {
-      writing-mode: vertical-lr;
-      direction: rtl;               /* flip so top = max */
-      -webkit-appearance: slider-vertical;
-      appearance: slider-vertical;
-      width: 44px;
-      height: 168px;
-      background: transparent;
-      cursor: pointer;
-    }
-    input[type=range].vert::-webkit-slider-runnable-track {
-      width: 8px; border-radius: 4px; background: var(--surface2);
-    }
-    input[type=range].vert::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 30px; height: 30px; border-radius: 50%;
-      background: var(--accent); margin-left: -11px;
-    }
-    input[type=range].vert::-moz-range-track {
-      width: 8px; border-radius: 4px; background: var(--surface2);
-    }
-    input[type=range].vert::-moz-range-thumb {
-      width: 30px; height: 30px; border-radius: 50%;
-      background: var(--accent); border: none;
-    }
-
-    /* ── Sail arc card ── */
-    .sail-card { flex: 1; }
-
-    /* ── Rudder card (full width, horizontal slider) ── */
-    .rudder-card {
-      width: 100%; max-width: 480px;
-    }
-    .rudder-row {
-      width: 100%;
-      display: flex; justify-content: space-between; align-items: center;
-    }
-    input[type=range].horiz {
-      -webkit-appearance: none; appearance: none;
-      width: 100%; height: 44px; background: transparent; cursor: pointer;
-    }
-    input[type=range].horiz::-webkit-slider-runnable-track {
-      height: 8px; border-radius: 4px; background: var(--surface2);
-    }
-    input[type=range].horiz::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 30px; height: 30px; border-radius: 50%;
-      background: var(--accent); margin-top: -11px;
-    }
-    input[type=range].horiz::-moz-range-track {
-      height: 8px; border-radius: 4px; background: var(--surface2);
-    }
-    input[type=range].horiz::-moz-range-thumb {
-      width: 30px; height: 30px; border-radius: 50%;
-      background: var(--accent); border: none;
-    }
-    /* Port / Starboard end labels below the rudder slider */
-    .endlabels {
-      display: flex; justify-content: space-between;
-      width: 100%; font-size: 0.65rem; color: var(--dim);
-      padding: 0 2px;
-    }
-
-    /* ── Telemetry strip ── */
-    .telem-strip {
-      width: 100%; max-width: 480px;
-      flex-direction: row;
-      justify-content: space-between;
-      padding: 0.5rem 0.75rem;
-      gap: 0;
-    }
-    .telem-group {
-      display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
-    }
-    .telem-val {
-      font-size: 0.78rem; font-weight: 700;
-      font-variant-numeric: tabular-nums;
-      color: var(--text);
-    }
-    .telem-val.warn { color: #f4a261; }
-    .telem-val.danger { color: var(--danger); }
-
-    /* ── Small neutral button (CTR, nudge, ◄ ►, MAP) ── */
-    .ctr-btn {
-      background: var(--surface2); color: var(--dim);
-      border: none; border-radius: 0.4rem;
-      padding: 0.3rem 0.65rem;
-      font-size: 0.68rem; font-weight: 700;
-      letter-spacing: 0.06em; text-transform: uppercase;
-      cursor: pointer; transition: background 0.12s, color 0.12s;
-    }
-    .ctr-btn:active { background: var(--accent); color: #fff; }
-    /* Map toggle highlighted when open */
-    .ctr-btn.map-open { background: var(--accent); color: #0a1628; }
-
-    /* ── ARM / STOP action buttons ── */
-    .action-row {
-      width: 100%; max-width: 480px;
-      display: flex; gap: 0.75rem;
-    }
-    .act-btn {
-      flex: 1; padding: 0.9rem 0.5rem;
-      border: none; border-radius: 0.75rem;
-      font-size: 0.9rem; font-weight: 800;
-      letter-spacing: 0.07em; text-transform: uppercase;
-      cursor: pointer; transition: opacity 0.1s;
-    }
-    .act-btn:active { opacity: 0.72; }
-
-    /* ARM button: grey when disarmed, green outline when armed */
-    #btn-arm {
-      background: var(--surface2); color: var(--dim);
-      border: 2px solid var(--surface2);
-    }
-    #btn-arm.armed {
-      background: rgba(82,183,136,.15);
-      border-color: var(--safe); color: var(--safe);
-    }
-    /* STOP button: always red, slightly wider than ARM */
-    #btn-stop {
-      flex: 1.4;
-      background: var(--danger); color: #fff; font-size: 1rem;
-    }
-
-    /* ── Map panel ── */
-    .map-card {
-      width: 100%; max-width: 480px;
-      padding: 0;
-      overflow: hidden;
-      position: relative;
-    }
-    /* The Leaflet map fills the card; fixed height works well on phone screens */
-    #map {
-      width: 100%;
-      height: 300px;
-      background: var(--surface2);  /* placeholder colour while tiles load */
-    }
-    /* Centred overlay shown when there is no GPS fix or Leaflet is unavailable */
-    #gps-nofix {
-      position: absolute;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      color: var(--dim);
-      font-size: 0.8rem; font-weight: 700;
-      letter-spacing: 0.05em; text-transform: uppercase;
-      text-align: center;
-      pointer-events: none;
-      z-index: 500;
-      padding: 0.5rem 1rem;
-      background: rgba(10,22,40,0.75);
-      border-radius: 0.4rem;
-    }
-    /* Bottom-left telemetry overlay (satellites, speed, altitude) */
-    #gps-info {
-      position: absolute;
-      bottom: 8px; left: 8px;
-      background: rgba(10,22,40,0.82);
-      color: var(--accent);
-      font-size: 0.7rem; font-weight: 700;
-      padding: 0.25rem 0.55rem;
-      border-radius: 0.3rem;
-      z-index: 500;
-      pointer-events: none;
-    }
-    /* Boat heading arrow rendered as a CSS-rotatable div icon inside Leaflet */
-    .boat-marker-icon {
-      width: 24px; height: 24px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 20px;
-      color: var(--accent);
-      transform-origin: center;
-      filter: drop-shadow(0 0 3px rgba(100,216,240,0.7));
+      background: #0d1520;
+      font-family: 'DM Sans', -apple-system, sans-serif;
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
     }
   </style>
 </head>
 <body>
+<div id="root"></div>
 
-  <header>
-    <h1>RC Sailboat</h1>
-    <!-- MAP toggle: opens/closes the map panel below the controls -->
-    <button class="ctr-btn" id="btn-map">Map</button>
-    <!-- Updated by JS: "Online" (green) when WebSocket is open, "Offline" (red) otherwise -->
-    <div id="status" class="disconnected">Offline</div>
-  </header>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
 
-  <!-- ── Middle row: throttle slider (left) + sail trim arc (right) ── -->
-  <div class="mid-row">
+<script type="text/babel">
+// ─────────────────────────────────────────────────────────────────────────────
+// TOKENS
+// ─────────────────────────────────────────────────────────────────────────────
+const DARK = {
+  bg:        'oklch(12% 0.04 240)',
+  surface:   'oklch(17% 0.05 240)',
+  surface2:  'oklch(22% 0.05 240)',
+  border:    'oklch(28% 0.05 240)',
+  accent:    'oklch(74% 0.18 192)',
+  accentDim: 'oklch(74% 0.18 192 / 0.18)',
+  safe:      'oklch(70% 0.17 152)',
+  danger:    'oklch(62% 0.22 25)',
+  warn:      'oklch(75% 0.18 65)',
+  text:      'oklch(90% 0.02 240)',
+  dim:       'oklch(60% 0.04 240)',
+  mono:      "'JetBrains Mono', monospace",
+  sans:      "'DM Sans', sans-serif",
+};
 
-    <!-- Throttle: vertical slider, range -1.00 (full reverse) to +1.00 (full forward) -->
-    <div class="card throttle-card">
-      <div class="lbl">Throttle</div>
-      <input type="range" id="throttle" class="vert" orient="vertical"
-             min="-100" max="100" value="0" step="1">
-      <div class="val" id="val-throttle">0.00</div>
-      <button class="ctr-btn" id="ctr-throttle">CTR</button>
-    </div>
+const LIGHT = {
+  bg:        'oklch(95% 0.01 220)',
+  surface:   'oklch(99% 0.005 220)',
+  surface2:  'oklch(90% 0.015 220)',
+  border:    'oklch(82% 0.02 220)',
+  accent:    'oklch(46% 0.18 215)',
+  accentDim: 'oklch(46% 0.18 215 / 0.14)',
+  safe:      'oklch(42% 0.17 152)',
+  danger:    'oklch(48% 0.22 25)',
+  warn:      'oklch(52% 0.18 65)',
+  text:      'oklch(16% 0.02 240)',
+  dim:       'oklch(48% 0.04 240)',
+  mono:      "'JetBrains Mono', monospace",
+  sans:      "'DM Sans', sans-serif",
+};
 
-    <!-- Sail trim: interactive SVG arc widget -->
-    <div class="card sail-card">
-      <div class="lbl">Sail trim</div>
-      <!--
-        Geometry:  Mast pivot at upper-left (CX=20, CY=20), radius R=120.
-                   v=0.0 (OUT) = 3 o'clock  = boom horizontal to the right (140, 20)
-                   v=1.0 (IN)  = 6 o'clock  = boom pointing straight down  ( 20,140)
-                   The arc sweeps clockwise through the lower-right quadrant.
+// ─────────────────────────────────────────────────────────────────────────────
+// DEFAULT TELEMETRY — shown until first WebSocket message arrives
+// ─────────────────────────────────────────────────────────────────────────────
+const DEFAULT_TELEM = {
+  volts: 0, amps: 0, pct: 0, mah: 0,
+  sats: 0, speed: 0, lat: 0, lng: 0, alt: 0, hdg: 0,
+  roll: 0, pitch: 0, yaw: 0,
+  rssi: 0, lq: 100,
+  mode: 'MANUAL', bridge: false,
+  bilge: false, pump: false,
+  temp: 0,
+};
 
-        Interaction: drag anywhere in the SVG; the thumb snaps to the nearest
-                     arc position based on the pointer's angle from the mast.
-      -->
-      <svg id="sail-svg" viewBox="0 0 160 160" width="148" height="148"
-           style="touch-action:none; display:block;">
+// ─────────────────────────────────────────────────────────────────────────────
+// TINY HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+const cx = (...parts) => parts.filter(Boolean).join(' ');
 
-        <!-- Faint pie-slice background — shows the full sail-trim range -->
-        <path fill="rgba(100,160,220,0.08)" stroke="none"
-              d="M 20,20 L 140,20 A 120,120 0 0,1 20,140 Z"/>
+function lbl(text, T, extra={}) {
+  return <div style={{ fontFamily:T.sans, fontSize:9, fontWeight:700,
+    letterSpacing:'0.09em', textTransform:'uppercase', color:T.dim, ...extra }}>{text}</div>;
+}
+function mono(text, color, T, size=14) {
+  return <span style={{ fontFamily:T.mono, fontSize:size, fontWeight:700, color }}>{text}</span>;
+}
 
-        <!-- Dashed arc track: thumb travels along this path (Out → In) -->
-        <path fill="none" stroke="#3a5a7c" stroke-width="2.5" stroke-linecap="round"
-              stroke-dasharray="10 7"
-              d="M 140,20 A 120,120 0 0,1 20,140"/>
+// ─────────────────────────────────────────────────────────────────────────────
+// STATUS PILL
+// ─────────────────────────────────────────────────────────────────────────────
+function StatusPill({ connected, T }) {
+  return (
+    <div style={{
+      padding:'3px 10px', borderRadius:99, fontSize:9, fontWeight:700,
+      letterSpacing:'0.07em', textTransform:'uppercase',
+      background: connected ? `${T.safe}22` : `${T.danger}22`,
+      color: connected ? T.safe : T.danger,
+      border: `1px solid ${connected ? T.safe : T.danger}`,
+    }}>{connected ? 'Online' : 'Offline'}</div>
+  );
+}
 
-        <!-- Sail shape: quadratic Bézier from mast to boom tip.
-             The control point is offset perpendicular to the boom (CW side)
-             so the sail belly always curves consistently inward toward the arc. -->
-        <path id="sail-shape" stroke="#ddeeff" stroke-width="2.5"
-              fill="rgba(180,220,255,0.28)"/>
-
-        <!-- Boom: rigid spar from mast to the thumb (updated by JS) -->
-        <line id="sail-boom" stroke="#6a8aaa" stroke-width="2" stroke-linecap="round"/>
-
-        <!-- Mast pivot point (fixed at upper-left corner) -->
-        <circle id="sail-mast" cx="20" cy="20" r="6" fill="#ffffff"/>
-
-        <!-- Draggable thumb — JS moves this along the arc -->
-        <circle id="sail-thumb" cx="140" cy="20" r="14" fill="#64d8f0"
-                fill-opacity="0.9" style="cursor:grab"/>
-
-        <!-- Arc endpoint labels -->
-        <text x="152" y="24" font-size="9" text-anchor="start" fill="#8892b0">out</text>
-        <text x="20"  y="155" font-size="9" text-anchor="middle" fill="#8892b0">in</text>
-      </svg>
-
-      <!-- Numeric sail value (0.00 = fully out, 1.00 = fully in) -->
-      <div class="val" id="val-sail">0.00</div>
-
-      <!-- +5° eases the sail out (decreases value); −5° trims it in (increases value) -->
-      <div style="display:flex; gap:0.4rem;">
-        <button class="ctr-btn" id="nudge-sail-out">+5°</button>
-        <button class="ctr-btn" id="nudge-sail-in">−5°</button>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ── Rudder: horizontal slider across the full card width ── -->
-  <div class="card rudder-card">
-    <div class="rudder-row">
-      <div class="lbl">Rudder</div>
-      <!-- Value readout + ◄ CTR ► nudge buttons in a row -->
-      <div style="display:flex; align-items:center; gap:0.4rem;">
-        <div class="val" id="val-rudder">0.00</div>
-        <button class="ctr-btn" id="nudge-rudder-left">◄</button>
-        <button class="ctr-btn" id="ctr-rudder">CTR</button>
-        <button class="ctr-btn" id="nudge-rudder-right">►</button>
-      </div>
-    </div>
-    <!-- Slider: -100 = full port, 0 = centre, +100 = full starboard -->
-    <input type="range" id="rudder" class="horiz" min="-100" max="100" value="0" step="1">
-    <div class="endlabels"><span>◄ Port</span><span>Stbd ►</span></div>
-  </div>
-
-  <!-- ── Arm / Stop ── -->
-  <div class="action-row">
-    <!-- ARM toggles armed state; text and colour change to reflect current state -->
-    <button class="act-btn" id="btn-arm">Disarmed</button>
-    <!-- STOP: immediately disarms + zeroes throttle (hard safety stop) -->
-    <button class="act-btn" id="btn-stop">&#9632; Stop</button>
-  </div>
-
-  <!-- ── Telemetry strip: live data from the boat ── -->
-  <div class="card telem-strip">
-    <div class="telem-group">
-      <div class="lbl">Battery</div>
-      <div class="telem-val" id="tl-volts">--.-V</div>
-      <div class="telem-val" id="tl-amps">-.-A</div>
-      <div class="telem-val" id="tl-pct" style="color:var(--dim)">--%</div>
-    </div>
-    <div class="telem-group">
-      <div class="lbl">GPS</div>
-      <div class="telem-val" id="tl-sats">-- sats</div>
-      <div class="telem-val" id="tl-speed">-- km/h</div>
-    </div>
-    <div class="telem-group">
-      <div class="lbl">Attitude</div>
-      <div class="telem-val" id="tl-pitch">P ---°</div>
-      <div class="telem-val" id="tl-roll">R ---°</div>
-    </div>
-    <div class="telem-group">
-      <div class="lbl">Boat</div>
-      <div class="telem-val" id="tl-temp">--°C</div>
-      <div class="telem-val" id="tl-bridge" style="color:var(--dim)">no link</div>
-    </div>
-  </div>
-
-  <!-- ── Map panel: hidden by default; toggled by the MAP button in the header ── -->
-  <div class="card map-card" id="map-panel" hidden>
-    <!-- Leaflet renders tiles into this div -->
-    <div id="map"></div>
-    <!-- Shown when there is no GPS fix or Leaflet.js hasn't been downloaded yet -->
-    <div id="gps-nofix">No GPS fix</div>
-    <!-- Live telemetry overlay: satellite count, speed, altitude -->
-    <div id="gps-info" hidden></div>
-  </div>
-
-<!-- Leaflet.js — served locally; run scripts/download_tiles.py --fetch-leaflet first -->
-<script src="/static/leaflet/leaflet.min.js"></script>
-
-<script>
-// =============================================================================
+// ─────────────────────────────────────────────────────────────────────────────
 // SAIL ARC WIDGET
-// =============================================================================
-//
-// The sail trim is shown as a quarter-circle arc with:
-//   - a white dot (mast / pivot) fixed at the upper-left of the SVG (CX, CY)
-//   - a cyan thumb dragged along the arc
-//   - a straight boom line from mast to thumb
-//   - a filled Bézier sail shape that bellies consistently along the boom
-//
-// Value convention (matches server protocol):
-//   v = 0.0  →  sail fully OUT  (boom at 3 o'clock, horizontal right)
-//   v = 1.0  →  sail fully IN   (boom at 6 o'clock, pointing straight down)
-//
-// Angle mapping: a(v) = v · π/2   (radians, 0 = right, π/2 = down)
+// ─────────────────────────────────────────────────────────────────────────────
+function SailArc({ value, onChange, size=152, T }) {
+  const CX=18, CY=18, R=size-36;
+  const ref = React.useRef(null);
+  const [drag, setDrag] = React.useState(false);
 
-const CX = 20;    // mast x in SVG viewBox coordinates
-const CY = 20;    // mast y in SVG viewBox coordinates
-const R  = 120;   // arc radius (px in SVG coordinate space)
-
-// Cache frequently-used SVG element references
-const sailSvg   = document.getElementById('sail-svg');
-const sailShape = document.getElementById('sail-shape');
-const sailBoom  = document.getElementById('sail-boom');
-const sailThumb = document.getElementById('sail-thumb');
-
-// Current sail trim value [0, 1].  Kept in a module-level variable so the
-// nudge buttons and WebSocket sender can read it without querying the DOM.
-let sailValue = 0;
-
-// -----------------------------------------------------------------------------
-// ptOnArc(v)  →  {x, y}
-// Returns the SVG coordinates of the thumb for a given trim value v ∈ [0, 1].
-// -----------------------------------------------------------------------------
-function ptOnArc(v) {
-  const a = v * Math.PI / 2;                       // map v → angle
-  return { x: CX + R * Math.cos(a), y: CY + R * Math.sin(a) };
-}
-
-// -----------------------------------------------------------------------------
-// updateSail(v)
-// Clamps v to [0, 1], then redraws the boom, thumb, and sail shape.
-//
-// Bézier belly:  the control point is displaced from the boom midpoint by
-// `belly` pixels in the CW-perpendicular direction to the boom.  The CW
-// perpendicular of unit vector (cos a, sin a) is (sin a, -cos a).  This keeps
-// the belly magnitude constant and truly perpendicular at all angles — avoiding
-// the degeneracy that occurs when using (sin a, cos a) at a = π/4.
-// -----------------------------------------------------------------------------
-function updateSail(v) {
-  sailValue = Math.max(0, Math.min(1, v));
-  const a  = sailValue * Math.PI / 2;
-  const pt = ptOnArc(sailValue);
-
-  // Midpoint of the boom chord (mast → thumb)
-  const mid = { x: (CX + pt.x) / 2, y: (CY + pt.y) / 2 };
-
-  // CW perpendicular to boom: displaces the Bézier control point so the sail
-  // belly always curves toward the interior of the arc sector
-  const belly = 22;
-  const ctrl  = {
-    x: mid.x + belly * Math.sin(a),
-    y: mid.y - belly * Math.cos(a),
-  };
-
-  // Quadratic Bézier: M mast Q ctrl thumb  (Z closes back to mast for fill)
-  sailShape.setAttribute('d',
-    `M ${CX},${CY} Q ${ctrl.x.toFixed(1)},${ctrl.y.toFixed(1)} ${pt.x.toFixed(1)},${pt.y.toFixed(1)} Z`);
-
-  // Boom line
-  sailBoom.setAttribute('x1', CX);              sailBoom.setAttribute('y1', CY);
-  sailBoom.setAttribute('x2', pt.x.toFixed(1)); sailBoom.setAttribute('y2', pt.y.toFixed(1));
-
-  // Move the draggable thumb
-  sailThumb.setAttribute('cx', pt.x.toFixed(1));
-  sailThumb.setAttribute('cy', pt.y.toFixed(1));
-
-  // Update readout
-  document.getElementById('val-sail').textContent = sailValue.toFixed(2);
-}
-
-// Render the initial "fully out" position on page load
-updateSail(0);
-
-// -----------------------------------------------------------------------------
-// valueFromPt(svgX, svgY)  →  v ∈ [0, 1]
-// Converts a pointer position (in SVG coordinates) to a sail trim value by
-// computing the angle from the mast and mapping it onto [0, π/2].
-// Points outside the lower-right quadrant are clamped to the nearest endpoint.
-// -----------------------------------------------------------------------------
-function valueFromPt(svgX, svgY) {
-  // Clamp to the positive-x, positive-y quadrant relative to mast so we stay
-  // within the valid arc range (a ∈ [0, π/2])
-  const dx = Math.max(0, svgX - CX);
-  const dy = Math.max(0, svgY - CY);
-  return Math.min(Math.PI / 2, Math.atan2(dy, dx)) / (Math.PI / 2);
-}
-
-// -----------------------------------------------------------------------------
-// toSvgCoords(clientX, clientY)  →  {x, y}
-// Converts browser pointer coordinates (CSS pixels) to SVG viewBox coordinates.
-// Required because the SVG may be scaled by CSS (viewBox=160×160, rendered at
-// 148×148 CSS pixels, but the mapping is handled by the ratio below).
-// -----------------------------------------------------------------------------
-function toSvgCoords(clientX, clientY) {
-  const rect = sailSvg.getBoundingClientRect();
-  return {
-    x: (clientX - rect.left) * (160 / rect.width),
-    y: (clientY - rect.top)  * (160 / rect.height),
-  };
-}
-
-// ── Pointer / touch events for the sail arc drag ──────────────────────────────
-// We use the Pointer Events API (works for mouse, touch, and stylus) with
-// setPointerCapture so dragging outside the SVG still tracks correctly.
-
-let sailDragging = false;
-
-sailSvg.addEventListener('pointerdown', e => {
-  sailDragging = true;
-  sailSvg.setPointerCapture(e.pointerId);   // keep events even if pointer leaves SVG
-  const p = toSvgCoords(e.clientX, e.clientY);
-  updateSail(valueFromPt(p.x, p.y));
-  send();
-});
-
-sailSvg.addEventListener('pointermove', e => {
-  if (!sailDragging) return;
-  const p = toSvgCoords(e.clientX, e.clientY);
-  updateSail(valueFromPt(p.x, p.y));
-  send();
-});
-
-sailSvg.addEventListener('pointerup',     () => { sailDragging = false; });
-sailSvg.addEventListener('pointercancel', () => { sailDragging = false; });
-
-// =============================================================================
-// THROTTLE & RUDDER SLIDERS
-// =============================================================================
-// Both use native <input type="range"> for simplicity.
-// Internal range: -100 to +100 (integer steps).
-// Displayed / transmitted range: -1.00 to +1.00 (divided by 100).
-
-const throttleEl = document.getElementById('throttle');
-const rudderEl   = document.getElementById('rudder');
-
-throttleEl.addEventListener('input', () => {
-  document.getElementById('val-throttle').textContent =
-    (throttleEl.value / 100).toFixed(2);
-  send();
-});
-
-rudderEl.addEventListener('input', () => {
-  document.getElementById('val-rudder').textContent =
-    (rudderEl.value / 100).toFixed(2);
-  send();
-});
-
-// CTR buttons: snap the respective control back to neutral (0)
-document.getElementById('ctr-throttle').addEventListener('click', () => {
-  throttleEl.value = 0;
-  document.getElementById('val-throttle').textContent = '0.00';
-  send();
-});
-
-document.getElementById('ctr-rudder').addEventListener('click', () => {
-  rudderEl.value = 0;
-  document.getElementById('val-rudder').textContent = '0.00';
-  send();
-});
-
-// ── Rudder nudge buttons (◄ / ►) ─────────────────────────────────────────────
-// Each press steps the rudder by 0.10 (10 internal units out of ±100).
-// The delta is applied in internal-unit space then clamped to [-100, 100].
-function nudgeRudder(delta) {
-  rudderEl.value = Math.max(-100, Math.min(100, +rudderEl.value + delta));
-  document.getElementById('val-rudder').textContent = (rudderEl.value / 100).toFixed(2);
-  send();
-}
-// ◄ = port (negative rudder), ► = starboard (positive rudder)
-document.getElementById('nudge-rudder-left').addEventListener('click',  () => nudgeRudder(-10));
-document.getElementById('nudge-rudder-right').addEventListener('click', () => nudgeRudder(+10));
-
-// ── Sail trim nudge buttons (+5° / −5°) ──────────────────────────────────────
-// The arc spans 90° total, so one step of 5° = 5/90 = 1/18 of the [0,1] range.
-// "+5°" eases the sail OUT (decreases v toward 0).
-// "−5°" trims the sail IN  (increases v toward 1).
-const SAIL_STEP = 1 / 18;   // 5° expressed as a fraction of the 90° arc
-
-document.getElementById('nudge-sail-out').addEventListener('click', () => {
-  updateSail(sailValue - SAIL_STEP);   // OUT = smaller v
-  send();
-});
-document.getElementById('nudge-sail-in').addEventListener('click', () => {
-  updateSail(sailValue + SAIL_STEP);   // IN  = larger v
-  send();
-});
-
-// =============================================================================
-// ARM / STOP
-// =============================================================================
-const btnArm = document.getElementById('btn-arm');
-let armed = false;
-
-// Toggle armed state; visual feedback via CSS class
-btnArm.addEventListener('click', () => {
-  armed = !armed;
-  btnArm.textContent = armed ? 'Armed' : 'Disarmed';
-  btnArm.className   = 'act-btn' + (armed ? ' armed' : '');
-  send();
-});
-
-// STOP: disarm immediately + zero throttle, then send a "stop" command so the
-// server also zeroes its state regardless of any in-flight messages
-document.getElementById('btn-stop').addEventListener('click', () => {
-  armed = false;
-  btnArm.textContent = 'Disarmed';
-  btnArm.className   = 'act-btn';
-  throttleEl.value   = 0;
-  document.getElementById('val-throttle').textContent = '0.00';
-  send({ stop: true });
-});
-
-// =============================================================================
-// MAP
-// =============================================================================
-//
-// Leaflet.js renders an interactive tile map inside #map-panel.  Tiles are
-// served locally from /tiles/{z}/{x}/{y}.png — pre-downloaded by running:
-//   python scripts/download_tiles.py --lat <lat> --lon <lon> --radius 2.0
-//
-// The panel is hidden by default; the MAP button in the header toggles it.
-// The map is lazily initialised when the panel is first opened (or when the
-// first GPS fix arrives), because Leaflet requires the container to be visible
-// before it can calculate its size.
-
-const mapPanel  = document.getElementById('map-panel');
-const btnMap    = document.getElementById('btn-map');
-const gpsNofix  = document.getElementById('gps-nofix');
-const gpsInfo   = document.getElementById('gps-info');
-
-let leafletMap  = null;   // Leaflet map instance
-let boatMarker  = null;   // Leaflet marker for the boat position
-let mapReady    = false;  // true once initMap() has run successfully
-
-// -----------------------------------------------------------------------------
-// initMap()
-// Creates the Leaflet map and boat marker.  No-op if already initialised or
-// if Leaflet failed to load (e.g. download_tiles.py --fetch-leaflet not run yet).
-// -----------------------------------------------------------------------------
-function initMap() {
-  if (mapReady) return;
-  if (typeof L === 'undefined') {
-    // Leaflet.js not available — update overlay message so the user knows why
-    gpsNofix.textContent = 'Map unavailable — run scripts/download_tiles.py --fetch-leaflet';
-    return;
+  function ptOnArc(v) {
+    const a = v * Math.PI/2;
+    return { x: CX + R*Math.cos(a), y: CY + R*Math.sin(a) };
   }
-  mapReady = true;
-
-  // Default view: zoomed out world view until the first GPS fix arrives
-  leafletMap = L.map('map', { zoomControl: true }).setView([0, 0], 2);
-
-  // Local tile layer — tiles must be pre-downloaded; blank squares = missing tiles
-  L.tileLayer('/tiles/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-  }).addTo(leafletMap);
-
-  // Boat marker: a CSS div icon so we can rotate it via transform
-  const icon = L.divIcon({
-    html: '<div class="boat-marker-icon" id="boat-icon">▲</div>',
-    className: '',
-    iconSize:   [24, 24],
-    iconAnchor: [12, 12],
-  });
-  boatMarker = L.marker([0, 0], { icon }).addTo(leafletMap);
-}
-
-// MAP toggle button: show/hide the map panel
-btnMap.addEventListener('click', () => {
-  const opening = mapPanel.hidden;
-  mapPanel.hidden = !opening;
-  btnMap.classList.toggle('map-open', opening);
-
-  if (opening) {
-    initMap();
-    // Leaflet must recalculate its container size after the panel becomes visible
-    if (leafletMap) leafletMap.invalidateSize();
+  function valFromEvt(e) {
+    const rect = ref.current.getBoundingClientRect();
+    const dx = Math.max(0, (e.clientX-rect.left)*(size/rect.width) - CX);
+    const dy = Math.max(0, (e.clientY-rect.top)*(size/rect.height) - CY);
+    return Math.min(Math.PI/2, Math.atan2(dy,dx)) / (Math.PI/2);
   }
-});
+  const pt  = ptOnArc(value);
+  const a   = value * Math.PI/2;
+  const mid = { x:(CX+pt.x)/2, y:(CY+pt.y)/2 };
+  const ctrl = { x: mid.x+20*Math.sin(a), y: mid.y-20*Math.cos(a) };
 
-// -----------------------------------------------------------------------------
-// Telemetry handlers — called on each incoming "telemetry" WebSocket message.
-// msg shape: { type:"telemetry", bridge, gps:{...}, battery:{...},
-//              attitude:{...}, sailboat:{...} }
-// -----------------------------------------------------------------------------
-
-function handleTelemetry(msg) {
-  // Bridge connection indicator
-  const bridgeEl = document.getElementById('tl-bridge');
-  bridgeEl.textContent = msg.bridge ? 'linked' : 'no link';
-  bridgeEl.style.color = msg.bridge ? 'var(--safe)' : 'var(--dim)';
-
-  if (msg.gps)      _handleGps(msg.gps);
-  if (msg.battery)  _handleBattery(msg.battery);
-  if (msg.attitude) _handleAttitude(msg.attitude);
-  if (msg.sailboat) _handleSailboat(msg.sailboat);
+  return (
+    <svg ref={ref} viewBox={`0 0 ${size} ${size}`} width={size} height={size}
+      style={{ touchAction:'none', cursor:'crosshair', display:'block', flexShrink:0 }}
+      onPointerDown={e=>{ setDrag(true); ref.current.setPointerCapture(e.pointerId); onChange(valFromEvt(e)); }}
+      onPointerMove={e=>{ if(drag) onChange(valFromEvt(e)); }}
+      onPointerUp={()=>setDrag(false)} onPointerCancel={()=>setDrag(false)}>
+      {/* Sector background */}
+      <path fill={T.accentDim}
+        d={`M ${CX},${CY} L ${CX+R},${CY} A ${R},${R} 0 0,1 ${CX},${CY+R} Z`}/>
+      {/* Arc track */}
+      <path fill="none" stroke={T.border} strokeWidth="2.5" strokeLinecap="round"
+        strokeDasharray="8 5"
+        d={`M ${CX+R},${CY} A ${R},${R} 0 0,1 ${CX},${CY+R}`}/>
+      {/* Sail shape */}
+      <path fill={`${T.accent}28`} stroke={T.accent} strokeWidth="1.8"
+        d={`M ${CX},${CY} Q ${ctrl.x.toFixed(1)},${ctrl.y.toFixed(1)} ${pt.x.toFixed(1)},${pt.y.toFixed(1)} Z`}/>
+      {/* Boom */}
+      <line x1={CX} y1={CY} x2={pt.x.toFixed(1)} y2={pt.y.toFixed(1)}
+        stroke={T.dim} strokeWidth="1.8" strokeLinecap="round"/>
+      {/* Mast */}
+      <circle cx={CX} cy={CY} r={5} fill={T.text}/>
+      {/* Thumb */}
+      <circle cx={pt.x.toFixed(1)} cy={pt.y.toFixed(1)} r={12}
+        fill={T.accent} fillOpacity="0.92" stroke={T.bg} strokeWidth="2.5"
+        style={{ filter:`drop-shadow(0 0 7px ${T.accent})` }}/>
+      {/* Labels */}
+      <text x={CX+R+4} y={CY+4} fontSize="8" fill={T.dim}
+        fontFamily="DM Sans,sans-serif">ease</text>
+      <text x={CX} y={CY+R+11} fontSize="8" textAnchor="middle" fill={T.dim}
+        fontFamily="DM Sans,sans-serif">trim</text>
+    </svg>
+  );
 }
 
-function _handleGps(gps) {
-  document.getElementById('tl-sats').textContent  = `${gps.satellites} sats`;
-  document.getElementById('tl-speed').textContent = `${gps.speed_kmh.toFixed(1)} km/h`;
+// ─────────────────────────────────────────────────────────────────────────────
+// THROTTLE SLIDER (vertical, with lock toggle)
+// ─────────────────────────────────────────────────────────────────────────────
+function ThrottleSlider({ value, onChange, onRelease, locked, onToggleLock, height=160, T }) {
+  const ref = React.useRef(null);
+  const [drag, setDrag] = React.useState(false);
 
-  if (!gps.has_fix) return;
-
-  initMap();
-  gpsNofix.hidden = true;
-  gpsInfo.hidden  = false;
-  gpsInfo.textContent =
-    `${gps.satellites} sats · ${gps.speed_kmh.toFixed(1)} km/h · ${gps.altitude_m.toFixed(0)} m`;
-
-  if (!boatMarker) return;
-  boatMarker.setLatLng([gps.lat, gps.lng]);
-
-  const iconEl = boatMarker.getElement();
-  if (iconEl) {
-    const arrow = iconEl.querySelector('.boat-marker-icon');
-    if (arrow) arrow.style.transform = `rotate(${gps.heading_deg}deg)`;
+  function getVal(e) {
+    const rect = ref.current.getBoundingClientRect();
+    const y = 1 - Math.max(0, Math.min(1, (e.clientY-rect.top)/rect.height));
+    return y*2-1;
   }
 
-  if (!mapPanel.hidden && leafletMap) leafletMap.panTo([gps.lat, gps.lng]);
+  const thumbPct = (1-(value+1)/2)*100;
+  const fillTop  = value>0 ? thumbPct : 50;
+  const fillH    = Math.abs(value)*50;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
+      <div ref={ref} style={{
+        position:'relative', width:44, height,
+        background:T.surface2, borderRadius:22,
+        cursor:'ns-resize', touchAction:'none',
+      }}
+        onPointerDown={e=>{ setDrag(true); ref.current.setPointerCapture(e.pointerId); onChange(getVal(e)); }}
+        onPointerMove={e=>{ if(drag) onChange(getVal(e)); }}
+        onPointerUp={()=>{ setDrag(false); if(!locked) onRelease(); }}
+        onPointerCancel={()=>{ setDrag(false); if(!locked) onRelease(); }}
+      >
+        {/* Track */}
+        <div style={{ position:'absolute', left:'50%', top:'5%', bottom:'5%', width:6,
+          transform:'translateX(-50%)', borderRadius:3, background:T.border }}/>
+        {/* Fill */}
+        {Math.abs(value)>0.01 && <div style={{
+          position:'absolute', left:'50%', transform:'translateX(-50%)',
+          width:6, top:`${fillTop}%`, height:`${fillH}%`,
+          borderRadius:3, background:T.accent,
+        }}/>}
+        {/* Center mark */}
+        <div style={{ position:'absolute', left:'20%', right:'20%', top:'50%', height:1, background:T.dim }}/>
+        {/* Thumb */}
+        <div style={{
+          position:'absolute', left:'50%', top:`${thumbPct}%`,
+          width:34, height:34, transform:'translate(-50%,-50%)',
+          borderRadius:'50%', background:T.surface,
+          border:`3px solid ${T.accent}`,
+          boxShadow: drag ? `0 0 16px ${T.accent}` : 'none',
+          transition: drag ? 'none' : 'top 0.05s',
+        }}/>
+      </div>
+      {/* Value */}
+      {mono(`${value>=0?'+':''}${(value*100).toFixed(0)}%`, T.accent, T, 11)}
+      {/* Lock toggle */}
+      <button onClick={onToggleLock} style={{
+        padding:'3px 8px', borderRadius:6, cursor:'pointer', fontSize:9,
+        fontWeight:700, letterSpacing:'0.07em', textTransform:'uppercase',
+        fontFamily:T.sans, border:`1px solid ${locked ? T.accent : T.border}`,
+        background: locked ? T.accentDim : T.surface2,
+        color: locked ? T.accent : T.dim,
+      }}>{locked ? '🔒 Lock' : '↩ Return'}</button>
+    </div>
+  );
 }
 
-function _handleBattery(bat) {
-  const vEl  = document.getElementById('tl-volts');
-  const aEl  = document.getElementById('tl-amps');
-  const pEl  = document.getElementById('tl-pct');
+// ─────────────────────────────────────────────────────────────────────────────
+// RUDDER PAD — auto-centers on release; trim offset controls
+// ─────────────────────────────────────────────────────────────────────────────
+function RudderPad({ rudder, trim, onRudder, onTrim, T }) {
+  const ref = React.useRef(null);
+  const [active, setActive] = React.useState(false);
 
-  vEl.textContent = `${bat.voltage_v.toFixed(1)}V`;
-  aEl.textContent = `${bat.current_a.toFixed(1)}A`;
-  pEl.textContent = `${bat.battery_pct}%`;
+  function getVal(e) {
+    const rect = ref.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX-rect.left)/rect.width));
+    return parseFloat(((x-0.5)*2).toFixed(3));
+  }
 
-  // Colour-code voltage: green ≥12V, orange ≥11.4V, red below
-  vEl.className = 'telem-val' +
-    (bat.voltage_v >= 12.0 ? '' : bat.voltage_v >= 11.4 ? ' warn' : ' danger');
-  pEl.style.color = bat.battery_pct >= 30 ? 'var(--dim)'
-                  : bat.battery_pct >= 15 ? '#f4a261' : 'var(--danger)';
+  const displayPos = rudder;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+      {/* The touch pad */}
+      <div ref={ref} style={{
+        position:'relative', width:'100%', height:78,
+        background:T.surface2, borderRadius:12,
+        border:`2px solid ${active ? T.accent : T.border}`,
+        overflow:'hidden', touchAction:'none', cursor:'crosshair',
+        transition:'border-color 0.12s',
+      }}
+        onPointerDown={e=>{ setActive(true); ref.current.setPointerCapture(e.pointerId); onRudder(getVal(e)); }}
+        onPointerMove={e=>{ if(active) onRudder(getVal(e)); }}
+        onPointerUp={()=>{ setActive(false); onRudder(trim); }}
+        onPointerCancel={()=>{ setActive(false); onRudder(trim); }}
+      >
+        {/* Fill region */}
+        {Math.abs(displayPos-trim) > 0.01 && (() => {
+          const lo = Math.min(displayPos, trim);
+          const hi = Math.max(displayPos, trim);
+          return <div style={{
+            position:'absolute', top:0, bottom:0,
+            left:`${(lo*0.42+0.5)*100}%`,
+            width:`${(hi-lo)*42}%`,
+            background:T.accentDim,
+          }}/>;
+        })()}
+        {/* Center line */}
+        <div style={{ position:'absolute', left:'50%', top:'12%', bottom:'12%',
+          width:1, background:T.border, transform:'translateX(-50%)' }}/>
+        {/* Trim tick */}
+        {Math.abs(trim) > 0.01 && <div style={{
+          position:'absolute', top:0, bottom:0,
+          left:`${(trim*0.42+0.5)*100}%`,
+          width:2, background:`${T.warn}80`, transform:'translateX(-50%)',
+        }}/>}
+        {/* Thumb */}
+        <div style={{
+          position:'absolute', top:'50%',
+          left:`${(displayPos*0.42+0.5)*100}%`,
+          width:40, height:40, transform:'translate(-50%,-50%)',
+          borderRadius:'50%', background: active ? T.accent : T.surface,
+          border:`3px solid ${T.accent}`,
+          boxShadow: active ? `0 0 18px ${T.accent}` : 'none',
+          transition: active ? 'none' : 'left 0.07s ease',
+        }}/>
+        {/* Labels */}
+        <span style={{ position:'absolute', left:10, bottom:7, fontFamily:T.sans,
+          fontSize:9, fontWeight:700, color:T.dim, textTransform:'uppercase' }}>◀ Port</span>
+        <span style={{ position:'absolute', right:10, bottom:7, fontFamily:T.sans,
+          fontSize:9, fontWeight:700, color:T.dim, textTransform:'uppercase' }}>Stbd ▶</span>
+        {/* Big value */}
+        <div style={{ position:'absolute', top:'50%', left:'50%',
+          transform:'translate(-50%,-50%)', pointerEvents:'none',
+          fontFamily:T.mono, fontSize:20, fontWeight:800,
+          color: active ? T.accent : T.dim, transition:'color 0.1s',
+        }}>{displayPos>=0?'+':''}{(displayPos*100).toFixed(0)}</div>
+      </div>
+
+      {/* Trim row */}
+      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+        <span style={{ fontFamily:T.sans, fontSize:9, fontWeight:700,
+          letterSpacing:'0.08em', textTransform:'uppercase', color:T.dim }}>Trim:</span>
+        <button onClick={()=>onTrim(-1)} style={{
+          padding:'4px 10px', borderRadius:6, cursor:'pointer', border:`1px solid ${T.border}`,
+          background: T.surface2, color: T.dim,
+          fontFamily:T.sans, fontSize:10, fontWeight:700,
+        }}>−1%</button>
+        <button onClick={()=>onTrim(0)} style={{
+          padding:'4px 10px', borderRadius:6, cursor:'pointer', border:`1px solid ${trim===0 ? T.accent : T.border}`,
+          background: trim===0 ? T.accentDim : T.surface2,
+          color: trim===0 ? T.accent : T.dim,
+          fontFamily:T.sans, fontSize:10, fontWeight:700,
+        }}>CTR</button>
+        <button onClick={()=>onTrim(1)} style={{
+          padding:'4px 10px', borderRadius:6, cursor:'pointer', border:`1px solid ${T.border}`,
+          background: T.surface2, color: T.dim,
+          fontFamily:T.sans, fontSize:10, fontWeight:700,
+        }}>+1%</button>
+        <span style={{ marginLeft:'auto', fontFamily:T.mono, fontSize:11, color: trim===0 ? T.dim : T.warn }}>
+          {trim>=0?'+':''}{(trim*100).toFixed(0)}%
+        </span>
+      </div>
+    </div>
+  );
 }
 
-function _handleAttitude(att) {
-  const sign = v => v >= 0 ? '+' : '';
-  document.getElementById('tl-pitch').textContent = `P ${sign(att.pitch_deg)}${att.pitch_deg.toFixed(1)}°`;
-  document.getElementById('tl-roll').textContent  = `R ${sign(att.roll_deg)}${att.roll_deg.toFixed(1)}°`;
+// ─────────────────────────────────────────────────────────────────────────────
+// ATTITUDE HORIZON WIDGET
+// ─────────────────────────────────────────────────────────────────────────────
+function AttitudeHorizon({ roll, pitch, size=180, T }) {
+  const r = size/2;
+  const pitchOff = pitch * (r/20);
+
+  return (
+    <svg viewBox={`${-r} ${-r} ${size} ${size}`} width={size} height={size}>
+      <defs>
+        <clipPath id="att-clip"><circle cx="0" cy="0" r={r*0.88}/></clipPath>
+      </defs>
+      <g clipPath="url(#att-clip)" transform={`rotate(${roll})`}>
+        {/* Sky */}
+        <rect x={-r} y={-r*2+pitchOff} width={r*2} height={r*2}
+          fill={T.accent} fillOpacity="0.18"/>
+        {/* Ground */}
+        <rect x={-r} y={pitchOff} width={r*2} height={r*2}
+          fill="oklch(38% 0.08 40 / 0.32)"/>
+        {/* Horizon line */}
+        <line x1={-r} y1={pitchOff} x2={r} y2={pitchOff}
+          stroke={T.accent} strokeWidth="1.5" opacity="0.9"/>
+        {/* Pitch ladder */}
+        {[-20,-10,10,20].map(deg => {
+          const y = pitchOff - deg*(r/20);
+          const w = deg%20===0 ? r*0.55 : r*0.35;
+          return <g key={deg}>
+            <line x1={-w/2} y1={y} x2={w/2} y2={y}
+              stroke={T.text} strokeWidth="1" opacity="0.4"/>
+            <text x={w/2+4} y={y+3} fontSize={r*0.1} fill={T.dim} fontFamily="DM Sans,sans-serif"
+              opacity="0.7">{deg>0?'+':''}{deg}</text>
+          </g>;
+        })}
+      </g>
+      {/* Outer ring */}
+      <circle cx="0" cy="0" r={r*0.88} fill="none" stroke={T.border} strokeWidth="2"/>
+      {/* Roll ticks */}
+      {[-45,-30,-20,-10,10,20,30,45].map(deg => {
+        const rad = (deg-90)*Math.PI/180;
+        const inner = r*0.85, outer = r*0.93;
+        return <line key={deg}
+          x1={inner*Math.cos(rad)} y1={inner*Math.sin(rad)}
+          x2={outer*Math.cos(rad)} y2={outer*Math.sin(rad)}
+          stroke={T.dim} strokeWidth={deg%30===0?1.5:1} opacity="0.6"/>;
+      })}
+      {/* Aircraft symbol */}
+      <line x1={-r*0.28} y1="0" x2={-r*0.06} y2="0" stroke={T.text} strokeWidth="2.5" strokeLinecap="round"/>
+      <line x1={r*0.06} y1="0" x2={r*0.28} y2="0" stroke={T.text} strokeWidth="2.5" strokeLinecap="round"/>
+      <circle cx="0" cy="0" r={r*0.04} fill={T.text}/>
+      {/* Roll pointer */}
+      <polygon points={`0,${-r*0.84} ${-r*0.04},${-r*0.76} ${r*0.04},${-r*0.76}`}
+        fill={T.accent} transform={`rotate(${roll})`}/>
+    </svg>
+  );
 }
 
-function _handleSailboat(sb) {
-  const tEl = document.getElementById('tl-temp');
-  tEl.textContent = `${sb.mcu_temp_c.toFixed(0)}°C`;
-  tEl.className = 'telem-val' +
-    (sb.mcu_temp_c < 60 ? '' : sb.mcu_temp_c < 80 ? ' warn' : ' danger');
+// ─────────────────────────────────────────────────────────────────────────────
+// TELEMETRY GAUGE CARD
+// ─────────────────────────────────────────────────────────────────────────────
+function GaugeCard({ label, value, unit, sub, min, max, warn, danger, T }) {
+  const pct = Math.max(0, Math.min(1, (value-min)/(max-min)));
+  const color = danger ? T.danger : warn ? T.warn : T.accent;
+  return (
+    <div style={{ background:T.surface, borderRadius:10, padding:'9px 11px',
+      border:`1px solid ${danger?T.danger:warn?T.warn:T.border}`,
+      display:'flex', flexDirection:'column', gap:3 }}>
+      {lbl(label, T)}
+      <div style={{ display:'flex', alignItems:'baseline', gap:3 }}>
+        {mono(value, color, T, 18)}
+        <span style={{ fontFamily:T.sans, fontSize:10, color:T.dim }}>{unit}</span>
+      </div>
+      {sub && <div style={{ fontFamily:T.mono, fontSize:9, color:T.dim }}>{sub}</div>}
+      <div style={{ height:3, background:T.surface2, borderRadius:2, marginTop:2 }}>
+        <div style={{ width:`${pct*100}%`, height:'100%', borderRadius:2, background:color,
+          transition:'width 0.3s' }}/>
+      </div>
+    </div>
+  );
 }
 
-// =============================================================================
-// WEBSOCKET
-// =============================================================================
-// The page opens a WebSocket to ws://<host>/ws on load and reconnects
-// automatically if the connection drops (e.g. server restart, AP handover).
-// Every user interaction calls send(), which serialises the current state and
-// writes it to the socket — only when the socket is open.
-//
-// The server may also push messages to the browser (e.g. GPS position updates).
-// These arrive as JSON objects with a "type" field.
+// ─────────────────────────────────────────────────────────────────────────────
+// BILGE INDICATOR
+// ─────────────────────────────────────────────────────────────────────────────
+function BilgeBar({ wet, pump, T }) {
+  return (
+    <div style={{
+      display:'flex', alignItems:'center', gap:8,
+      padding:'7px 12px', borderRadius:10,
+      background: wet ? `${T.danger}14` : T.surface2,
+      border:`1px solid ${wet ? T.danger : T.border}`,
+      transition:'all 0.3s',
+    }}>
+      <div style={{ width:8, height:8, borderRadius:'50%', flexShrink:0,
+        background: wet ? T.danger : T.safe,
+        boxShadow: wet ? `0 0 8px ${T.danger}` : 'none',
+        transition:'all 0.3s' }}/>
+      <span style={{ fontFamily:T.sans, fontSize:11, fontWeight:700,
+        textTransform:'uppercase', letterSpacing:'0.06em',
+        color: wet ? T.danger : T.dim, flex:1 }}>
+        {wet ? 'Bilge Wet' : 'Bilge OK'}
+      </span>
+      {pump && <span style={{ fontFamily:T.mono, fontSize:9, color:T.warn,
+        letterSpacing:'0.06em' }}>PUMP ON</span>}
+    </div>
+  );
+}
 
-const statusEl = document.getElementById('status');
-let ws = null;
+// ─────────────────────────────────────────────────────────────────────────────
+// TELEM STRIP — compact (single row) or expanded (2×3 gauge cards)
+// ─────────────────────────────────────────────────────────────────────────────
+function TelemStrip({ t, T, expanded }) {
+  if (!expanded) {
+    const items = [
+      { label:'Batt', value:`${t.volts.toFixed(1)}V`, warn:t.volts<11.4, danger:t.volts<11 },
+      { label:'Chg',  value:`${t.pct}%`,  warn:t.pct<30 },
+      { label:'Amps', value:`${t.amps.toFixed(1)}A` },
+      { label:'Sats', value:`${t.sats}`,  warn:t.sats<4 },
+      { label:'Spd',  value:`${t.speed.toFixed(1)}` },
+      { label:'LQ',   value:`${t.lq}%`,   warn:t.lq<50, danger:t.lq<25 },
+      { label:'RSSI', value:`${t.rssi}`,  warn:t.rssi<-85, danger:t.rssi<-95 },
+    ];
+    return (
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+        padding:'7px 13px', background:T.surface, borderRadius:10, border:`1px solid ${T.border}` }}>
+        {items.map(it => (
+          <div key={it.label} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+            <span style={{ fontFamily:T.sans, fontSize:8, fontWeight:700, letterSpacing:'0.08em',
+              textTransform:'uppercase', color:T.dim }}>{it.label}</span>
+            <span style={{ fontFamily:T.mono, fontSize:12, fontWeight:700,
+              color: it.danger?T.danger : it.warn?T.warn : T.text }}>
+              {it.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
-// connect() establishes (or re-establishes) the WebSocket connection.
-// On close it schedules a reconnect after 2 s so the UI stays live.
-function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  // Expanded: 2×3 gauge cards with bar graphs
+  const cards = [
+    { label:'Battery',  value:t.volts.toFixed(1), unit:'V',   sub:`${t.pct}% · ${t.amps.toFixed(1)}A`,  min:10.5, max:12.6, warn:t.volts<11.4, danger:t.volts<11 },
+    { label:'Charge',   value:t.pct,              unit:'%',   sub:`${t.mah} mAh used`,                   min:0,    max:100,  warn:t.pct<30,    danger:t.pct<15 },
+    { label:'GPS',      value:t.sats,             unit:'sat', sub:`${t.speed.toFixed(1)} km/h`,          min:0,    max:16,   warn:t.sats<4,    danger:t.sats<2 },
+    { label:'Link LQ',  value:t.lq,               unit:'%',   sub:`${t.rssi} dBm`,                       min:0,    max:100,  warn:t.lq<50,     danger:t.lq<25 },
+    { label:'MCU Temp', value:t.temp,             unit:'°C',  sub:'',                                    min:20,   max:100,  warn:t.temp>60,   danger:t.temp>80 },
+    { label:'Mode',     value:t.mode,             unit:'',    sub:t.bridge?'linked':'no link',           min:0,    max:1 },
+  ];
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
+      {cards.map(c => {
+        const pct = typeof c.value === 'number'
+          ? Math.max(0, Math.min(1, (c.value - c.min) / (c.max - c.min))) * 100
+          : null;
+        const color = c.danger ? T.danger : c.warn ? T.warn : T.accent;
+        return (
+          <div key={c.label} style={{ background:T.surface, borderRadius:10, padding:'8px 10px',
+            border:`1px solid ${c.danger?T.danger : c.warn?T.warn : T.border}`,
+            display:'flex', flexDirection:'column', gap:3 }}>
+            {lbl(c.label, T)}
+            <div style={{ display:'flex', alignItems:'baseline', gap:3 }}>
+              <span style={{ fontFamily:T.mono, fontSize:16, fontWeight:700, color }}>{c.value}</span>
+              {c.unit && <span style={{ fontFamily:T.sans, fontSize:9, color:T.dim }}>{c.unit}</span>}
+            </div>
+            {c.sub && <div style={{ fontFamily:T.mono, fontSize:9, color:T.dim }}>{c.sub}</div>}
+            {pct !== null && (
+              <div style={{ height:3, background:T.surface2, borderRadius:2, marginTop:1 }}>
+                <div style={{ width:`${pct}%`, height:'100%', borderRadius:2, background:color, transition:'width 0.3s' }}/>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-  ws.onopen = () => {
-    statusEl.textContent = 'Online';
-    statusEl.className   = 'connected';
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN APP
+// ─────────────────────────────────────────────────────────────────────────────
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "dark",
+  "telemDensity": "compact"
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const T = tweaks.theme === 'light' ? LIGHT : DARK;
+
+  // Control state
+  const [tab,        setTab]        = React.useState('ctrl');
+  const [rudder,     setRudder]     = React.useState(0);
+  const [rudderTrim, setRudderTrim] = React.useState(0);
+  const [sail,       setSail]       = React.useState(0.2);
+  const [throttle,   setThrottle]   = React.useState(0);
+  const [throttleLocked, setThrottleLocked] = React.useState(false);
+  const [armed,      setArmed]      = React.useState(false);
+
+  // Telemetry state — populated by WebSocket pushes from the Pi
+  const [telem, setTelem] = React.useState(DEFAULT_TELEM);
+  const wsRef = React.useRef(null);
+
+  // WebSocket connection — reconnects automatically on close
+  React.useEffect(() => {
+    function connect() {
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+      wsRef.current = ws;
+      ws.onmessage = (evt) => {
+        let msg;
+        try { msg = JSON.parse(evt.data); } catch { return; }
+        if (msg.type !== 'telemetry') return;
+        setTelem({
+          volts:  msg.battery?.voltage_v   ?? 0,
+          amps:   msg.battery?.current_a   ?? 0,
+          pct:    msg.battery?.battery_pct ?? 0,
+          mah:    msg.battery?.mah_used    ?? 0,
+          sats:   msg.gps?.satellites      ?? 0,
+          speed:  msg.gps?.speed_kmh       ?? 0,
+          lat:    msg.gps?.lat             ?? 0,
+          lng:    msg.gps?.lng             ?? 0,
+          alt:    msg.gps?.altitude_m      ?? 0,
+          hdg:    msg.gps?.heading_deg     ?? 0,
+          roll:   msg.attitude?.roll_deg   ?? 0,
+          pitch:  msg.attitude?.pitch_deg  ?? 0,
+          yaw:    msg.attitude?.yaw_deg    ?? 0,
+          temp:   msg.sailboat?.mcu_temp_c ?? 0,
+          bridge: msg.bridge               ?? false,
+          rssi:   0,
+          lq:     100,
+          mode:   'MANUAL',
+          bilge:  false,
+          pump:   false,
+        });
+      };
+      ws.onclose = () => {
+        setTelem(prev => ({ ...prev, bridge: false }));
+        wsRef.current = null;
+        setTimeout(connect, 2000);
+      };
+    }
+    connect();
+    return () => { wsRef.current?.close(); wsRef.current = null; };
+  }, []);
+
+  // Send control state to Pi whenever it changes
+  React.useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      rudder,
+      sail,
+      throttle: armed ? throttle : 0,
+      armed,
+    }));
+  }, [rudder, sail, throttle, armed]);
+
+  const t = telem;
+
+  function handleTrimChange(val) {
+    const next = val === 0 ? 0 : Math.max(-1, Math.min(1, rudderTrim + (val < 0 ? -0.01 : 0.01)));
+    setRudderTrim(next);
+    setRudder(next);
+  }
+
+  function handleStop() {
+    setArmed(false);
+    setThrottle(0);
+    setRudder(rudderTrim);
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ stop: true }));
+    }
+  }
+
+  const tabs = [
+    { id:'ctrl',  label:'Control' },
+    { id:'instr', label:'Instruments' },
+    { id:'map',   label:'Map' },
+    { id:'dev',   label:'Devices' },
+  ];
+
+  const pageBg = { background:T.bg, color:T.text, fontFamily:T.sans,
+    minHeight:'100%', display:'flex', flexDirection:'column' };
+
+  return (
+    <div style={pageBg}>
+      <TweaksPanel>
+        <TweakSection title="Appearance">
+          <TweakRadio id="theme" label="Theme" options={['dark','light']}
+            value={tweaks.theme} onChange={v=>setTweak('theme',v)}/>
+        </TweakSection>
+        <TweakSection title="Telemetry">
+          <TweakRadio id="telemDensity" label="Density" options={['compact','expanded']}
+            value={tweaks.telemDensity} onChange={v=>setTweak('telemDensity',v)}/>
+        </TweakSection>
+      </TweaksPanel>
+
+      {/* ── HEADER ── */}
+      <div style={{ padding:'14px 14px 0', background:T.surface,
+        borderBottom:`1px solid ${T.border}` }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
+          <span style={{ fontSize:16, fontWeight:800, letterSpacing:'0.05em',
+            color:T.accent, flex:1 }}>⛵ Dark &amp; Stormy</span>
+          <span style={{ fontFamily:T.mono, fontSize:9, color:T.dim }}>Pi · ELRS</span>
+          <StatusPill connected={t.bridge} T={T}/>
+        </div>
+        {/* Tabs */}
+        <div style={{ display:'flex', gap:2 }}>
+          {tabs.map(tb => (
+            <button key={tb.id} onClick={()=>setTab(tb.id)} style={{
+              flex:1, padding:'9px 4px', border:'none',
+              borderRadius:'8px 8px 0 0', cursor:'pointer',
+              fontFamily:T.sans, fontSize:11, fontWeight:700,
+              background: tab===tb.id ? T.bg : 'transparent',
+              color: tab===tb.id ? T.accent : T.dim,
+              borderBottom: `2px solid ${tab===tb.id ? T.accent : 'transparent'}`,
+              transition:'color 0.15s',
+            }}>{tb.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── CONTENT ── */}
+      <div style={{ flex:1, padding:'12px 14px 20px', display:'flex',
+        flexDirection:'column', gap:10, overflowY:'auto' }}>
+
+        {/* ── CONTROL TAB ── */}
+        {tab==='ctrl' && <>
+          <TelemStrip t={t} T={T} expanded={tweaks.telemDensity==='expanded'}/>
+          <BilgeBar wet={t.bilge} pump={t.pump} T={T}/>
+
+          {/* Compact attitude + quick telem row */}
+          <div style={{ display:'flex', gap:10, alignItems:'center',
+            background:T.surface, borderRadius:12, padding:'10px 13px',
+            border:`1px solid ${T.border}` }}>
+            <AttitudeHorizon roll={t.roll} pitch={t.pitch} size={88} T={T}/>
+            <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 12px' }}>
+              {[
+                { label:'Roll',  value:`${t.roll>=0?'+':''}${t.roll.toFixed(1)}°`,  warn:Math.abs(t.roll)>20 },
+                { label:'Pitch', value:`${t.pitch>=0?'+':''}${t.pitch.toFixed(1)}°` },
+                { label:'Hdg',   value:`${t.yaw.toFixed(0)}°` },
+                { label:'Temp',  value:`${t.temp}°C`, warn:t.temp>60, danger:t.temp>80 },
+              ].map(it=>(
+                <div key={it.label} style={{ display:'flex', flexDirection:'column', gap:1 }}>
+                  <span style={{ fontFamily:T.sans, fontSize:8, fontWeight:700,
+                    letterSpacing:'0.08em', textTransform:'uppercase', color:T.dim }}>{it.label}</span>
+                  <span style={{ fontFamily:T.mono, fontSize:13, fontWeight:700,
+                    color: it.danger?T.danger : it.warn?T.warn : T.accent }}>{it.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Throttle + Sail */}
+          <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
+            {/* Throttle */}
+            <div style={{ background:T.surface, borderRadius:12, padding:'11px 10px',
+              border:`1px solid ${T.border}`, display:'flex', flexDirection:'column',
+              alignItems:'center', gap:6 }}>
+              {lbl('Throttle', T)}
+              <ThrottleSlider
+                value={throttle} onChange={setThrottle}
+                onRelease={()=>setThrottle(0)}
+                locked={throttleLocked}
+                onToggleLock={()=>{ setThrottleLocked(l=>!l); setThrottle(0); }}
+                height={158} T={T}/>
+            </div>
+
+            {/* Sail */}
+            <div style={{ flex:1, background:T.surface, borderRadius:12, padding:'11px 10px',
+              border:`1px solid ${T.border}`, display:'flex', flexDirection:'column',
+              alignItems:'center', gap:7 }}>
+              {lbl('Sail Trim', T)}
+              <SailArc value={sail} onChange={setSail} size={152} T={T}/>
+              <div style={{ display:'flex', gap:6, width:'100%', justifyContent:'center' }}>
+                <button onClick={()=>setSail(v=>Math.min(1, v+1/18))} style={{
+                  flex:1, padding:'6px 4px', borderRadius:7, cursor:'pointer',
+                  border:`1px solid ${T.border}`, background:T.surface2,
+                  color:T.dim, fontFamily:T.sans, fontSize:10, fontWeight:700 }}>◀ Trim</button>
+                <button onClick={()=>setSail(v=>Math.max(0, v-1/18))} style={{
+                  flex:1, padding:'6px 4px', borderRadius:7, cursor:'pointer',
+                  border:`1px solid ${T.border}`, background:T.surface2,
+                  color:T.dim, fontFamily:T.sans, fontSize:10, fontWeight:700 }}>Ease ▶</button>
+              </div>
+              {mono(`${Math.round(sail*100)}% trimmed`, T.accent, T, 11)}
+            </div>
+          </div>
+
+          {/* Rudder */}
+          <div style={{ background:T.surface, borderRadius:12, padding:'11px 13px',
+            border:`1px solid ${T.border}` }}>
+            {lbl('Rudder', T, { marginBottom:8 })}
+            <RudderPad
+              rudder={rudder} trim={rudderTrim}
+              onRudder={setRudder} onTrim={handleTrimChange} T={T}/>
+          </div>
+
+          {/* Arm / Stop */}
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={()=>setArmed(a=>!a)} style={{
+              flex:1, padding:'13px 8px', border:'none', borderRadius:10, cursor:'pointer',
+              fontFamily:T.sans, fontSize:13, fontWeight:800, letterSpacing:'0.06em',
+              textTransform:'uppercase', transition:'all 0.15s',
+              background: armed ? `${T.safe}20` : T.surface2,
+              color: armed ? T.safe : T.dim,
+              border: `2px solid ${armed ? T.safe : T.border}`,
+            }}>{armed ? '⚓ Armed' : 'Disarmed'}</button>
+            <button onClick={handleStop} style={{
+              flex:1.5, padding:'13px 8px', border:'none', borderRadius:10, cursor:'pointer',
+              fontFamily:T.sans, fontSize:14, fontWeight:900, letterSpacing:'0.06em',
+              textTransform:'uppercase', background:T.danger, color:'#fff',
+            }}>■ Stop</button>
+          </div>
+        </>}
+
+        {/* ── INSTRUMENTS TAB ── */}
+        {tab==='instr' && <>
+          {/* Attitude horizon — central */}
+          <div style={{ background:T.surface, borderRadius:12, padding:'14px',
+            border:`1px solid ${T.border}`, display:'flex', flexDirection:'column',
+            alignItems:'center', gap:10 }}>
+            {lbl('Attitude', T)}
+            <AttitudeHorizon roll={t.roll} pitch={t.pitch} size={200} T={T}/>
+            <div style={{ display:'flex', gap:16 }}>
+              <div style={{ textAlign:'center' }}>
+                {lbl('Roll', T)}
+                {mono(`${t.roll>=0?'+':''}${t.roll.toFixed(1)}°`, Math.abs(t.roll)>20?T.warn:T.accent, T, 16)}
+              </div>
+              <div style={{ textAlign:'center' }}>
+                {lbl('Pitch', T)}
+                {mono(`${t.pitch>=0?'+':''}${t.pitch.toFixed(1)}°`, T.accent, T, 16)}
+              </div>
+              <div style={{ textAlign:'center' }}>
+                {lbl('Hdg', T)}
+                {mono(`${t.yaw.toFixed(0)}°`, T.accent, T, 16)}
+              </div>
+            </div>
+          </div>
+
+          {/* Gauge grid */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            <GaugeCard label="Battery" value={t.volts.toFixed(1)} unit="V"
+              sub={`${t.pct}%  ·  ${t.mah}mAh`}
+              min={10.5} max={12.6} warn={t.volts<11.4} danger={t.volts<11} T={T}/>
+            <GaugeCard label="Current" value={t.amps.toFixed(1)} unit="A"
+              min={0} max={10} T={T}/>
+            <GaugeCard label="GPS Sats" value={t.sats} unit=""
+              sub={`${t.speed.toFixed(1)} km/h`}
+              min={0} max={16} warn={t.sats<4} danger={t.sats<2} T={T}/>
+            <GaugeCard label="Link Quality" value={t.lq} unit="%"
+              sub={`${t.rssi} dBm`}
+              min={0} max={100} warn={t.lq<50} danger={t.lq<25} T={T}/>
+            <GaugeCard label="MCU Temp" value={t.temp} unit="°C"
+              min={20} max={100} warn={t.temp>60} danger={t.temp>80} T={T}/>
+            <GaugeCard label="Mode" value={t.mode} unit=""
+              min={0} max={1} T={T}/>
+          </div>
+
+          {/* Bilge */}
+          <BilgeBar wet={t.bilge} pump={t.pump} T={T}/>
+        </>}
+
+        {/* ── MAP TAB ── */}
+        {tab==='map' && <>
+          {/* GPS fix info */}
+          <div style={{ display:'flex', gap:8 }}>
+            {[
+              { label:'Lat',  value:`${t.lat.toFixed(4)}°` },
+              { label:'Lon',  value:`${t.lng.toFixed(4)}°` },
+              { label:'Alt',  value:`${t.alt}m` },
+              { label:'Hdg',  value:`${t.hdg}°` },
+              { label:'Spd',  value:`${t.speed.toFixed(1)}` },
+            ].map(it => (
+              <div key={it.label} style={{ flex:1, background:T.surface, borderRadius:8,
+                padding:'7px 6px', border:`1px solid ${T.border}`,
+                display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+                {lbl(it.label, T)}
+                {mono(it.value, T.accent, T, 10)}
+              </div>
+            ))}
+          </div>
+
+          {/* Map placeholder */}
+          <div style={{ background:T.surface, borderRadius:12, overflow:'hidden',
+            border:`1px solid ${T.border}` }}>
+            <div style={{ height:280, background:T.surface2, display:'flex',
+              alignItems:'center', justifyContent:'center', flexDirection:'column', gap:10 }}>
+              <svg viewBox="0 0 200 160" width="200" height="160" opacity="0.5">
+                {[0,40,80,120,160].map(x=><line key={`v${x}`} x1={x} y1={0} x2={x} y2={160}
+                  stroke={T.border} strokeWidth="1"/>)}
+                {[0,40,80,120,160].map(y=><line key={`h${y}`} x1={0} y1={y} x2={200} y2={y}
+                  stroke={T.border} strokeWidth="1"/>)}
+                <polyline points="60,120 80,100 95,80 100,60 105,45 112,32"
+                  fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round"
+                  strokeLinejoin="round"/>
+                <circle cx="112" cy="32" r="5" fill={T.accent}
+                  style={{ filter:`drop-shadow(0 0 4px ${T.accent})` }}/>
+                <text x="120" y="30" fontSize="9" fill={T.accent} fontFamily="DM Sans,sans-serif">
+                  ⛵
+                </text>
+                <circle cx="60" cy="120" r="4" fill={T.safe}/>
+              </svg>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontFamily:T.sans, fontSize:11, color:T.dim, lineHeight:1.5 }}>
+                  Leaflet map loads here
+                </div>
+                <div style={{ fontFamily:T.mono, fontSize:10, color:T.accent }}>
+                  {t.sats} sats · {t.sats > 3 ? 'GPS fix ✓' : 'No fix'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <BilgeBar wet={t.bilge} pump={t.pump} T={T}/>
+        </>}
+
+        {/* ── DEVICES TAB ── */}
+        {tab==='dev' && <DevicesTab T={T}/>}
+
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEVICES TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DEVICE_GROUPS = [
+  {
+    group: 'Sensors',
+    devices: [
+      { id:'imu',     name:'IMU',            detail:'QMI8658 · I²C 0x6B',    status:'ok',      note:'62.5 Hz · roll −4.1° pitch 1.8°' },
+      { id:'compass', name:'Compass',         detail:'HMC5883L · I²C 0x1E',   status:'absent',  note:'GPS_ENABLED build only' },
+      { id:'gps',     name:'GPS',             detail:'BN-880 · UART2 9600',   status:'absent',  note:'GPS_ENABLED build only' },
+      { id:'current', name:'Current Sensor',  detail:'INA228 · I²C 0x41',     status:'ok',      note:'11.8V · 2.4A' },
+      { id:'bilge',   name:'Bilge Sensor',    detail:'Float switch · GPIO2',   status:'ok',      note:'Dry' },
+    ],
+  },
+  {
+    group: 'Actuators',
+    devices: [
+      { id:'servodrv', name:'Servo Driver',   detail:'PCA9685 · I²C 0x40',    status:'ok',      note:'50 Hz PWM' },
+      { id:'rudder',   name:'Rudder Servo',   detail:'PCA9685 Ch 0',          status:'ok',      note:'HobbyPark 7.5 kg' },
+      { id:'winch',    name:'Sail Winch',     detail:'PCA9685 Ch 1',          status:'ok',      note:'Hitec HS-785HB' },
+      { id:'esc',      name:'ESC',            detail:'PCA9685 Ch 2',          status:'ok',      note:'HobbyWing Quicrun 1060' },
+      { id:'motor',    name:'Motor',          detail:'ESC → Ch 2',            status:'ok',      note:'INJORA 550 21T' },
+      { id:'pump',     name:'Bilge Pump',     detail:'MOSFET · GPIO3',        status:'ok',      note:'Off' },
+    ],
+  },
+  {
+    group: 'Radio',
+    devices: [
+      { id:'elrsrx',  name:'ELRS Receiver',  detail:'RP3 · UART1 420000',    status:'absent',  note:'ELRS mode only' },
+      { id:'elrstx',  name:'ELRS TX Module', detail:'Ranger Micro · Pi USB',  status:'ok',      note:'Linked via Pi' },
+    ],
+  },
+  {
+    group: 'System',
+    devices: [
+      { id:'touch',   name:'Touchscreen',    detail:'FT3168 · I²C 0x38',     status:'ok',      note:'Onboard' },
+      { id:'display', name:'Display',        detail:'CO5300 AMOLED · QSPI',  status:'ok',      note:'280×456 · LVGL' },
+      { id:'sdcard',  name:'SD Card',        detail:'SPI3 · GPIO38–41',      status:'warn',    note:'No card detected' },
+      { id:'mcu',     name:'MCU',            detail:'ESP32-S3R8 · 240 MHz',  status:'ok',      note:'42°C · WiFi Direct' },
+    ],
+  },
+];
+
+function DeviceCard({ dev, T, onRepair }) {
+  const [repairing, setRepairing] = React.useState(false);
+  const colors = {
+    ok:     { bg:`${T.safe}14`,    border:T.safe,   dot:T.safe,   text:T.safe },
+    warn:   { bg:`${T.warn}14`,    border:T.warn,   dot:T.warn,   text:T.warn },
+    error:  { bg:`${T.danger}14`,  border:T.danger, dot:T.danger, text:T.danger },
+    absent: { bg:T.surface2,       border:T.border, dot:T.dim,    text:T.dim },
   };
+  const c = colors[dev.status] || colors.absent;
+  const label = { ok:'OK', warn:'WARN', error:'FAULT', absent:'N/A' }[dev.status] || '—';
+  const canRepair = dev.status === 'absent' || dev.status === 'error' || dev.status === 'warn';
 
-  ws.onclose = () => {
-    statusEl.textContent = 'Offline';
-    statusEl.className   = 'disconnected';
-    setTimeout(connect, 2000);   // retry in 2 s
-  };
+  function handleRepair() {
+    setRepairing(true);
+    fetch(`/repair?id=${dev.id}`).catch(()=>{});
+    setTimeout(() => setRepairing(false), 1500);
+    if (onRepair) onRepair(dev.id);
+  }
 
-  ws.onerror = () => ws.close();   // let onclose handle the retry
-
-  ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'telemetry') handleTelemetry(msg);
-    } catch (_) { /* ignore malformed messages */ }
-  };
+  return (
+    <div style={{ background:c.bg, border:`1px solid ${c.border}`, borderRadius:10,
+      padding:'9px 11px', display:'flex', flexDirection:'column', gap:4 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+        <div style={{ width:7, height:7, borderRadius:'50%', flexShrink:0,
+          background:c.dot, boxShadow: dev.status==='ok' ? `0 0 6px ${c.dot}` : 'none' }}/>
+        <span style={{ fontFamily:T.sans, fontSize:12, fontWeight:700,
+          color:T.text, flex:1 }}>{dev.name}</span>
+        <span style={{ fontFamily:T.mono, fontSize:9, fontWeight:700,
+          color:c.text, textTransform:'uppercase', letterSpacing:'0.07em' }}>{label}</span>
+      </div>
+      <div style={{ fontFamily:T.mono, fontSize:9, color:T.dim, paddingLeft:13 }}>
+        {dev.detail}
+      </div>
+      {dev.note && (
+        <div style={{ fontFamily:T.sans, fontSize:10,
+          color: dev.status==='absent' ? T.dim : T.text,
+          paddingLeft:13, opacity:0.8 }}>{dev.note}</div>
+      )}
+      {canRepair && (
+        <button onClick={handleRepair} disabled={repairing} style={{
+          marginTop:2, padding:'4px 0', borderRadius:6, cursor: repairing ? 'default' : 'pointer',
+          border:`1px solid ${repairing ? T.border : c.border}`,
+          background: repairing ? T.surface2 : `${c.border}22`,
+          color: repairing ? T.dim : c.text,
+          fontFamily:T.sans, fontSize:10, fontWeight:700,
+          letterSpacing:'0.05em', textTransform:'uppercase',
+          width:'100%', transition:'all 0.2s',
+        }}>{repairing ? '⟳ Probing…' : '↻ Repair'}</button>
+      )}
+    </div>
+  );
 }
 
-// send(extra) serialises the current UI state to JSON and posts it to the
-// server.  `extra` can inject override fields (e.g. { stop: true }).
-// No-op when the socket is not yet open or has closed.
-function send(extra = {}) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({
-    rudder:   rudderEl.value / 100,   // -1.0 … +1.0
-    sail:     sailValue,               //  0.0 … +1.0
-    throttle: throttleEl.value / 100, // -1.0 … +1.0
-    armed,                             // boolean
-    ...extra,
-  }));
+function DevicesTab({ T }) {
+  const [reprobing, setReprobing] = React.useState(false);
+  function handleReprobe() {
+    setReprobing(true);
+    setTimeout(() => setReprobing(false), 1200);
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+      {/* Header row */}
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <div style={{ flex:1 }}>
+          {lbl('Device Status', T)}
+        </div>
+        <button onClick={handleReprobe} style={{
+          padding:'5px 12px', borderRadius:7, cursor:'pointer',
+          border:`1px solid ${T.border}`, background: reprobing ? T.accentDim : T.surface2,
+          color: reprobing ? T.accent : T.dim,
+          fontFamily:T.sans, fontSize:10, fontWeight:700,
+          letterSpacing:'0.06em', textTransform:'uppercase',
+          transition:'all 0.2s',
+        }}>{reprobing ? '⟳ Probing…' : '⟳ Reprobe All'}</button>
+      </div>
+
+      {DEVICE_GROUPS.map(grp => (
+        <div key={grp.group} style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          {lbl(grp.group, T, { marginBottom:2 })}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+            {grp.devices.map(dev => (
+              <DeviceCard key={dev.id} dev={dev} T={T} onRepair={()=>{}}/>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* Legend */}
+      <div style={{ display:'flex', gap:12, padding:'8px 12px',
+        background:T.surface, borderRadius:8, border:`1px solid ${T.border}`,
+        justifyContent:'center' }}>
+        {[
+          { status:'ok',    label:'OK',    color:T.safe },
+          { status:'warn',  label:'Warn',  color:T.warn },
+          { status:'error', label:'Fault', color:T.danger },
+          { status:'absent',label:'N/A',   color:T.dim },
+        ].map(l => (
+          <div key={l.status} style={{ display:'flex', alignItems:'center', gap:5 }}>
+            <div style={{ width:7, height:7, borderRadius:'50%', background:l.color,
+              boxShadow: l.status==='ok' ? `0 0 5px ${l.color}` : 'none' }}/>
+            <span style={{ fontFamily:T.sans, fontSize:10, color:T.dim }}>{l.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-connect();
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
 </html>
