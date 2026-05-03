@@ -1040,7 +1040,7 @@ setInterval(function() {
     // Live-update instruments page if visible
     if (document.getElementById('page-instr').style.display !== 'none') updateInstruments();
   }).catch(function(){});
-}, 500);
+}, 100);
 
 setInterval(function() {
   fetch('/status').then(function(r){return r.json();}).then(function(d) {
@@ -1429,11 +1429,11 @@ static void handle_diag_page()
 
 static void handle_diag_json()
 {
-    // Each entry: id, name, role, level ("ok"/"warn"/"absent"/"disabled"),
-    // stat (display text), repairable, and optionally addr (I2C only).
+    // String IDs match the HTML card element IDs (dev-{id}).
     char buf[1024];
-    int  n   = 0;
-    int  idx = 0;
+    int  n = 0;
+
+    static const char *DEV_IDS[] = {"ft", "qmi", "pca", "ina"};
 
     n += snprintf(buf, sizeof(buf), "[");
 
@@ -1442,10 +1442,10 @@ static void handle_diag_json()
         const DeviceInfo *d  = diag_info((DevId)i);
         bool              ok = d->present && d->enabled;
         n += snprintf(buf + n, sizeof(buf) - n,
-            "%s{\"id\":%d,\"name\":\"%s\",\"role\":\"%s\","
+            "%s{\"id\":\"%s\",\"name\":\"%s\",\"role\":\"%s\","
             "\"addr\":\"0x%02X\",\"level\":\"%s\",\"stat\":\"%s\","
             "\"repairable\":true}",
-            idx++ ? "," : "", i, d->name, d->role, d->addr,
+            i ? "," : "", DEV_IDS[i], d->name, d->role, d->addr,
             ok ? "ok" : "absent",
             ok ? "OK"  : "Absent");
     }
@@ -1454,23 +1454,24 @@ static void handle_diag_json()
     {
         bool ok = sdlog_is_ready();
         n += snprintf(buf + n, sizeof(buf) - n,
-            ",{\"id\":%d,\"name\":\"SD Card\",\"role\":\"Log storage\","
+            ",{\"id\":\"sd\",\"name\":\"SD Card\",\"role\":\"Log storage\","
             "\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
-            idx++, ok ? "ok" : "absent", ok ? "Ready" : "No card");
+            ok ? "ok" : "absent", ok ? "Ready" : "No card");
     }
 
     // ── Bilge Sensor ───────────────────────────────────────────────────────
     {
         bool wet = bilge_water_detected();
         n += snprintf(buf + n, sizeof(buf) - n,
-            ",{\"id\":%d,\"name\":\"Bilge Sensor\",\"role\":\"Water detection\","
+            ",{\"id\":\"bilge\",\"name\":\"Bilge Sensor\",\"role\":\"Water detection\","
             "\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
-            idx++, wet ? "warn" : "ok", wet ? "WET" : "Dry");
+            wet ? "warn" : "ok", wet ? "WET" : "Dry");
     }
 
     // ── Actuators (Rudder / Sail Winch / Motor ESC) ────────────────────────
-    static const char *ACT_NAMES[] = {"Rudder",     "Sail Winch", "Motor ESC"};
-    static const char *ACT_ROLES[] = {"Steering",   "Sail trim",  "Propulsion"};
+    static const char *ACT_IDS[]   = {"rudder",    "winch",      "esc"};
+    static const char *ACT_NAMES[] = {"Rudder",    "Sail Winch", "Motor ESC"};
+    static const char *ACT_ROLES[] = {"Steering",  "Sail trim",  "Propulsion"};
     static const int   ACT_CH[]    = {pwm_ch::RUDDER, pwm_ch::SAIL_WINCH, pwm_ch::MOTOR_ESC};
     bool drv = diag_ok(DEV_PCA9685);
     for (int i = 0; i < 3; i++) {
@@ -1479,9 +1480,9 @@ static void handle_diag_json()
                           servos_get_commanded(ACT_CH[i]) * 100.0f);
         else     snprintf(stat, sizeof(stat), "No driver");
         n += snprintf(buf + n, sizeof(buf) - n,
-            ",{\"id\":%d,\"name\":\"%s\",\"role\":\"%s\","
+            ",{\"id\":\"%s\",\"name\":\"%s\",\"role\":\"%s\","
             "\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
-            idx++, ACT_NAMES[i], ACT_ROLES[i],
+            ACT_IDS[i], ACT_NAMES[i], ACT_ROLES[i],
             drv ? "ok" : "disabled", stat);
     }
 
@@ -1492,15 +1493,21 @@ static void handle_diag_json()
 static void handle_repair()
 {
     if (!s_srv.hasArg("id")) { s_srv.send(400, "text/plain", "missing id"); return; }
-    int id = s_srv.arg("id").toInt();
+    String id_str = s_srv.arg("id");
+    if (id_str == "all") {
+        for (uint8_t i = 0; i < DEV_COUNT; i++) diag_reprobe((DevId)i);
+        s_srv.send(200, "application/json", "{\"ok\":true}");
+        return;
+    }
+    int id = id_str.toInt();
     if (id < 0 || id >= (int)DEV_COUNT) { s_srv.send(400, "text/plain", "bad id"); return; }
     diag_reprobe((DevId)id);   // safe: runs in loop() via wifi_ctrl_update() on core 1
-    // Return the updated entry as a single JSON object so the page can react.
+    static const char *DEV_IDS[] = {"ft", "qmi", "pca", "ina"};
     const DeviceInfo *d = diag_info((DevId)id);
     char buf[96];
     snprintf(buf, sizeof(buf),
-             "{\"id\":%d,\"name\":\"%s\",\"ok\":%s}",
-             id, d->name, (d->present && d->enabled) ? "true" : "false");
+             "{\"id\":\"%s\",\"name\":\"%s\",\"ok\":%s}",
+             DEV_IDS[id], d->name, (d->present && d->enabled) ? "true" : "false");
     s_srv.send(200, "application/json", buf);
 }
 
