@@ -544,11 +544,6 @@ static const char HTML_PAGE[] PROGMEM = R"html(
         <div class="dev-detail">INA228 &middot; 0x41</div>
         <div class="dev-note" id="dev-ina-note">--V &middot; --A</div>
       </div>
-      <div class="dev-card ok" id="dev-ft">
-        <div style="display:flex;align-items:center"><span class="dev-dot ok"></span><span class="dev-name">Touch</span><span class="dev-status ok" style="margin-left:auto">OK</span></div>
-        <div class="dev-detail">FT3168 &middot; 0x38</div>
-        <div class="dev-note">Onboard</div>
-      </div>
     </div>
 
     <div class="dev-group-lbl">Actuators</div>
@@ -1445,17 +1440,20 @@ static void handle_diag_json()
 
     n += snprintf(buf, sizeof(buf), "[");
 
-    // ── I2C devices (repairable via /repair?id=numId) ──────────────────────
+    // ── I2C devices (repairable via /repair?id=numId) — ft (touch) omitted ─
+    bool first = true;
     for (uint8_t i = 0; i < DEV_COUNT; i++) {
+        if (i == DEV_FT3168) continue;  // touch controller not surfaced in device status
         const DeviceInfo *d  = diag_info((DevId)i);
         bool              ok = d->present && d->enabled;
         n += snprintf(buf + n, sizeof(buf) - n,
             "%s{\"id\":\"%s\",\"numId\":%d,\"name\":\"%s\",\"role\":\"%s\","
             "\"addr\":\"0x%02X\",\"level\":\"%s\",\"stat\":\"%s\","
             "\"repairable\":true}",
-            i ? "," : "", DEV_IDS[i], (int)i, d->name, d->role, d->addr,
+            first ? "" : ",", DEV_IDS[i], (int)i, d->name, d->role, d->addr,
             ok ? "ok" : "absent",
             ok ? "OK"  : "Absent");
+        first = false;
     }
 
     // ── SD Card ────────────────────────────────────────────────────────────

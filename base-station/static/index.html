@@ -601,7 +601,7 @@ function App() {
 
   // Map ESP32 /diag.json device IDs → Pi device list IDs
   const ESP32_TO_PI = {
-    ft:'touch', qmi:'imu', pca:'servodrv', ina:'current',
+    qmi:'imu', pca:'servodrv', ina:'current',
     sd:'sdcard', bilge:'bilge', pump:'pump',
     rudder:'rudder', winch:'winch', esc:'esc',
   };
@@ -989,10 +989,7 @@ const DEVICE_GROUPS = [
   {
     group: 'System',
     devices: [
-      { id:'touch',   name:'Touchscreen',    detail:'FT3168 · I²C 0x38',    status:'absent', note:'—' },
-      { id:'display', name:'Display',        detail:'CO5300 AMOLED · QSPI', status:'absent', note:'—' },
       { id:'sdcard',  name:'SD Card',        detail:'SPI3 · GPIO38–41',     status:'absent', note:'—' },
-      { id:'mcu',     name:'MCU',            detail:'ESP32-S3R8 · 240 MHz', status:'absent', note:'—' },
     ],
   },
 ];
