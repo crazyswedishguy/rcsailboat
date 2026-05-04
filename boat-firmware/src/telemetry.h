@@ -5,10 +5,11 @@
 // TX module). The ELRS module relays them over RF to the base station.
 //
 // Emission schedule:
-//   BATTERY_SENSOR (0x08) — 2 Hz  — voltage, current, mAh used, remaining %
-//   ATTITUDE       (0x1E) — 5 Hz  — pitch, roll, yaw (in radians × 10 000)
-//   SAILBOAT       (0x80) — 5 Hz  — commanded rudder/sail/ESC + ESP32 temp (custom frame)
-//   GPS            (0x02) — 1 Hz  — lat/lng/speed/heading/alt/sats (GPS_ENABLED only)
+//   BATTERY_SENSOR (0x08) — 2 Hz   — voltage, current, mAh used, remaining %
+//   ATTITUDE       (0x1E) — 5 Hz   — pitch, roll, yaw (in radians × 10 000)
+//   SAILBOAT       (0x80) — 5 Hz   — commanded rudder/sail/ESC + ESP32 temp (custom frame)
+//   GPS            (0x02) — 1 Hz   — lat/lng/speed/heading/alt/sats (GPS_ENABLED only)
+//   DEVICE_STATUS  (0x81) — 0.2 Hz — device health bitmap (10 devices × 2-bit level)
 //
 // All multi-byte fields are big-endian, matching the CRSF specification.
 // See docs/protocol.md for the full frame layout of each type.

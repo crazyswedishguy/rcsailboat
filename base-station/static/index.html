@@ -90,6 +90,13 @@ function mono(text, color, T, size=14) {
   return <span style={{ fontFamily:T.mono, fontSize:size, fontWeight:700, color }}>{text}</span>;
 }
 
+function elrsLevelNote(id, level) {
+  if (level === 'ok')    return id === 'sd' ? 'Ready' : id === 'bilge' ? 'Dry' : 'OK';
+  if (level === 'warn')  return id === 'bilge' ? 'WET' : 'Warn';
+  if (level === 'error') return id === 'bilge' ? 'Unverified' : 'Fault';
+  return '—';
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // STATUS PILL
 // ─────────────────────────────────────────────────────────────────────────────
@@ -531,6 +538,7 @@ function App() {
   // ESP32 direct-link state (fetches /diag.json from ESP32 WiFi AP)
   const [esp32Status,  setEsp32Status]  = React.useState('disconnected'); // disconnected|connecting|connected|error
   const [esp32Devices, setEsp32Devices] = React.useState(null);           // raw array from /diag.json
+  const [elrsDevices,  setElrsDevices]  = React.useState(null);           // device_status from CRSF 0x81
   const wsRef = React.useRef(null);
 
   // WebSocket connection — reconnects automatically on close
@@ -542,6 +550,8 @@ function App() {
         let msg;
         try { msg = JSON.parse(evt.data); } catch { return; }
         if (msg.type !== 'telemetry') return;
+        const ds = msg.device_status || {};
+        setElrsDevices(Object.keys(ds).length > 0 ? ds : null);
         setTelem({
           volts:  msg.battery?.voltage_v   ?? 0,
           amps:   msg.battery?.current_a   ?? 0,
@@ -561,7 +571,7 @@ function App() {
           rssi:   0,
           lq:     100,
           mode:   'MANUAL',
-          bilge:  false,
+          bilge:  ds.bilge === 'warn',   // true only when water detected
           pump:   false,
         });
       };
@@ -596,35 +606,47 @@ function App() {
     rudder:'rudder', winch:'winch', esc:'esc',
   };
 
-  // Merge static defaults with live ESP32 data and telemetry inferences.
+  // Merge static defaults with live data. Priority (lowest → highest):
+  //   1. ELRS device-status frame (0x81) — primary source in field use
+  //   2. ESP32 WiFi probe (/diag.json) — adds stat strings; bench use
+  //   3. Telemetry inferences (bridge, GPS, temp) — always available when linked
   const displayDevices = React.useMemo(() => {
     const overrides = {};
+
+    // 1. ELRS device status (primary)
+    if (elrsDevices) {
+      Object.entries(elrsDevices).forEach(([id, level]) => {
+        const piId = ESP32_TO_PI[id];
+        if (piId) overrides[piId] = { status: level, note: elrsLevelNote(id, level) };
+      });
+    }
+
+    // 2. WiFi probe overrides (richer stat strings when available)
     if (esp32Devices) {
       esp32Devices.forEach(item => {
         const piId = ESP32_TO_PI[item.id];
         if (piId) overrides[piId] = { status: item.level || 'absent', note: item.stat || '—' };
       });
     }
-    // Infer states from live ELRS telemetry
+
+    // 3. Telemetry inferences
     if (t.bridge) {
       overrides['elrsrx'] = { status:'ok', note:'Linked' };
       if (t.temp > 0) overrides['mcu'] = { status:'ok', note:`${t.temp.toFixed(0)}°C` };
     }
-    if (t.volts > 0) overrides['current'] = prev => ({
-      status:'ok', note:`${t.volts.toFixed(1)}V · ${t.amps.toFixed(1)}A`,
-      ...(overrides['current'] || {}),   // ESP32 diag takes precedence if present
-    });
+    if (t.volts > 0 && !overrides['current']) {
+      overrides['current'] = { status:'ok', note:`${t.volts.toFixed(1)}V · ${t.amps.toFixed(1)}A` };
+    }
     if (t.sats > 0) overrides['gps'] = { status:'ok', note:`${t.sats} sats` };
+
     return DEVICE_GROUPS.map(grp => ({
       ...grp,
       devices: grp.devices.map(dev => {
         const ov = overrides[dev.id];
-        if (!ov) return dev;
-        const resolved = typeof ov === 'function' ? ov(dev) : ov;
-        return { ...dev, ...resolved };
+        return ov ? { ...dev, ...ov } : dev;
       }),
     }));
-  }, [esp32Devices, t.bridge, t.temp, t.volts, t.amps, t.sats]);
+  }, [elrsDevices, esp32Devices, t.bridge, t.temp, t.volts, t.amps, t.sats]);
 
   // Connect to ESP32 WiFi AP and fetch device status
   async function connectESP32() {

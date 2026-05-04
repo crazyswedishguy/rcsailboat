@@ -29,6 +29,9 @@
 #include "power.h"
 #include "servos.h"
 #include "config.h"
+#include "diag.h"
+#include "bilge.h"
+#include "sdlog.h"
 #include <Arduino.h>
 #include <math.h>
 #include <string.h>
@@ -146,12 +149,67 @@ static void send_sailboat() {
     elrs_send_frame(frame, len);
 }
 
+// DEVICE_STATUS (0x81) — 3-byte payload, emit at 0.2 Hz (every 5 s).
+//
+// Bit layout (2 bits per device, LSB-first):
+//   [1:0]   ft     — FT3168 touch controller
+//   [3:2]   qmi    — QMI8658 IMU
+//   [5:4]   pca    — PCA9685 servo driver
+//   [7:6]   ina    — INA228 current/voltage sensor
+//   [9:8]   sd     — SD card logger
+//   [11:10] bilge  — bilge float switch
+//   [13:12] pump   — bilge pump (reserved, absent)
+//   [15:14] rudder — rudder servo (follows PCA9685)
+//   [17:16] winch  — sail winch servo (follows PCA9685)
+//   [19:18] esc    — motor ESC (follows PCA9685)
+//   [23:20] reserved (0)
+//
+// Level values: 0=absent, 1=ok, 2=warn, 3=error
+// Bilge special: 2=wet (alert), 3=unverified (dry but never triggered this session)
+static void send_devices() {
+    uint8_t ft_l  = diag_ok(DEV_FT3168)  ? 1 : 0;
+    uint8_t qmi_l = diag_ok(DEV_QMI8658) ? 1 : 0;
+    uint8_t pca_l = diag_ok(DEV_PCA9685) ? 1 : 0;
+    uint8_t ina_l = diag_ok(DEV_INA228)  ? 1 : 0;
+    uint8_t sd_l  = sdlog_is_ready()      ? 1 : 0;
+
+    bool    wet      = bilge_water_detected();
+    bool    verified = bilge_sensor_verified();
+    uint8_t bilge_l  = wet ? 2 : (verified ? 1 : 3);  // warn=wet, ok=dry+verified, error=unverified
+
+    uint8_t pump_l = 0;   // no pump driver — absent
+    uint8_t act_l  = pca_l;   // actuators follow servo driver
+
+    uint32_t bits = 0;
+    bits |= (uint32_t)(ft_l    & 3) <<  0;
+    bits |= (uint32_t)(qmi_l   & 3) <<  2;
+    bits |= (uint32_t)(pca_l   & 3) <<  4;
+    bits |= (uint32_t)(ina_l   & 3) <<  6;
+    bits |= (uint32_t)(sd_l    & 3) <<  8;
+    bits |= (uint32_t)(bilge_l & 3) << 10;
+    bits |= (uint32_t)(pump_l  & 3) << 12;
+    bits |= (uint32_t)(act_l   & 3) << 14;  // rudder
+    bits |= (uint32_t)(act_l   & 3) << 16;  // winch
+    bits |= (uint32_t)(act_l   & 3) << 18;  // esc
+
+    uint8_t p[3] = {
+        (uint8_t)( bits        & 0xFF),
+        (uint8_t)((bits >>  8) & 0xFF),
+        (uint8_t)((bits >> 16) & 0xFF),
+    };
+
+    uint8_t frame[11];
+    size_t  len = crsf_build(frame, CRSF_FRAMETYPE_DEVICES, p, sizeof(p));
+    elrs_send_frame(frame, len);
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 static unsigned long s_last_battery_ms  = 0;
 static unsigned long s_last_attitude_ms = 0;
+static unsigned long s_last_devices_ms  = 0;
 
 void telemetry_init() {}
 
@@ -167,6 +225,11 @@ void telemetry_update() {
         s_last_attitude_ms = now;
         send_attitude();
         send_sailboat();
+    }
+
+    if (now - s_last_devices_ms >= 5000) {
+        s_last_devices_ms = now;
+        send_devices();
     }
 
 #ifdef GPS_ENABLED

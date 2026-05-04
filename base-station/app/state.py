@@ -102,6 +102,12 @@ class TelemetryState:
     throttle: float = 0.0      # commanded throttle –1.0..+1.0
     mcu_temp_c: float = 0.0    # ESP32 internal die temperature in °C
 
+    # Device status (CRSF 0x81) — 0.2 Hz from boat
+    # Maps ESP32 device id → level: 'absent' | 'ok' | 'warn' | 'error'
+    # Keys: 'ft', 'qmi', 'pca', 'ina', 'sd', 'bilge', 'pump', 'rudder', 'winch', 'esc'
+    # Bilge special: 'warn'=WET, 'error'=unverified (never triggered this session)
+    device_status: dict[str, str] = field(default_factory=dict)
+
     # Bridge connection status
     bridge_connected: bool = False  # True when serial port to ELRS TX module is open
 

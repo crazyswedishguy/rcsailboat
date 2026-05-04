@@ -111,6 +111,7 @@ def _telemetry_payload() -> dict:
             "throttle":   _telem.throttle,
             "mcu_temp_c": _telem.mcu_temp_c,
         },
+        "device_status": _telem.device_status,
     }
 
 

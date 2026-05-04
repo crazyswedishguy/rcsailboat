@@ -15,3 +15,4 @@
 #define CRSF_FRAMETYPE_BATTERY  0x08  // standard: voltage/current/mAh/remaining
 #define CRSF_FRAMETYPE_ATTITUDE 0x1E  // standard: pitch/roll/yaw (rad*10000)
 #define CRSF_FRAMETYPE_SAILBOAT 0x80  // custom:   rudder/sail/ESC commanded + ESP32 temp
+#define CRSF_FRAMETYPE_DEVICES  0x81  // custom:   device status bitmap (10 × 2-bit levels, LSB-first)

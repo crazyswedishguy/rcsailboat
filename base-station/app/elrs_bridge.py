@@ -44,6 +44,7 @@ CRSF_TYPE_GPS      = 0x02   # GPS telemetry
 CRSF_TYPE_BATTERY  = 0x08   # Battery sensor
 CRSF_TYPE_ATTITUDE = 0x1E   # Attitude (pitch/roll/yaw)
 CRSF_TYPE_SAILBOAT = 0x80   # Custom sailboat frame
+CRSF_TYPE_DEVICES  = 0x81   # Custom device-status bitmap
 
 CRSF_CH_MIN    = 172
 CRSF_CH_CENTER = 992
@@ -145,6 +146,22 @@ def _decode_attitude(payload: bytes, telem: TelemetryState) -> bool:
     return True
 
 
+_DEVICE_ORDER  = ('ft', 'qmi', 'pca', 'ina', 'sd', 'bilge', 'pump', 'rudder', 'winch', 'esc')
+_DEVICE_LEVELS = ('absent', 'ok', 'warn', 'error')
+
+
+def _decode_devices(payload: bytes, telem: TelemetryState) -> bool:
+    """Custom device-status frame (0x81) — 3-byte payload, 2 bits per device, LSB-first."""
+    if len(payload) < 3:
+        return False
+    bits = payload[0] | (payload[1] << 8) | (payload[2] << 16)
+    telem.device_status = {
+        name: _DEVICE_LEVELS[(bits >> (i * 2)) & 3]
+        for i, name in enumerate(_DEVICE_ORDER)
+    }
+    return True
+
+
 def _decode_sailboat(payload: bytes, telem: TelemetryState) -> bool:
     """Custom sailboat frame (0x80) — 8-byte big-endian payload."""
     if len(payload) < 8:
@@ -197,6 +214,8 @@ def _parse_frames(
             updated = _decode_attitude(payload, telem)
         elif frame_type == CRSF_TYPE_SAILBOAT:
             updated = _decode_sailboat(payload, telem)
+        elif frame_type == CRSF_TYPE_DEVICES:
+            updated = _decode_devices(payload, telem)
 
         if updated and on_update:
             on_update()
