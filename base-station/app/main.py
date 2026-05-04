@@ -111,7 +111,20 @@ def _telemetry_payload() -> dict:
             "throttle":   _telem.throttle,
             "mcu_temp_c": _telem.mcu_temp_c,
         },
+        "link": {
+            "rssi_uplink":   _telem.rssi_uplink,
+            "lq_uplink":     _telem.lq_uplink,
+            "snr_uplink":    _telem.snr_uplink,
+            "rssi_downlink": _telem.rssi_downlink,
+            "lq_downlink":   _telem.lq_downlink,
+            "snr_downlink":  _telem.snr_downlink,
+            "tx_power_mw":   _telem.tx_power_mw,
+        },
         "device_status": _telem.device_status,
+        "updated_at": {
+            "telem": _telem.last_updated_at,
+            "gps":   _gps.last_updated_at,
+        },
     }
 
 

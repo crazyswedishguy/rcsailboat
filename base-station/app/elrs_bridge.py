@@ -23,6 +23,7 @@ import logging
 import math
 import os
 import struct
+import time
 from collections.abc import Callable
 
 import serial_asyncio
@@ -40,11 +41,12 @@ RETRY_DELAY  = 5.0   # seconds between reconnect attempts
 # ── CRSF constants ────────────────────────────────────────────────────────────
 CRSF_SYNC          = 0xC8
 CRSF_TYPE_RC       = 0x16   # RC Channels Packed (Pi → TX module)
-CRSF_TYPE_GPS      = 0x02   # GPS telemetry
-CRSF_TYPE_BATTERY  = 0x08   # Battery sensor
-CRSF_TYPE_ATTITUDE = 0x1E   # Attitude (pitch/roll/yaw)
-CRSF_TYPE_SAILBOAT = 0x80   # Custom sailboat frame
-CRSF_TYPE_DEVICES  = 0x81   # Custom device-status bitmap
+CRSF_TYPE_GPS        = 0x02   # GPS telemetry
+CRSF_TYPE_BATTERY    = 0x08   # Battery sensor
+CRSF_TYPE_LINK_STATS = 0x14   # Link statistics (RSSI, LQ, SNR, TX power)
+CRSF_TYPE_ATTITUDE   = 0x1E   # Attitude (pitch/roll/yaw)
+CRSF_TYPE_SAILBOAT   = 0x80   # Custom sailboat frame
+CRSF_TYPE_DEVICES    = 0x81   # Custom device-status bitmap
 
 CRSF_CH_MIN    = 172
 CRSF_CH_CENTER = 992
@@ -106,6 +108,39 @@ def _build_rc_frame(state: DesiredState) -> bytes:
 
 
 # ── Telemetry frame decoders ──────────────────────────────────────────────────
+
+# ELRS TX power enum → milliwatts (index matches the 3-bit field in LINK_STATISTICS byte 6)
+_TX_POWER_MW = (0, 10, 25, 100, 500, 1000, 2000, 250, 50)
+
+
+def _decode_link_statistics(payload: bytes, telem: TelemetryState) -> bool:
+    """CRSF Link Statistics frame (0x14) — 10-byte payload from the ELRS TX module.
+
+    Byte layout (all unsigned unless noted):
+      0  uplink_rssi_ant1   dBm absolute (negate to get negative dBm)
+      1  uplink_rssi_ant2   dBm absolute
+      2  uplink_lq          0–100 %
+      3  uplink_snr         int8, dB
+      4  active_antenna     0 or 1
+      5  rf_mode            packet-rate index
+      6  uplink_tx_power    enum → _TX_POWER_MW
+      7  downlink_rssi      dBm absolute
+      8  downlink_lq        0–100 %
+      9  downlink_snr       int8, dB
+    """
+    if len(payload) < 10:
+        return False
+    rssi1, rssi2, lq_up, snr_up, active_ant, _rf, tx_idx, rssi_dn, lq_dn, snr_dn = \
+        struct.unpack_from(">BBBbBBBBBb", payload)
+    telem.rssi_uplink   = -(rssi1 if active_ant == 0 else rssi2)
+    telem.lq_uplink     = lq_up
+    telem.snr_uplink    = snr_up
+    telem.rssi_downlink = -rssi_dn
+    telem.lq_downlink   = lq_dn
+    telem.snr_downlink  = snr_dn
+    telem.tx_power_mw   = _TX_POWER_MW[tx_idx] if tx_idx < len(_TX_POWER_MW) else 0
+    return True
+
 
 def _decode_gps(payload: bytes, gps: GpsPosition) -> bool:
     """CRSF GPS frame (0x02) — 15-byte big-endian payload."""
@@ -210,6 +245,8 @@ def _parse_frames(
             updated = _decode_gps(payload, gps)
         elif frame_type == CRSF_TYPE_BATTERY:
             updated = _decode_battery(payload, telem)
+        elif frame_type == CRSF_TYPE_LINK_STATS:
+            updated = _decode_link_statistics(payload, telem)
         elif frame_type == CRSF_TYPE_ATTITUDE:
             updated = _decode_attitude(payload, telem)
         elif frame_type == CRSF_TYPE_SAILBOAT:
@@ -217,8 +254,14 @@ def _parse_frames(
         elif frame_type == CRSF_TYPE_DEVICES:
             updated = _decode_devices(payload, telem)
 
-        if updated and on_update:
-            on_update()
+        if updated:
+            now = time.monotonic()
+            if frame_type == CRSF_TYPE_GPS:
+                gps.last_updated_at = now
+            else:
+                telem.last_updated_at = now
+            if on_update:
+                on_update()
 
 
 # ── Main bridge coroutine ─────────────────────────────────────────────────────

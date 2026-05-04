@@ -568,8 +568,8 @@ function App() {
           yaw:    msg.attitude?.yaw_deg    ?? 0,
           temp:   msg.sailboat?.mcu_temp_c ?? 0,
           bridge: msg.bridge               ?? false,
-          rssi:   0,
-          lq:     100,
+          rssi:   msg.link?.rssi_uplink ?? 0,
+          lq:     msg.link?.lq_uplink   ?? 0,
           mode:   'MANUAL',
           bilge:  ds.bilge === 'warn',   // true only when water detected
           pump:   false,

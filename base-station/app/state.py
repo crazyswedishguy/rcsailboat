@@ -69,6 +69,7 @@ class GpsPosition:
     altitude_m: float = 0.0   # metres above mean sea level
     satellites: int = 0       # number of satellites used in fix
     has_fix: bool = False      # True when location is valid and < 2 s old
+    last_updated_at: float = 0.0  # time.monotonic() of last decoded GPS frame; 0 = never received
 
 
 @dataclass
@@ -101,6 +102,19 @@ class TelemetryState:
     sail: float = 0.0          # commanded sail trim 0.0..+1.0
     throttle: float = 0.0      # commanded throttle –1.0..+1.0
     mcu_temp_c: float = 0.0    # ESP32 internal die temperature in °C
+
+    # Link statistics (CRSF 0x14) — sent by the ELRS TX module itself, variable rate
+    rssi_uplink: int = 0        # uplink RSSI in dBm (negative, e.g. -85); 0 = unknown
+    lq_uplink: int = 0          # uplink link quality 0–100 %
+    snr_uplink: int = 0         # uplink SNR in dB (signed)
+    rssi_downlink: int = 0      # downlink RSSI in dBm (negative); 0 = unknown
+    lq_downlink: int = 0        # downlink link quality 0–100 %
+    snr_downlink: int = 0       # downlink SNR in dB (signed)
+    tx_power_mw: int = 0        # uplink TX power in mW (decoded from ELRS enum)
+
+    # Timestamps — time.monotonic() of last successfully decoded frame; 0.0 = never received.
+    # Use these to detect stale data: if (time.monotonic() - telem.last_updated_at) > threshold
+    last_updated_at: float = 0.0
 
     # Device status (CRSF 0x81) — 0.2 Hz from boat
     # Maps ESP32 device id → level: 'absent' | 'ok' | 'warn' | 'error'
