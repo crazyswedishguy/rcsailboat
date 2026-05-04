@@ -90,6 +90,11 @@ Only begin after Phase 5 failsafe acceptance test passes.
 - Water temperature sensor
 - Auto-trim: given wind direction, suggest optimal sail position
 - Migrate browser UI from vanilla JS to something richer once the rest of the system is stable
+- **MAVLink**: replace the custom CRSF telemetry framing with MAVLink 2 once the system is stable.
+  MAVLink has standard message definitions for GPS, attitude, battery, RC channels, and system status,
+  plus ground-control-station (GCS) compatibility (Mission Planner, QGroundControl). The main trade-off
+  is heavier per-message overhead vs. the compact hand-rolled CRSF frames used today — acceptable once
+  telemetry bandwidth is no longer the primary constraint.
 
 ---
 
