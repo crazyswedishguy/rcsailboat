@@ -2,13 +2,14 @@
 
 // Bilge water detection and pump control.
 //
-// Sensor: float switch (or bare-wire probe) wired between BILGE_SENSOR (GPIO2)
-//         and GND with an internal pull-up.  Dry = HIGH, wet = LOW.
+// Sensor: DYIables bare resistive water sensor.
+//         Wire VCC → 3.3V, GND → GND, SIG → BILGE_SENSOR (GPIO2, ADC1_CH1).
+//         No pull-up. Dry ≈ 0 ADC counts; wet rises toward 4095.
 // Pump:   N-MOSFET gate on BILGE_PUMP (GPIO3); set HIGH to run the pump.
 //
 // Water presence is debounced to 2 s to ignore momentary spray.
-// The pump can be manually controlled via bilge_pump_set() or will activate
-// automatically if AUTO_PUMP is later added.
+// BILGE_WET_THRESHOLD (default 500/4095) is the detection threshold — adjust
+// in bilge.cpp if the sensor produces false triggers or is slow to respond.
 
 void bilge_init();
 void bilge_update();           // call every loop() — debounces sensor

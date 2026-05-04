@@ -80,7 +80,7 @@ constexpr uint32_t GPS_BAUD     = 9600; // BN-880 factory default
 // Bilge monitoring
 // =============================================================================
 namespace pins {
-constexpr uint8_t BILGE_SENSOR = 2;   // GPIO2 — float switch / probe, active LOW (internal pull-up)
+constexpr uint8_t BILGE_SENSOR = 2;   // GPIO2 — DYIables water sensor SIG pin (ADC1_CH1); wire VCC→3.3V GND→GND
 constexpr uint8_t BILGE_PUMP   = 3;   // GPIO3 — N-MOSFET gate driving the bilge pump
 }  // namespace pins
 
