@@ -106,6 +106,7 @@ Bilge Pump,− (negative),Pump motor negative,Bilge Pump MOSFET,Drain,MOSFET dra
 Bilge Pump MOSFET,Source,MOSFET source,Star Ground,—,Common ground bus,,22 AWG
 Star Ground,—,Common ground bus (MOSFET source),Bilge Pump MOSFET,Source,MOSFET source,,22 AWG
 Bilge Pump,+ (positive),Pump motor positive,TBD,—,5 V or 6 V rail (pump voltage TBD),⚠ Verify pump voltage rating before connecting,22 AWG
+TBD,—,5 V or 6 V rail (pump voltage TBD),Bilge Pump,+ (positive),Pump motor positive,⚠ Verify pump voltage rating before connecting,22 AWG
 Logic Level Shifter,LV,Low-voltage reference,ESP32-S3,3V3,3.3 V output,LV supply for 3.3 V side (install only if PCA9685 VCC = 5 V),26 AWG
 ESP32-S3,3V3,3.3 V output (to level shifter),Logic Level Shifter,LV,Low-voltage reference,Optional — only if level shifting required,26 AWG
 Logic Level Shifter,HV,High-voltage reference,Buck Converter,OUT+,5 V output,HV supply for 5 V side,26 AWG
@@ -113,6 +114,10 @@ Buck Converter,OUT+,5 V output (to level shifter),Logic Level Shifter,HV,High-vo
 Logic Level Shifter,GND,Ground,Star Ground,—,Common ground bus,,26 AWG
 Star Ground,—,Common ground bus (level shifter),Logic Level Shifter,GND,Ground,,26 AWG
 Logic Level Shifter,LV1,Low-voltage SDA,ESP32-S3,GPIO47 / SDA,I²C data,3.3 V side of I²C data line,26 AWG
+ESP32-S3,GPIO47 / SDA,I²C data (to level shifter LV1),Logic Level Shifter,LV1,Low-voltage SDA,3.3 V side of I²C data line,26 AWG
 Logic Level Shifter,HV1,High-voltage SDA,PCA9685,SDA,I²C data,5 V side of I²C data line,26 AWG
+PCA9685,SDA,I²C data (from level shifter HV1),Logic Level Shifter,HV1,High-voltage SDA,5 V side of I²C data line,26 AWG
 Logic Level Shifter,LV2,Low-voltage SCL,ESP32-S3,GPIO48 / SCL,I²C clock,3.3 V side of I²C clock line,26 AWG
+ESP32-S3,GPIO48 / SCL,I²C clock (to level shifter LV2),Logic Level Shifter,LV2,Low-voltage SCL,3.3 V side of I²C clock line,26 AWG
 Logic Level Shifter,HV2,High-voltage SCL,PCA9685,SCL,I²C clock,5 V side of I²C clock line,26 AWG
+PCA9685,SCL,I²C clock (from level shifter HV2),Logic Level Shifter,HV2,High-voltage SCL,5 V side of I²C clock line,26 AWG
