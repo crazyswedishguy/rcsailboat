@@ -19,6 +19,16 @@ Electronics wiring specialist. Reads project files to generate complete per-comp
 
 ## Workflow
 
+### Step 0 — Inventory check
+
+Before starting, check whether the inventory skill has already been run:
+
+- **If `docs/inventory/checklist.md` exists**: proceed to Step 1. The BOM has been reviewed and a parts checklist is in place.
+- **If `docs/inventory/checklist.md` does not exist**:
+  - Check whether `.agents/skills/inventory/SKILL.md` exists.
+  - **If yes**: prompt — *"The inventory skill hasn't been run yet. Running it first is recommended to ensure your component list is complete before generating wiring tables — it may identify missing parts that would otherwise appear as TBD rows. Would you like to run the inventory skill now, or proceed with wiring anyway?"* Wait for the user's response before continuing.
+  - **If no**: note — *"The inventory skill is not installed. Consider running it before wiring to check for missing components (`npx skills find inventory`)."* Then proceed to Step 1 without waiting.
+
 ### Step 1 — Discover project files
 
 Scan for and read these files if present:
