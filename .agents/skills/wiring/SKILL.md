@@ -52,7 +52,7 @@ Rules:
 - **Named components** (UBECs, buck converters, logic level shifters, shunts — anything with a specific functional identity) get their own table, even if 2-terminal
 - **Anonymous passives** (ferrite beads, bypass caps, pull-up resistors, fuses) go in the Notes column of the affected row — never as their own table
 
-Load and apply `references/passives.md` rules to populate the Notes column. Leave Wire Gauge blank at this stage.
+Load and apply `references/passives.md` (located at `.agents/skills/wiring/references/passives.md` relative to the project root) rules to populate the Notes column. Leave Wire Gauge blank at this stage. Note: some passives.md rules specify placement other than the Notes column (e.g., motor capacitors go in the wiring.md motor noise section) — follow passives.md's own guidance on placement.
 
 **Duplication rule**: each physical wire appears in two tables — once in the FROM-component's table (natural direction) and once in the TO-component's table (FROM/TO swapped). This makes each component's table fully self-contained.
 
@@ -63,7 +63,7 @@ Flag each of the following:
 - Protocol buses missing pins (I²C without both SDA and SCL; SPI without MOSI, MISO, SCK, and CS)
 - Power rails with no named source, or consumers referencing a rail with no source
 - 3.3V ↔ 5V signal crossings with no logic level shifter → add a level shifter table placeholder
-- Ground connections not tied to a named common star-ground point
+- Ground topology: if no explicit star-ground or common-ground note is present in the project files, add a standing advisory in the power architecture section: "⚠ All component grounds must share a single star-ground point. Verify this physically before powering."
 
 For each gap, prepare one targeted question. Ask them **one at a time** after presenting the draft.
 
@@ -83,7 +83,7 @@ Present the list and ask: *"These components appear to be missing from your BOM 
 
 ### Step 5 — Wire gauge
 
-Load `references/wire-gauge.md`. Assign a recommended gauge to every connection row.
+Load `references/wire-gauge.md` (located at `.agents/skills/wiring/references/wire-gauge.md` relative to the project root). Assign a recommended gauge to every connection row, including any components added in Step 4. For gauge ranges (e.g. "14–16 AWG"), recommend the heavier end (lower AWG number).
 
 Collect all unique gauges required. Then ask:
 > "This project requires the following wire gauges: [X AWG, Y AWG, …]. Which do you have on hand?"
@@ -102,7 +102,7 @@ Create `docs/wiring/` if it does not exist.
    - Power rail summary table (rail, voltage, source, consumers)
    - Load/power budget table (load, typical draw, peak draw, rail)
    - Wire gauge table (path, recommended gauge, reason)
-   - Motor noise suppression subsection: capacitor placement at motor terminals (three 100nF caps: one across terminals, one from each terminal to motor case), then ferrite ring placement table (location, priority, how to apply)
+   - Motor noise suppression subsection (include only when a motor or ESC is present in the BOM): capacitor placement at motor terminals (three 100nF caps: one across terminals, one from each terminal to motor case), then ferrite ring placement table (location, priority, how to apply)
 
 2. **Per-component sections** — for each component, in order:
    - `##` heading: `## <Component Name> (<Type>[— <Protocol/Address>])`
