@@ -1,6 +1,6 @@
 # RC Sailboat — Wiring Reference
 
-_Generated 2026-05-08._
+_Generated 2026-05-08. Updated 2026-05-09 (INA228 confirmed; pinmap corrected; on-hand inventory complete)._
 
 > ⚠ All component grounds must share a single star-ground point. Verify this physically before powering. Floating grounds cause servo jitter and unreliable I²C communication.
 
@@ -133,8 +133,6 @@ The inline fuse sits immediately after the battery positive terminal and before 
 ## INA228 Power Monitor (I²C 0x41)
 
 The INA228 is a 20-bit current, voltage, and power monitor wired for high-side sensing on the battery positive lead. Its IN+ and IN− terminals straddle an external shunt resistor; the differential voltage reveals current. The VS pin directly monitors the battery bus voltage up to 85 V. The device is powered from VCC (3.3 V or 5 V). Address 0x41 is set by wiring A0 to VS and A1 to GND.
-
-> ⚠ The BOM lists "INA219" but the firmware (`config.h`) uses `INA228`. Install an INA228 — it is physically similar to INA219 breakout boards but uses a different register map. An INA219 will not work with the firmware.
 
 | FROM Component | FROM Pin # | FROM Descriptor | TO Component | TO Pin # | TO Descriptor | Notes | Wire Gauge |
 |---|---|---|---|---|---|---|---|

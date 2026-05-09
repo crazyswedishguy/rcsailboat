@@ -67,9 +67,9 @@ See `pinmap.md` for exact GPIO assignments.
           │  3S LiPo     │
           └──┬───┬───┬───┘
              │   │   │
-             │   │   └───► Buck 5V ───► ESP32-S3 (5V in) ─► PCA9685 Vcc, INA219 Vcc
+             │   │   └───► Buck 5V ───► ESP32-S3 (5V in) ─► PCA9685 Vcc, INA228 Vcc
              │   │
-             │   └───────► UBEC 6V ───► PCA9685 V+ rail ─► Rudder servo, Winch servo
+             │   └───────► UBEC 6V ──────► PCA9685 V+ rail ─► Rudder servo, Winch servo
              │                                              (power, NOT signal)
              │
              └───────────► ESC ──────► Brushed motor
@@ -81,7 +81,7 @@ INA228 sits in series with the battery positive lead (high-side sensing).
 
 ## Known hardware gotchas
 
-- **Winch servo current spikes** under sail load in wind. Budget for peaks well above the idle draw. The 10 A UBEC is likely fine, but verify with INA219 during first sail.
+- **Winch servo current spikes** under sail load in wind. Budget for peaks well above the idle draw. The 10 A UBEC is likely fine, but verify with the INA228 during first sail.
 - **ESP32-S3 AMOLED display** is lovely but is a waterproofing liability inside a hull. Plan either a sealed window or relocate to the base station later.
 - **ESC arming**: brushed ESCs typically need to see neutral throttle at power-on before they'll respond. Firmware must send neutral (PWM ~1500 µs) first and hold it briefly.
 - **ELRS RX antenna**: keep it away from the motor, ESC, and any large ground planes. Carbon hulls kill 2.4 GHz; fiberglass is fine.

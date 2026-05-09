@@ -123,14 +123,14 @@ Channel assignments:
 | 2               | Motor ESC          |
 | 3–15            | unused             |
 
-### INA219 current sensor (I²C)
+### INA228 current/voltage sensor (I²C)
 
 | Signal | GPIO | Notes |
 |--------|------|-------|
 | SDA    | 47   | shared bus |
 | SCL    | 48   | shared bus |
 
-⚠ The INA219's default address is `0x40`, which **conflicts with the PCA9685**. Set the INA219 address straps so it lands at `0x41` or higher before wiring it up. The firmware assumes `0x41`.
+⚠ The INA228's default address is `0x40`, which **conflicts with the PCA9685**. Set A0 = VS and A1 = GND to land at `0x41`. The firmware assumes `0x41`.
 
 ---
 
@@ -143,7 +143,7 @@ A single I²C bus on GPIO47/48 carries everything. Confirmed devices and address
 | 0x1E      | HMC5883L  | compass on BN-880 GPS module (external) |
 | 0x38      | FT3168    | touch controller (onboard) — confirmed from Waveshare demo |
 | 0x40      | PCA9685   | servo driver (external) |
-| 0x41      | INA219    | current sensor (external, address strapped) |
+| 0x41      | INA228    | current/voltage sensor (external; A0=VS, A1=GND) |
 | 0x6A/0x6B | QMI8658   | IMU (onboard) — verify which |
 
 Run `i2cdetect`-equivalent at first power-up and check this list matches.
