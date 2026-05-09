@@ -1,0 +1,118 @@
+FROM Component,FROM Pin #,FROM Descriptor,TO Component,TO Pin #,TO Descriptor,Notes,Wire Gauge
+3S LiPo,+ / positive,Battery positive,Inline Fuse,IN,Fuse input,⚠ Fuse must be first component after battery positive,14 AWG
+Inline Fuse,IN,Fuse input,3S LiPo,+ / positive,Battery positive,⚠ Only on the positive lead,14 AWG
+3S LiPo,− / negative,Battery negative,Star Ground,—,Common ground bus,Return path for all loads,14 AWG
+Star Ground,—,Common ground bus,3S LiPo,− / negative,Battery negative,Return path for all loads,14 AWG
+Inline Fuse,OUT,Fuse output (load side),INA228,IN+ / VS,Shunt high side + battery voltage sense,Power flows from fuse through shunt before distribution,14 AWG
+INA228,IN+ / VS,Shunt high side + battery voltage sense,Inline Fuse,OUT,Fuse output (load side),Tie IN+ and VS together at this point; 100nF bypass cap VS to GND,14 AWG
+INA228,IN−,Shunt low side (load bus side),Power distribution bus,+,Battery distribution positive,All loads tap from this side of the shunt,14 AWG
+Power distribution bus,+,Battery distribution positive,INA228,IN−,Shunt low side (load bus side),Other side of current-sense shunt,14 AWG
+INA228,VCC,Logic power supply,Buck Converter,OUT+,5 V regulated output,100nF bypass cap close to VCC pin,22 AWG
+Buck Converter,OUT+,5 V regulated output (to INA228),INA228,VCC,Logic power supply,Branch from 5 V rail,22 AWG
+INA228,GND,Ground,Star Ground,—,Common ground bus,,22 AWG
+Star Ground,—,Common ground bus (INA228),INA228,GND,Ground,,22 AWG
+INA228,SDA,I²C data,ESP32-S3,GPIO47,I²C data (shared bus),Shared with PCA9685 HMC5883L QMI8658 FT3168,26 AWG
+ESP32-S3,GPIO47,I²C data (shared bus),INA228,SDA,I²C data,Shared bus,26 AWG
+INA228,SCL,I²C clock,ESP32-S3,GPIO48,I²C clock (shared bus),,26 AWG
+ESP32-S3,GPIO48,I²C clock (shared bus),INA228,SCL,I²C clock,,26 AWG
+INA228,A0,I²C address bit 0,INA228,VS,VS pin,Tie A0 to VS for address 0x41 — short jumper on breakout,26 AWG
+INA228,VS,VS pin (address strap),INA228,A0,I²C address bit 0,Address strap,26 AWG
+INA228,A1,I²C address bit 1,Star Ground,—,Common ground bus,Tie A1 to GND for address 0x41,26 AWG
+Star Ground,—,Common ground bus (INA228 A1),INA228,A1,I²C address bit 1,Address strap,26 AWG
+UBEC,IN+,Battery input positive,Power distribution bus,+,Battery distribution positive,,14 AWG
+Power distribution bus,+,Battery distribution positive (to UBEC),UBEC,IN+,Battery input positive,,14 AWG
+UBEC,IN−,Battery input negative,Star Ground,—,Common ground bus,,14 AWG
+Star Ground,—,Common ground bus (UBEC in),UBEC,IN−,Battery input negative,,14 AWG
+UBEC,OUT+,6 V regulated output,PCA9685,V+,Servo/motor power rail,⚠ Do not connect ESC BEC red wire to this rail,18 AWG
+PCA9685,V+,Servo/motor power rail,UBEC,OUT+,6 V regulated output,⚠ Servo power only — do not connect logic VCC here,18 AWG
+UBEC,OUT−,Regulated output ground,Star Ground,—,Common ground bus,,18 AWG
+Star Ground,—,Common ground bus (UBEC out),UBEC,OUT−,Regulated output ground,,18 AWG
+Buck Converter,IN+,Battery input positive,Power distribution bus,+,Battery distribution positive,,14 AWG
+Power distribution bus,+,Battery distribution positive (to Buck),Buck Converter,IN+,Battery input positive,,14 AWG
+Buck Converter,IN−,Battery input negative,Star Ground,—,Common ground bus,,14 AWG
+Star Ground,—,Common ground bus (Buck in),Buck Converter,IN−,Battery input negative,,14 AWG
+Buck Converter,OUT+,5 V regulated output (to ESP32),ESP32-S3,5V pin,5 V power input,100µF bulk bypass at 5 V junction recommended,22 AWG
+ESP32-S3,5V pin,5 V power input,Buck Converter,OUT+,5 V regulated output,100nF bypass cap close to board 5 V pin,22 AWG
+Buck Converter,OUT+,5 V regulated output (to PCA9685),PCA9685,VCC,Logic power supply,Branch from 5 V rail,22 AWG
+PCA9685,VCC,Logic power supply,Buck Converter,OUT+,5 V regulated output,⚠ Logic only — not servo power; 100nF bypass cap,22 AWG
+Buck Converter,OUT+,5 V regulated output (to ELRS),ELRS RP3,5V,Power input,Branch from 5 V rail,22 AWG
+ELRS RP3,5V,Power input,Buck Converter,OUT+,5 V regulated output,⚠ Do not power from 3.3 V,22 AWG
+Buck Converter,OUT+,5 V regulated output (to GPS),BN-880 GPS,VCC,Power input,Branch from 5 V rail,22 AWG
+BN-880 GPS,VCC,Power input,Buck Converter,OUT+,5 V regulated output,Module accepts 3.3–5 V,22 AWG
+Buck Converter,OUT−,Regulated output ground,Star Ground,—,Common ground bus,,22 AWG
+Star Ground,—,Common ground bus (Buck out),Buck Converter,OUT−,Regulated output ground,,22 AWG
+ESP32-S3,GND,Ground,Star Ground,—,Common ground bus,,22 AWG
+Star Ground,—,Common ground bus (ESP32),ESP32-S3,GND,Ground,,22 AWG
+ESP32-S3,GPIO47 / SDA,I²C data,PCA9685,SDA,I²C data,4.7kΩ pull-up to 3.3 V per bus — check breakout boards for existing pull-ups,26 AWG
+PCA9685,SDA,I²C data,ESP32-S3,GPIO47 / SDA,I²C data (shared bus),Shared bus,26 AWG
+ESP32-S3,GPIO48 / SCL,I²C clock,PCA9685,SCL,I²C clock,4.7kΩ pull-up to 3.3 V per bus,26 AWG
+PCA9685,SCL,I²C clock,ESP32-S3,GPIO48 / SCL,I²C clock (shared bus),,26 AWG
+ESP32-S3,GPIO47 / SDA,I²C data (to BN-880),BN-880 GPS,SDA (compass),HMC5883L I²C data,Shared bus; address 0x1E,26 AWG
+BN-880 GPS,SDA (compass),HMC5883L I²C data,ESP32-S3,GPIO47 / SDA,I²C data (shared bus),Compass on shared bus,26 AWG
+ESP32-S3,GPIO48 / SCL,I²C clock (to BN-880),BN-880 GPS,SCL (compass),HMC5883L I²C clock,,26 AWG
+BN-880 GPS,SCL (compass),HMC5883L I²C clock,ESP32-S3,GPIO48 / SCL,I²C clock (shared bus),,26 AWG
+ESP32-S3,GPIO16 / CRSF_RX,CRSF UART1 receive,ELRS RP3,TX,Receiver UART transmit,UART1 420000 baud 8N1; MCU RX ← RP3 TX,26 AWG
+ELRS RP3,TX,Receiver UART transmit,ESP32-S3,GPIO16 / CRSF_RX,CRSF UART1 receive,420000 baud 8N1,26 AWG
+ESP32-S3,GPIO17 / CRSF_TX,CRSF UART1 transmit,ELRS RP3,RX,Receiver UART receive,Bidirectional CRSF for telemetry,26 AWG
+ELRS RP3,RX,Receiver UART receive,ESP32-S3,GPIO17 / CRSF_TX,CRSF UART1 transmit,Telemetry uplink,26 AWG
+ELRS RP3,GND,Ground,Star Ground,—,Common ground bus,,22 AWG
+Star Ground,—,Common ground bus (ELRS),ELRS RP3,GND,Ground,,22 AWG
+ESP32-S3,GPIO15 / GPS_RX,GPS UART2 receive,BN-880 GPS,TX (GPS),NMEA UART transmit,UART2 9600 baud; MCU RX ← GPS TX,26 AWG
+BN-880 GPS,TX (GPS),NMEA UART transmit,ESP32-S3,GPIO15 / GPS_RX,GPS UART2 receive,9600 baud NMEA,26 AWG
+ESP32-S3,GPIO18 / GPS_TX,GPS UART2 transmit,BN-880 GPS,RX (GPS),NMEA UART receive,Optional — only needed for UBX config commands,26 AWG
+BN-880 GPS,RX (GPS),NMEA UART receive,ESP32-S3,GPIO18 / GPS_TX,GPS UART2 transmit,Optional,26 AWG
+BN-880 GPS,GND,Ground,Star Ground,—,Common ground bus,,22 AWG
+Star Ground,—,Common ground bus (GPS),BN-880 GPS,GND,Ground,,22 AWG
+PCA9685,GND,Logic ground,Star Ground,—,Common ground bus,,22 AWG
+Star Ground,—,Common ground bus (PCA9685 logic),PCA9685,GND,Logic ground,,22 AWG
+PCA9685,GND (V+ side),Servo power ground,Star Ground,—,Common ground bus,Both GND pins must be connected,18 AWG
+Star Ground,—,Common ground bus (PCA9685 power),PCA9685,GND (V+ side),Servo power ground,,18 AWG
+PCA9685,/OE,Output enable (active low),Star Ground,—,Common ground bus,Tie to GND to permanently enable outputs,26 AWG
+Star Ground,—,Common ground bus (PCA9685 OE),PCA9685,/OE,Output enable (active low),Tied low = outputs always enabled,26 AWG
+PCA9685,CH0 / signal,PWM channel 0,Rudder Servo,Signal,PWM input,50 Hz 1000–2000 µs,26 AWG
+Rudder Servo,Signal,PWM input,PCA9685,CH0 / signal,PWM channel 0,50 Hz 1000–2000 µs,26 AWG
+PCA9685,CH0 / V+,Servo connector power,Rudder Servo,Power (red),Servo motor power,6 V from V+ rail,18 AWG
+Rudder Servo,Power (red),Servo motor power,PCA9685,CH0 / V+,Servo connector power (6 V),,18 AWG
+PCA9685,CH0 / GND,Servo connector ground,Rudder Servo,GND (brown/black),Servo ground,,18 AWG
+Rudder Servo,GND (brown/black),Servo ground,PCA9685,CH0 / GND,Servo connector ground,,18 AWG
+PCA9685,CH1 / signal,PWM channel 1,Sail Winch Servo,Signal,PWM input,50 Hz 1000–2000 µs,26 AWG
+Sail Winch Servo,Signal,PWM input,PCA9685,CH1 / signal,PWM channel 1,50 Hz 1000–2000 µs,26 AWG
+PCA9685,CH1 / V+,Servo connector power,Sail Winch Servo,Power (red),Servo motor power,6 V from V+ rail; high current under sheet tension,18 AWG
+Sail Winch Servo,Power (red),Servo motor power,PCA9685,CH1 / V+,Servo connector power (6 V),,18 AWG
+PCA9685,CH1 / GND,Servo connector ground,Sail Winch Servo,GND (brown/black),Servo ground,,18 AWG
+Sail Winch Servo,GND (brown/black),Servo ground,PCA9685,CH1 / GND,Servo connector ground,,18 AWG
+PCA9685,CH2 / signal,PWM channel 2,Motor ESC,Signal (white/yellow),ESC PWM input,⚠ Remove ESC BEC red wire from connector first,26 AWG
+Motor ESC,Signal (white/yellow),ESC PWM input,PCA9685,CH2 / signal,PWM channel 2,50 Hz 1000–2000 µs,26 AWG
+PCA9685,CH2 / GND,Signal connector ground,Motor ESC,GND (black signal),Signal ground,,26 AWG
+Motor ESC,GND (black signal),Signal ground,PCA9685,CH2 / GND,Signal connector ground,,26 AWG
+Motor ESC,B+ (red),Battery positive input,Power distribution bus,+,Battery distribution positive,⚠ Ferrite bead on this lead at ESC end,14 AWG
+Power distribution bus,+,Battery distribution positive (to ESC),Motor ESC,B+ (red),Battery positive input,⚠ Ferrite bead on lead,14 AWG
+Motor ESC,B− (black),Battery negative input,Star Ground,—,Common ground bus,⚠ Ferrite bead on this lead at ESC end,14 AWG
+Star Ground,—,Common ground bus (ESC power),Motor ESC,B− (black),Battery negative input,⚠ Ferrite bead on lead,14 AWG
+Motor ESC,Motor A (yellow),Motor output terminal A,Brushed Motor,Terminal 1,Motor winding terminal A,Swap A and B to reverse direction,14 AWG
+Brushed Motor,Terminal 1,Motor winding terminal A,Motor ESC,Motor A (yellow),Motor output terminal A,Ferrite bead close to motor; swap to reverse direction,14 AWG
+Motor ESC,Motor B (orange/blue),Motor output terminal B,Brushed Motor,Terminal 2,Motor winding terminal B,Ferrite bead on lead close to motor,14 AWG
+Brushed Motor,Terminal 2,Motor winding terminal B,Motor ESC,Motor B (orange/blue),Motor output terminal B,Ferrite bead close to motor,14 AWG
+ESP32-S3,GPIO2 / BILGE_SENSOR,Bilge sensor ADC (ADC1_CH1),Bilge Sensor,SIG,Sensor signal output,analogRead(); 0V dry ~3.3V wet,26 AWG
+Bilge Sensor,SIG,Sensor signal output,ESP32-S3,GPIO2 / BILGE_SENSOR,ADC1 channel 1,Analog voltage proportional to conductivity,26 AWG
+Bilge Sensor,VCC,Power input,ESP32-S3,3V3,3.3 V output,Low current; powered from MCU 3.3 V pin,26 AWG
+ESP32-S3,3V3,3.3 V output (bilge sensor),Bilge Sensor,VCC,Power input,,26 AWG
+Bilge Sensor,GND,Ground,Star Ground,—,Common ground bus,,26 AWG
+Star Ground,—,Common ground bus (bilge sensor),Bilge Sensor,GND,Ground,,26 AWG
+ESP32-S3,GPIO3 / BILGE_PUMP,Bilge pump MOSFET gate driver,Bilge Pump MOSFET,Gate,MOSFET gate,10kΩ pull-down gate to GND to prevent floating at boot,26 AWG
+Bilge Pump MOSFET,Gate,MOSFET gate,ESP32-S3,GPIO3 / BILGE_PUMP,GPIO output,10kΩ pull-down prevents floating gate at boot,26 AWG
+Bilge Pump MOSFET,Drain,MOSFET drain,Bilge Pump,− (negative),Pump motor negative,MOSFET switches pump return path; flyback diode across pump terminals,22 AWG
+Bilge Pump,− (negative),Pump motor negative,Bilge Pump MOSFET,Drain,MOSFET drain,Flyback diode: anode to pump − cathode to pump +,22 AWG
+Bilge Pump MOSFET,Source,MOSFET source,Star Ground,—,Common ground bus,,22 AWG
+Star Ground,—,Common ground bus (MOSFET source),Bilge Pump MOSFET,Source,MOSFET source,,22 AWG
+Bilge Pump,+ (positive),Pump motor positive,TBD,—,5 V or 6 V rail (pump voltage TBD),⚠ Verify pump voltage rating before connecting,22 AWG
+Logic Level Shifter,LV,Low-voltage reference,ESP32-S3,3V3,3.3 V output,LV supply for 3.3 V side (install only if PCA9685 VCC = 5 V),26 AWG
+ESP32-S3,3V3,3.3 V output (to level shifter),Logic Level Shifter,LV,Low-voltage reference,Optional — only if level shifting required,26 AWG
+Logic Level Shifter,HV,High-voltage reference,Buck Converter,OUT+,5 V output,HV supply for 5 V side,26 AWG
+Buck Converter,OUT+,5 V output (to level shifter),Logic Level Shifter,HV,High-voltage reference,Optional,26 AWG
+Logic Level Shifter,GND,Ground,Star Ground,—,Common ground bus,,26 AWG
+Star Ground,—,Common ground bus (level shifter),Logic Level Shifter,GND,Ground,,26 AWG
+Logic Level Shifter,LV1,Low-voltage SDA,ESP32-S3,GPIO47 / SDA,I²C data,3.3 V side of I²C data line,26 AWG
+Logic Level Shifter,HV1,High-voltage SDA,PCA9685,SDA,I²C data,5 V side of I²C data line,26 AWG
+Logic Level Shifter,LV2,Low-voltage SCL,ESP32-S3,GPIO48 / SCL,I²C clock,3.3 V side of I²C clock line,26 AWG
+Logic Level Shifter,HV2,High-voltage SCL,PCA9685,SCL,I²C clock,5 V side of I²C clock line,26 AWG
