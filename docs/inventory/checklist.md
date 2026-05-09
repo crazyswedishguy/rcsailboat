@@ -48,7 +48,7 @@ _Generated 2026-05-09. On-hand status updated 2026-05-09._
 | ✅ Have | XT60 connector pair | 1 pair | Male + female, gold-plated | Battery main lead connection; polarised against reverse connection | — |
 | ✅ Have | 4.7kΩ pull-up resistors | 2 | 1/2W metal film 1% (on hand: 100 pcs) | I²C bus pull-ups — ⚠ verify PCA9685 and INA228 breakouts don't already include them before adding; never stack | — |
 | ✅ Have | Ceramic capacitors 100nF | 8 | 0.1µF (on hand: 120 pcs mxuteuk 104) | Motor noise suppression (3) + logic IC VCC bypass (5) | — |
-| 🛒 Buy | Bulk electrolytic capacitor (470µF) | 1 | 25V electrolytic | Stabilise ESC/motor supply rail against current draw transients | search Mouser: "470uF 25V electrolytic capacitor" |
+| 🚚 Ordered | Bulk electrolytic capacitor (470µF) | 1 | 25V electrolytic | Stabilise ESC/motor supply rail against current draw transients | — |
 | 🛒 Buy | Servo extension leads | 2 (optional) | Standard 3-pin servo lead, length to suit routing | Extend PCA9685 connectors to sail winch and rudder mount points | search Amazon: "servo extension lead" |
 
 ## Consumables
