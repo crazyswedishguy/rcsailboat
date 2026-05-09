@@ -25,18 +25,18 @@ Before starting, check whether the inventory skill has already been run:
 
 - **If `docs/inventory/checklist.md` exists**: proceed to Step 1. The BOM has been reviewed and a parts checklist is in place.
 - **If `docs/inventory/checklist.md` does not exist**:
-  - Check whether `.agents/skills/inventory/SKILL.md` exists.
+  - Check whether `.claude/skills/inventory/SKILL.md` exists.
   - **If yes**: prompt — *"The inventory skill hasn't been run yet. Running it first is recommended to ensure your component list is complete before generating wiring tables — it may identify missing parts that would otherwise appear as TBD rows. Would you like to run the inventory skill now, or proceed with wiring anyway?"* Wait for the user's response before continuing.
   - **If no**: note — *"The inventory skill is not installed. Consider running it before wiring to check for missing components (`npx skills find inventory`)."* Then proceed to Step 1 without waiting.
 
 ### Step 1 — Discover project files
 
 Scan for and read these files if present:
-- `docs/hardware.md` — BOM and power rails
-- `docs/pinmap.md` — GPIO assignments
-- `boat-firmware/src/config.h`, `src/config.h`, `firmware/src/config.h` — GPIO defines
+- Any file named `hardware.md`, `bom.md`, `schematic.md`, or `components.md` — BOM and power rails
+- Any file named `pinmap.md`, `pinout.md`, `pins.md` — GPIO and pin assignments
+- Any file matching `**/config.h`, `**/config.hpp`, `**/pins.h`, `**/pinout.h` — GPIO and hardware defines
 - `README.md` — project overview
-- Any file matching `**/bom*.md`, `**/hardware*.md`, `**/wiring*.md`
+- Any file matching `**/bom*.md`, `**/hardware*.md`, `**/wiring*.md`, `**/schematic*.md`
 
 Extract from every file found:
 - **Component inventory**: names, types, communication protocols, I²C addresses
@@ -62,7 +62,7 @@ Rules:
 - **Named components** (UBECs, buck converters, logic level shifters, shunts — anything with a specific functional identity) get their own table, even if 2-terminal
 - **Anonymous passives** (ferrite beads, bypass caps, pull-up resistors, fuses) go in the Notes column of the affected row — never as their own table
 
-Load and apply `references/passives.md` (located at `.agents/skills/wiring/references/passives.md` relative to the project root) rules to populate the Notes column. Leave Wire Gauge blank at this stage. Note: some passives.md rules specify placement other than the Notes column (e.g., motor capacitors go in the wiring.md motor noise section) — follow passives.md's own guidance on placement.
+Load and apply `references/passives.md` (in the `references/` subdirectory alongside this `SKILL.md`) rules to populate the Notes column. Leave Wire Gauge blank at this stage. Note: some passives.md rules specify placement other than the Notes column (e.g., motor capacitors go in the wiring.md motor noise section) — follow passives.md's own guidance on placement.
 
 **Duplication rule**: each physical wire appears in two tables — once in the FROM-component's table (natural direction) and once in the TO-component's table (FROM/TO swapped). This makes each component's table fully self-contained.
 
@@ -93,7 +93,7 @@ Present the list and ask: *"These components appear to be missing from your BOM 
 
 ### Step 5 — Wire gauge
 
-Load `references/wire-gauge.md` (located at `.agents/skills/wiring/references/wire-gauge.md` relative to the project root). Assign a recommended gauge to every connection row, including any components added in Step 4. For gauge ranges (e.g. "14–16 AWG"), recommend the heavier end (lower AWG number).
+Load `references/wire-gauge.md` (in the `references/` subdirectory alongside this `SKILL.md`). Assign a recommended gauge to every connection row, including any components added in Step 4. For gauge ranges (e.g. "14–16 AWG"), recommend the heavier end (lower AWG number).
 
 Collect all unique gauges required. Then ask:
 > "This project requires the following wire gauges: [X AWG, Y AWG, …]. Which do you have on hand?"
@@ -134,7 +134,7 @@ Display wiring.md inline in chat for immediate review after writing.
 
 If missing or recommended components were identified:
 
-- Check whether `.agents/skills/inventory/SKILL.md` exists.
+- Check whether `.claude/skills/inventory/SKILL.md` exists.
 - **If yes**: offer — *"I identified N missing components. Would you like me to invoke the inventory skill to turn these into a parts checklist?"*
 - **If no**: list the missing components as plain text and note: *"An inventory skill can be added with: `npx skills find inventory`"*
 
