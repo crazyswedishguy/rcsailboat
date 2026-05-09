@@ -115,11 +115,43 @@ Stored in `references/wire-gauge.md`. The skill asks the user which gauges they 
 
 ---
 
+## Output Style
+
+The wiring.md output is more than bare tables. Each section should read as a useful reference document — written for an electronics hobbyist wiring the project for the first time.
+
+### Power architecture section (first, before any component tables)
+
+Write a narrative section covering:
+- Overall power flow (battery → conversion → consumers), with an ASCII block diagram
+- A power rail summary table (rail name, voltage, source, consumers)
+- A load/power budget table (each load's typical and peak current draw, totals per rail)
+- Wire gauge table (path, recommended gauge, reason)
+- Motor noise suppression (capacitor placement at motor terminals, ferrite ring locations with priority, suitable ferrite types)
+
+### Per-component sections
+
+Each component section contains, in order:
+
+1. **`##` heading** — `## <Component Name> (<Type>[— <Protocol/Address>])`
+2. **Introduction paragraph** (1–3 sentences) — the component's role in the system, and any key wiring constraints or design decisions (e.g., "The PCA9685 has two separate power inputs: VCC for logic (5V) and V+ for servo power (6V) — these must not be swapped.")
+3. **Wiring table** — 8-column format as defined above
+4. **Rationale blockquotes** — one or more `>` blockquote notes after the table for important design decisions, dangerous mistakes to avoid, or cross-component dependencies (e.g., why the SBEC red wire must not be connected; why the buck converter feeds from the UBEC rather than the battery)
+
+### Warning callouts
+
+Prefix safety-critical notes with `⚠` anywhere they appear — in table Notes cells, in rationale blockquotes, or in the introduction paragraph. Examples:
+- Conflicting power sources (two BECs on the same rail)
+- Voltage mismatches (5.5V max on a pin fed with 6V)
+- Wrong power source for a component (3.3V too low for ELRS receivers)
+- Pins that must never be connected to a given voltage
+
+---
+
 ## Output Files
 
 | File | Format | Contents |
 |---|---|---|
-| `docs/wiring/wiring.md` | Markdown | One section per component, tables as above, rendered in-chat for review |
+| `docs/wiring/wiring.md` | Markdown | Power architecture section + one section per component (intro + table + rationale notes) |
 | `docs/wiring/wiring.csv` | CSV | All connections, each wire appearing twice (one row per end), suitable for Excel |
 
 CSV column order matches the 8-column table format above. Each physical wire appears as two rows: the first row has the natural FROM→TO direction; the second row swaps FROM and TO so the same wire appears in both components' views.

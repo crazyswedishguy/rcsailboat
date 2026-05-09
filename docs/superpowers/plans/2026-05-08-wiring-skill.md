@@ -49,6 +49,7 @@ Apply these rules during Step 2 of the wiring workflow. Add each recommendation 
 - **Ferrite bead**: one bead on each motor wire (both + and −), placed close to the ESC end
 - Notes text on motor+ row: `Add ferrite bead in series, close to ESC; no polarity`
 - Notes text on motor− row: `Add ferrite bead in series, close to ESC; no polarity`
+- **Motor capacitors** (cover in the motor noise section of wiring.md, not as a row note): solder three 100nF ceramic caps (X7R, ≥25V) directly at the motor terminals — one across the two terminals, one from each terminal to the motor case. This is more effective than ferrites alone for suppressing commutator noise.
 
 ## Battery Main Lead
 
@@ -269,13 +270,31 @@ For any required gauge not available, mark the Wire Gauge column `⚠️ [X AWG]
 
 Create `docs/wiring/` if it does not exist.
 
-**`docs/wiring/wiring.md`** — one `##` section per component, tables as above. Display inline in chat for immediate review.
+**`docs/wiring/wiring.md`** structure:
+
+1. **Power architecture section** (before any component tables):
+   - Narrative paragraph describing overall power flow
+   - ASCII block diagram showing battery → conversion stages → consumers
+   - Power rail summary table (rail, voltage, source, consumers)
+   - Load/power budget table (load, typical draw, peak draw, rail)
+   - Wire gauge table (path, recommended gauge, reason)
+   - Motor noise suppression subsection: capacitor placement at motor terminals (three 100nF caps: one across terminals, one from each terminal to motor case), then ferrite ring placement table (location, priority, how to apply)
+
+2. **Per-component sections** — for each component, in order:
+   - `##` heading: `## <Component Name> (<Type>[— <Protocol/Address>])`
+   - **Introduction paragraph** (1–3 sentences): the component's role and key wiring constraints or design decisions
+   - **8-column wiring table**
+   - **`>` rationale blockquotes**: one or more blockquote notes for important design decisions, dangerous mistakes to avoid, or cross-component dependencies
+
+   Prefix safety-critical notes with `⚠` wherever they appear — in table Notes cells, blockquotes, or introductions. Examples: conflicting power sources, voltage mismatches, wrong power source for a component, pins that must never be connected to a given voltage.
 
 **`docs/wiring/wiring.csv`** — all connections as a flat CSV. Each wire appears as two rows: first row is natural FROM→TO direction; second row swaps FROM and TO. Header row:
 
 ```
 FROM Component,FROM Pin #,FROM Descriptor,TO Component,TO Pin #,TO Descriptor,Notes,Wire Gauge
 ```
+
+Display wiring.md inline in chat for immediate review after writing.
 
 ### Step 7 — Inventory handoff
 
