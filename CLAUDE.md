@@ -50,77 +50,15 @@ The board's I²C bus (GPIO47 SDA / GPIO48 SCL) is shared by the touch controller
 
 ## Pin map
 
-Canonical sources are `docs/pinmap.md` and `boat-firmware/src/config.h`. This section is Claude's quick reference — **if a pin changes here, update both other sources too.**
+Canonical sources: **`docs/pinmap.md`** and **`boat-firmware/src/config.h`**. Read those for full assignments. Key facts for quick reference:
 
-### Onboard peripherals (verified against schematic)
-
-```
-AMOLED display (CO5300, QSPI)
-  CS    = GPIO9    (OLED_CS)
-  CLK   = GPIO10   (OLED_CLK)
-  D0    = GPIO11   (OLED_SIO0)
-  D1    = GPIO12   (OLED_SI1)
-  D2    = GPIO13   (OLED_SI2)
-  D3    = GPIO14   (OLED_SI3)
-  RESET = GPIO21   (OLED_RESET)
-  TE    = not used — Waveshare demo does not wire or use TE
-
-Touch controller (FT3168, I²C)
-  SDA   = GPIO47   (shared bus)
-  SCL   = GPIO48   (shared bus)
-  INT   = not used — demo polls I²C directly, no INT pin wired to MCU
-  RESET = not used — no separate reset; shares power-on reset with rest of board
-  Address = 0x38   (confirmed from Waveshare demo lcd_config.h)
-
-IMU (QMI8658, I²C)
-  SDA   = GPIO47   (shared bus)
-  SCL   = GPIO48   (shared bus)
-  INT1  = GPIO46
-  INT2  = not connected
-  Address = 0x6A or 0x6B depending on SDO/SA0 strap — verify with i2cdetect on first build.
-
-TF card (SPI mode)
-  CS    = GPIO38
-  MOSI  = GPIO39
-  MISO  = GPIO40
-  SCLK  = GPIO41
-  Note: 4-bit SDIO is NOT available on this board (pin sharing via 0Ω resistors).
-
-Battery / system
-  Battery ADC = GPIO4    (BAT_ADC, via resistor divider — requires calibration)
-  BOOT button = GPIO0    (strapping pin; do not drive at boot)
-  RST button  = CHIP_PU  (hardware reset, not a GPIO)
-  USB-Serial  = GPIO43 (TX) / GPIO44 (RX)
-```
-
-### External peripherals (header-mounted, to be wired)
-
-```
-ELRS receiver (CRSF over UART, 420000 baud, 8N1)
-  RX (boat ← rx) = TODO   (recommend GPIO16 — free on header P1)
-  TX (boat → rx) = TODO   (recommend GPIO17 — free on header P1)
-  Must use a hardware UART (UART1 or UART2). Do NOT bit-bang at 420k.
-  Don't use UART0 — that's the USB-Serial console.
-
-PCA9685 servo driver (I²C, default address 0x40)
-  SDA = GPIO47, SCL = GPIO48 (P2 header — shared with touch + IMU)
-  /OE = tie to GND, or assign a free GPIO if servo cutoff is wanted on failsafe
-  Channel assignments live in config.h:
-    Ch 0 → rudder servo
-    Ch 1 → sail winch servo
-    Ch 2 → motor ESC
-
-INA219 current sensor (I²C)
-  Default address is also 0x40 — CONFLICTS with PCA9685.
-  Set INA219 address straps so it lands at 0x41 or higher before wiring up.
-```
-
-### Free GPIOs available on headers P1 / P2
-
-Not assigned by the board, safe to use for new I/O:
-**GPIO1, GPIO2, GPIO3, GPIO5, GPIO6, GPIO7, GPIO8, GPIO15, GPIO16, GPIO17, GPIO18, GPIO42, GPIO45**
-
-(GPIO45 is a strapping pin — fine as input or post-boot output, but don't pull it during reset.)
+- **I²C bus**: GPIO47 SDA / GPIO48 SCL — shared by FT3168 (0x38), PCA9685 (0x40), INA228 (0x41), HMC5883L (0x1E), QMI8658 (0x6A/0x6B)
+- **ELRS UART1**: GPIO16 RX / GPIO17 TX — 420 000 baud, 8N1; must use hardware UART, not UART0
+- **GPS UART2**: GPIO15 RX / GPIO18 TX — 9 600 baud
+- **Bilge sensor**: GPIO2 (ADC1_CH1, analogRead) / **Bilge pump MOSFET gate**: GPIO3
+- **TF card SPI**: GPIO38 CS / GPIO39 MOSI / GPIO40 MISO / GPIO41 SCLK (internal PCB traces)
+- **Battery ADC**: GPIO4 (onboard resistor divider — calibrate before trusting)
+- **Free GPIOs**: GPIO1, GPIO5, GPIO6, GPIO7, GPIO8, GPIO42, GPIO45
 
 ## Coding conventions
 
@@ -150,7 +88,7 @@ Not assigned by the board, safe to use for new I/O:
 
 ### Docs
 - Update `docs/` when behavior changes. Out-of-date docs are worse than no docs.
-- Pin assignments live in `docs/pinmap.md` AND `boat-firmware/src/config.h`. Keep them in sync (and with the pin map section above).
+- Pin assignments live in `docs/pinmap.md` AND `boat-firmware/src/config.h`. Keep them in sync.
 
 ## What to ask before doing
 
@@ -183,7 +121,7 @@ Update this section as hardware gets wired up. Claude Code should treat anything
 - [ ] Rudder servo on PCA9685
 - [ ] Sail winch servo on PCA9685
 - [ ] Motor ESC on PCA9685
-- [ ] INA219 current sensor wired
+- [ ] INA228 current sensor wired
 
 ## Safety first
 
