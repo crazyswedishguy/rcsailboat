@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "embedded-systems": {
+      "source": "jeffallan/claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills/embedded-systems/SKILL.md",
+      "computedHash": "046558a8e6cd2c7e3e1da41360d64687fc72514329e04aad15e5bb7c4d19681b"
+    },
+    "inventory": {
+      "source": "crazyswedishguy/electronics-skills",
+      "sourceType": "github",
+      "skillPath": "inventory/SKILL.md",
+      "computedHash": "922d1af8d574757e2ce67b0300b6550766e414d39703bdeccda205b4d8378622"
+    },
+    "webapp-testing": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/webapp-testing/SKILL.md",
+      "computedHash": "3f14af7f5690695209c22fbf8c8d133769a86d64892602c09bb13f135e14e857"
+    },
+    "wiring": {
+      "source": "crazyswedishguy/electronics-skills",
+      "sourceType": "github",
+      "skillPath": "wiring/SKILL.md",
+      "computedHash": "06e7394f9987889d62e59ecf87ec4f3e0d54638b3c93c54ddda8b81f9932796e"
+    }
+  }
+}

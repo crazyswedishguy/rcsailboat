@@ -3,7 +3,7 @@ name: inventory
 description: Build a structured parts checklist for electronics projects. Reads project BOM, design docs, and README to identify in-scope features, check component coverage, suggest missing parts and consumables, and cross-reference against an on-hand list. Outputs Markdown + CSV ready for ordering. Invoke when planning a build, checking what to buy, or after the wiring skill identifies component gaps.
 license: MIT
 metadata:
-  author: local
+  author: crazyswedishguy
   version: "1.0.0"
   domain: specialized
   triggers: inventory, parts list, shopping list, what do I need, missing components, parts checklist, bill of materials, BOM, what should I buy

@@ -3,7 +3,7 @@ name: inventory
 description: Build a structured parts checklist for electronics projects. Reads project BOM, design docs, and README to identify in-scope features, check component coverage, suggest missing parts and consumables, and cross-reference against an on-hand list. Outputs Markdown + CSV ready for ordering. Invoke when planning a build, checking what to buy, or after the wiring skill identifies component gaps.
 license: MIT
 metadata:
-  author: local
+  author: crazyswedishguy
   version: "1.0.0"
   domain: specialized
   triggers: inventory, parts list, shopping list, what do I need, missing components, parts checklist, bill of materials, BOM, what should I buy
@@ -24,12 +24,12 @@ This skill works standalone and as a companion to the wiring skill. When invoked
 ### Step 1 — Discover project files
 
 Scan for and read these files if present:
-- `docs/hardware.md` — BOM and power rails
-- `docs/pinmap.md` — GPIO assignments
-- `boat-firmware/src/config.h`, `src/config.h`, `firmware/src/config.h` — GPIO defines
+- Any file named `hardware.md`, `bom.md`, `schematic.md`, or `components.md` — BOM and power rails
+- Any file named `pinmap.md`, `pinout.md`, `pins.md` — GPIO and pin assignments
+- Any file matching `**/config.h`, `**/config.hpp`, `**/pins.h`, `**/pinout.h` — GPIO and hardware defines
 - `README.md` — project overview and feature descriptions
-- `TODO.md` — planned features
-- Any file matching `**/bom*.md`, `**/hardware*.md`, `**/wiring*.md`
+- `TODO.md`, `ROADMAP.md` — planned features
+- Any file matching `**/bom*.md`, `**/hardware*.md`, `**/wiring*.md`, `**/schematic*.md`
 
 Extract from every file found:
 - **Component inventory**: names, types, communication protocols, I²C addresses
@@ -39,7 +39,7 @@ Extract from every file found:
 
 ### Step 2 — Detect features
 
-Load `references/features.md` (located at `.agents/skills/inventory/references/features.md` relative to the project root). For each row in the Feature Map, search discovered project content for the keywords in the "Keywords" column. A keyword match in any component name, GPIO identifier, or narrative text counts as a detected feature.
+Load `references/features.md` (in the `references/` subdirectory alongside this `SKILL.md`). For each row in the Feature Map, search discovered project content for the keywords in the "Keywords" column. A keyword match in any component name, GPIO identifier, or narrative text counts as a detected feature.
 
 Present the detected feature list:
 > "I detected these intended features in your project: [list]. Which are in scope for this build phase? Reply with 'all', or specify which to include or exclude."
@@ -57,8 +57,8 @@ For each confirmed in-scope feature, check the BOM for a component matching the 
 ### Step 4 — Apply reference rules
 
 Load:
-- `.agents/skills/inventory/references/components.md`
-- `.agents/skills/inventory/references/consumables.md`
+- `references/components.md` (in the `references/` subdirectory alongside this `SKILL.md`)
+- `references/consumables.md` (in the `references/` subdirectory alongside this `SKILL.md`)
 
 For each rule whose trigger condition is satisfied by the current BOM or confirmed feature list, add the implied item to the checklist if it is not already present. Apply **all** matching rules — do not stop at the first match.
 
