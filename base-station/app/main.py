@@ -39,6 +39,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .elrs_bridge import elrs_bridge_task
+from .esp32_console import CONSOLE_ENABLED, esp32_console_task
 from .state import DesiredState, GpsPosition, TelemetryState
 
 logging.basicConfig(level=logging.INFO)
@@ -121,6 +122,7 @@ def _telemetry_payload() -> dict:
             "tx_power_mw":   _telem.tx_power_mw,
         },
         "device_status": _telem.device_status,
+        "console": {"enabled": CONSOLE_ENABLED},
         "updated_at": {
             "telem": _telem.last_updated_at,
             "gps":   _gps.last_updated_at,
@@ -129,21 +131,21 @@ def _telemetry_payload() -> dict:
 
 
 def _on_telem_update() -> None:
-    """
-    Callback invoked by the ELRS bridge on each successfully decoded CRSF frame.
-
-    Schedules a WebSocket broadcast on the running asyncio event loop.
-    This is called from inside an asyncio coroutine, so create_task is safe.
-    """
+    """Callback invoked by the ELRS bridge on each decoded CRSF frame."""
     asyncio.get_event_loop().create_task(_broadcast(_telemetry_payload()))
+
+
+def _on_console_line(line: str) -> None:
+    """Callback invoked by the ESP32 console task for each line received."""
+    asyncio.get_event_loop().create_task(_broadcast({"type": "console", "line": line}))
 
 
 # ── Application lifespan ──────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Start the ELRS bridge task on startup; cancel it cleanly on shutdown."""
-    task = asyncio.create_task(
+    """Start background tasks on startup; cancel them cleanly on shutdown."""
+    elrs_task = asyncio.create_task(
         elrs_bridge_task(
             state=_state,
             gps=_gps,
@@ -151,12 +153,16 @@ async def _lifespan(app: FastAPI):
             on_update=_on_telem_update,
         )
     )
+    console_task = asyncio.create_task(esp32_console_task(on_line=_on_console_line))
+
     yield  # application runs here
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+
+    for t in (elrs_task, console_task):
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
 
 
 # ── FastAPI application ───────────────────────────────────────────────────────

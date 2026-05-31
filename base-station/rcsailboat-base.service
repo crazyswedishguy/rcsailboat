@@ -1,0 +1,20 @@
+[Unit]
+Description=RC Sailboat Base Station
+Documentation=https://github.com/crazyswedishguy/rcsailboat
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=dialout
+WorkingDirectory=/opt/rcsailboat/base-station
+EnvironmentFile=/etc/rcsailboat.env
+ExecStart=/opt/rcsailboat/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rcsailboat-base
+
+[Install]
+WantedBy=multi-user.target
