@@ -67,7 +67,12 @@ void setup()
     diag_register_reinit(DEV_INA228,  power_init);
     diag_init();
 
-    display_init();     // SH8601 AMOLED via QSPI + LVGL (starts FreeRTOS render task)
+    // display_init() is intentionally deferred to after wifi_ctrl_init().
+    // The FT3168 touch controller enters Standby after ~10 s of no I²C traffic
+    // and can only be woken by a touch event. diag_init() probes FT3168 at ~313 ms;
+    // WiFi AP init takes ~8 s. By calling display_init() immediately after WiFi,
+    // FT3168 is still within its sleep window and the init write succeeds. After
+    // that, display_poll_touch() at 50 Hz keeps it awake indefinitely.
     imu_init();         // QMI8658 6-axis IMU (shared I²C bus)
     bilge_init();       // float switch (GPIO2) + pump MOSFET (GPIO3)
     servos_init();      // PCA9685 init + ESC arm sequence (blocks ~2 s at neutral)
@@ -77,6 +82,7 @@ void setup()
     elrs_init();        // CRSF hardware init (inactive until mode switched to ELRS)
     failsafe_init();    // failsafe state machine (stubbed — implemented in Phase 3)
     telemetry_init();   // CRSF telemetry emitter
+    display_init();     // SH8601 AMOLED via QSPI + LVGL (starts FreeRTOS render task)
 
 #ifdef GPS_ENABLED
     gps_init();

@@ -795,6 +795,11 @@ void display_init()
 
 // Called from main loop at ~50 Hz — polls FT3168 touch via Wire and caches
 // the result so the LVGL task can read it safely from touch_read_cb().
+//
+// The FT3168 enters Standby mode after ~10 s of no touch events. In Standby
+// it ignores I2C — only a physical touch wakes it. Rather than hammering the
+// bus, we use a state machine: log once on sleep, then probe every 2 s until
+// the chip wakes, log once on wake, and resume normal 50 Hz polling.
 void display_poll_touch()
 {
     if (!diag_ok(DEV_FT3168)) {
@@ -802,36 +807,54 @@ void display_poll_touch()
         return;
     }
 
-    static unsigned long s_err_since_ms = 0;
+    // true while FT3168 is in Standby and not responding
+    static bool          s_sleeping    = false;
+    static unsigned long s_probe_ms    = 0;   // last re-probe attempt
 
-    // i2c-ng enters INVALID_STATE after any NACK; recover by reinitialising Wire.
-    // Shared by both failure paths below. 200 ms debounce avoids tight reset loops.
-    auto on_error = [&]() {
-        s_touch_state = LV_INDEV_STATE_REL;
-        if (!s_err_since_ms) s_err_since_ms = millis();
-        if (millis() - s_err_since_ms >= 200) {
-            Serial.println("display: I2C bus recovery (bit-bang SCL)");
-            i2c_recover_bus();
-            s_err_since_ms = 0;
+    if (s_sleeping) {
+        // Re-probe every 2 s — touch wakes the chip; the next probe succeeds.
+        if (millis() - s_probe_ms < 2000) {
+            s_touch_state = LV_INDEV_STATE_REL;
+            return;
         }
-    };
+        s_probe_ms = millis();
+        Wire.beginTransmission(i2c_addr::FT3168);
+        bool awake = (Wire.endTransmission(true) == 0);
+        if (!awake) {
+            // Still sleeping — recover bus state and keep waiting
+            i2c_recover_bus();
+            return;
+        }
+        // Woke up (user touched) — re-init to normal operating mode
+        Wire.beginTransmission(i2c_addr::FT3168);
+        Wire.write((uint8_t)0x00);
+        Wire.write((uint8_t)0x00);
+        Wire.endTransmission(true);
+        Serial.println("display: FT3168 awake — touch polling resumed");
+        s_sleeping = false;
+    }
 
     Wire.beginTransmission(i2c_addr::FT3168);
     Wire.write(0x02);
     if (Wire.endTransmission(true) != 0) {
-        on_error();
+        Serial.println("display: FT3168 entered standby — touch disabled until screen tap");
+        i2c_recover_bus();
+        s_sleeping = true;
+        s_probe_ms = millis();
+        s_touch_state = LV_INDEV_STATE_REL;
         return;
     }
 
     Wire.requestFrom((int)i2c_addr::FT3168, 5);
     if (Wire.available() < 5) {
-        // Drain any partial bytes — leaving them unread corrupts i2c-ng state.
         while (Wire.available()) Wire.read();
-        on_error();
+        i2c_recover_bus();
+        s_sleeping = true;
+        s_probe_ms = millis();
+        s_touch_state = LV_INDEV_STATE_REL;
         return;
     }
 
-    s_err_since_ms = 0;
     uint8_t count = Wire.read() & 0x0F;
     uint8_t xh = Wire.read(), xl = Wire.read();
     uint8_t yh = Wire.read(), yl = Wire.read();

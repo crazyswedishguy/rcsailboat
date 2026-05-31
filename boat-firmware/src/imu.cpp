@@ -72,6 +72,10 @@ static bool qmi_read(uint8_t reg, uint8_t *buf, uint8_t len)
     Wire.write(reg);
     if (Wire.endTransmission(true) != 0) return false;
     Wire.requestFrom((int)i2c_addr::QMI8658, (int)len);
+    if (Wire.available() < len) {
+        while (Wire.available()) Wire.read();
+        return false;
+    }
     for (uint8_t i = 0; i < len; i++) buf[i] = Wire.read();
     return true;
 }
