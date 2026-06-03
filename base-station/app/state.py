@@ -37,17 +37,18 @@ class DesiredState:
     rudder: float = 0.0    # -1.0 (port) .. +1.0 (starboard)
     sail: float = 0.0      # 0.0 (sheeted out) .. +1.0 (sheeted in)
     throttle: float = 0.0  # -1.0 (reverse) .. +1.0 (forward)
+    # armed is set by main.py based on whether an active controller is connected,
+    # not by browser messages.  The ELRS bridge reads it to drive CH_ARM.
     armed: bool = False
 
-    def apply(self, rudder: float, sail: float, throttle: float, armed: bool) -> None:
-        """Update all fields with range-clamped values. NaN and Inf inputs map to 0."""
+    def apply(self, rudder: float, sail: float, throttle: float) -> None:
+        """Update control values with range-clamped inputs. NaN and Inf map to 0."""
         self.rudder = _clamp(rudder, -1.0, 1.0)
         self.sail = _clamp(sail, 0.0, 1.0)
         self.throttle = _clamp(throttle, -1.0, 1.0)
-        self.armed = armed
 
-    def stop(self) -> None:
-        """Immediately disarm and zero throttle (emergency stop)."""
+    def disarm(self) -> None:
+        """Clear armed flag and zero throttle — used when control is released."""
         self.throttle = 0.0
         self.armed = False
 

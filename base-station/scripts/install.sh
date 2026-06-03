@@ -80,6 +80,11 @@ ELRS_BAUD=420000
 # Remove or comment out ESP32_DBG_PORT to disable the USB console tab.
 ESP32_DBG_PORT=/dev/esp32-debug
 ESP32_DBG_BAUD=115200
+
+# Shared passphrase required on WebSocket connect.
+# Set the same value in the web UI tweaks panel (Connection → Access token).
+# Leave empty to disable authentication (not recommended on a shared network).
+RCSB_TOKEN=changeme
 EOF
   echo "  Created. Edit ${ENV_FILE} to set the correct serial ports."
 fi

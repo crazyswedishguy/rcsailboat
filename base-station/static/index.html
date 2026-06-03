@@ -516,7 +516,9 @@ function TelemStrip({ t, T, expanded }) {
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "dark",
   "telemDensity": "compact",
-  "esp32Host": "192.168.4.1"
+  "esp32Host": "192.168.4.1",
+  "deviceLabel": "My device",
+  "accessToken": ""
 }/*EDITMODE-END*/;
 
 function App() {
@@ -530,7 +532,14 @@ function App() {
   const [sail,       setSail]       = React.useState(0.2);
   const [throttle,   setThrottle]   = React.useState(0);
   const [throttleLocked, setThrottleLocked] = React.useState(false);
-  const [armed,      setArmed]      = React.useState(false);
+
+  // Controller / observer state
+  const mySessionRef    = React.useRef(null);
+  const [controlRole,      setControlRole]      = React.useState('observer');
+  const [controllerLabel,  setControllerLabel]  = React.useState(null);
+  const [pendingLabel,     setPendingLabel]      = React.useState(null);
+  const [pendingExpiresIn, setPendingExpiresIn]  = React.useState(null);
+  const pendingTimerRef = React.useRef(null);
 
   // Telemetry state — populated by WebSocket pushes from the Pi
   const [telem, setTelem] = React.useState(DEFAULT_TELEM);
@@ -545,14 +554,64 @@ function App() {
   const [consoleLines,   setConsoleLines]   = React.useState([]);
   const [consoleEnabled, setConsoleEnabled] = React.useState(false);
 
+  // Helpers to read tweaks from localStorage at connect time (avoids stale closure)
+  function getStoredTweak(key) {
+    try { return JSON.parse(localStorage.getItem('rcsb-tweaks') || '{}')[key] || ''; }
+    catch { return ''; }
+  }
+
+  function sendWs(msg) {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+
+  // Controller actions
+  function handleRequestControl() {
+    sendWs({ type: 'request_control', label: getStoredTweak('deviceLabel') || 'unnamed' });
+  }
+  function handleReleaseControl() { sendWs({ type: 'release_control' }); }
+  function handleAcceptHandoff()  { sendWs({ type: 'accept_handoff' }); }
+  function handleDismissRequest() { sendWs({ type: 'dismiss_request' }); }
+
   // WebSocket connection — reconnects automatically on close
   React.useEffect(() => {
     function connect() {
-      const ws = new WebSocket(`ws://${location.host}/ws`);
+      const token = getStoredTweak('accessToken');
+      const wsUrl = `ws://${location.host}/ws${token ? '?token=' + encodeURIComponent(token) : ''}`;
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.onmessage = (evt) => {
         let msg;
         try { msg = JSON.parse(evt.data); } catch { return; }
+
+        if (msg.type === 'session') {
+          mySessionRef.current = msg.id;
+          return;
+        }
+
+        if (msg.type === 'control_state') {
+          const sid  = mySessionRef.current;
+          const role = sid && msg.controller_session === sid ? 'controller'
+                     : sid && msg.pending_session    === sid ? 'requesting'
+                     : 'observer';
+          setControlRole(role);
+          setControllerLabel(msg.controller_label);
+          setPendingLabel(msg.pending_label);
+          // Start or clear the client-side countdown timer
+          if (pendingTimerRef.current) { clearInterval(pendingTimerRef.current); pendingTimerRef.current = null; }
+          if (msg.pending_expires_in > 0) {
+            const startedAt = Date.now(), initial = msg.pending_expires_in;
+            setPendingExpiresIn(Math.ceil(initial));
+            pendingTimerRef.current = setInterval(() => {
+              const rem = initial - (Date.now() - startedAt) / 1000;
+              if (rem <= 0) { clearInterval(pendingTimerRef.current); pendingTimerRef.current = null; setPendingExpiresIn(0); }
+              else { setPendingExpiresIn(Math.ceil(rem)); }
+            }, 250);
+          } else {
+            setPendingExpiresIn(null);
+          }
+          return;
+        }
 
         if (msg.type === 'console') {
           setConsoleLines(prev => {
@@ -599,17 +658,11 @@ function App() {
     return () => { wsRef.current?.close(); wsRef.current = null; };
   }, []);
 
-  // Send control state to Pi whenever it changes
+  // Send servo commands whenever the controller changes an axis
   React.useEffect(() => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({
-      rudder,
-      sail,
-      throttle: armed ? throttle : 0,
-      armed,
-    }));
-  }, [rudder, sail, throttle, armed]);
+    if (controlRole !== 'controller') return;
+    sendWs({ type: 'control', rudder, sail, throttle });
+  }, [rudder, sail, throttle, controlRole]);
 
   const t = telem;
 
@@ -701,13 +754,9 @@ function App() {
   }
 
   function handleStop() {
-    setArmed(false);
     setThrottle(0);
     setRudder(rudderTrim);
-    const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ stop: true }));
-    }
+    sendWs({ type: 'stop' });
   }
 
   const tabs = [
@@ -731,6 +780,25 @@ function App() {
         <TweakSection title="Telemetry">
           <TweakRadio id="telemDensity" label="Density" options={['compact','expanded']}
             value={tweaks.telemDensity} onChange={v=>setTweak('telemDensity',v)}/>
+        </TweakSection>
+        <TweakSection title="Connection">
+          <div>
+            <div style={{ fontSize:10, color:'#5a7a96', marginBottom:3 }}>Device label</div>
+            <input value={tweaks.deviceLabel || ''} onChange={e=>setTweak('deviceLabel',e.target.value)}
+              placeholder="My phone"
+              style={{ width:'100%', padding:'5px 8px', borderRadius:6,
+                border:'1px solid #253650', background:'#1a2a40',
+                color:'#e0e8f0', fontFamily:'inherit', fontSize:11, outline:'none' }}/>
+          </div>
+          <div>
+            <div style={{ fontSize:10, color:'#5a7a96', marginBottom:3 }}>Access token</div>
+            <input type="password" value={tweaks.accessToken || ''} onChange={e=>setTweak('accessToken',e.target.value)}
+              placeholder="(none)"
+              style={{ width:'100%', padding:'5px 8px', borderRadius:6,
+                border:'1px solid #253650', background:'#1a2a40',
+                color:'#e0e8f0', fontFamily:'monospace', fontSize:11, outline:'none' }}/>
+            <div style={{ fontSize:9, color:'#5a7a96', marginTop:2 }}>Reconnect to apply</div>
+          </div>
         </TweakSection>
       </TweaksPanel>
 
@@ -834,22 +902,18 @@ function App() {
               onRudder={setRudder} onTrim={handleTrimChange} T={T}/>
           </div>
 
-          {/* Arm / Stop */}
-          <div style={{ display:'flex', gap:8 }}>
-            <button onClick={()=>setArmed(a=>!a)} style={{
-              flex:1, padding:'13px 8px', border:'none', borderRadius:10, cursor:'pointer',
-              fontFamily:T.sans, fontSize:13, fontWeight:800, letterSpacing:'0.06em',
-              textTransform:'uppercase', transition:'all 0.15s',
-              background: armed ? `${T.safe}20` : T.surface2,
-              color: armed ? T.safe : T.dim,
-              border: `2px solid ${armed ? T.safe : T.border}`,
-            }}>{armed ? '⚓ Armed' : 'Disarmed'}</button>
-            <button onClick={handleStop} style={{
-              flex:1.5, padding:'13px 8px', border:'none', borderRadius:10, cursor:'pointer',
-              fontFamily:T.sans, fontSize:14, fontWeight:900, letterSpacing:'0.06em',
-              textTransform:'uppercase', background:T.danger, color:'#fff',
-            }}>■ Stop</button>
-          </div>
+          <ControlBar
+            role={controlRole}
+            controllerLabel={controllerLabel}
+            pendingLabel={pendingLabel}
+            pendingExpiresIn={pendingExpiresIn}
+            onRequest={handleRequestControl}
+            onRelease={handleReleaseControl}
+            onAccept={handleAcceptHandoff}
+            onDismiss={handleDismissRequest}
+            onStop={handleStop}
+            T={T}
+          />
         </>}
 
         {/* ── INSTRUMENTS TAB ── */}
@@ -971,6 +1035,92 @@ function App() {
         />}
 
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTROL BAR — context-sensitive claim / release / handoff controls
+// ─────────────────────────────────────────────────────────────────────────────
+function ControlBar({ role, controllerLabel, pendingLabel, pendingExpiresIn,
+                      onRequest, onRelease, onAccept, onDismiss, onStop, T }) {
+  const btn = (label, onClick, color, bg, extra={}) => (
+    <button onClick={onClick} style={{
+      flex:1, padding:'13px 8px', borderRadius:10, cursor:'pointer',
+      fontFamily:T.sans, fontSize:13, fontWeight:800, letterSpacing:'0.06em',
+      textTransform:'uppercase', border:`2px solid ${color}`,
+      background:bg, color,
+      ...extra,
+    }}>{label}</button>
+  );
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+
+      {/* Incoming request banner — shown to the controller */}
+      {role === 'controller' && pendingLabel && (
+        <div style={{
+          display:'flex', alignItems:'center', gap:8, padding:'9px 13px',
+          borderRadius:10, background:`${T.accent}14`, border:`1px solid ${T.accent}`,
+        }}>
+          <span style={{ fontFamily:T.sans, fontSize:11, color:T.text, flex:1 }}>
+            <span style={{ color:T.accent, fontWeight:700 }}>{pendingLabel}</span>
+            {' '}wants control
+            {pendingExpiresIn != null && (
+              <span style={{ color:T.dim }}> · {pendingExpiresIn}s</span>
+            )}
+          </span>
+          <button onClick={onAccept} style={{
+            padding:'5px 12px', borderRadius:7, cursor:'pointer', fontFamily:T.sans,
+            fontSize:10, fontWeight:700, border:`1px solid ${T.safe}`,
+            background:`${T.safe}22`, color:T.safe,
+          }}>Hand off</button>
+          <button onClick={onDismiss} style={{
+            padding:'5px 12px', borderRadius:7, cursor:'pointer', fontFamily:T.sans,
+            fontSize:10, fontWeight:700, border:`1px solid ${T.border}`,
+            background:T.surface2, color:T.dim,
+          }}>Dismiss</button>
+        </div>
+      )}
+
+      {/* Status line — shown to observers and requesters */}
+      {role === 'observer' && controllerLabel && (
+        <div style={{ padding:'8px 13px', borderRadius:8, background:T.surface2,
+          border:`1px solid ${T.border}`, fontFamily:T.sans, fontSize:11,
+          color:T.dim, textAlign:'center' }}>
+          <span style={{ color:T.accent, fontWeight:700 }}>{controllerLabel}</span>
+          {' '}is in control
+        </div>
+      )}
+
+      {role === 'requesting' && (
+        <div style={{ padding:'8px 13px', borderRadius:8,
+          background:`${T.warn}14`, border:`1px solid ${T.warn}`,
+          fontFamily:T.sans, fontSize:11, color:T.warn, textAlign:'center' }}>
+          Requesting control
+          {pendingExpiresIn != null && (
+            <span style={{ fontFamily:T.mono }}> · {pendingExpiresIn}s</span>
+          )}
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div style={{ display:'flex', gap:8 }}>
+        {role === 'observer' && btn(
+          controllerLabel ? '○ Request Control' : '▶ Take Control',
+          onRequest, T.accent, T.accentDim
+        )}
+        {role === 'requesting' && btn('✕ Cancel', onRelease, T.dim, T.surface2)}
+        {role === 'controller' && <>
+          {btn('◼ Release', onRelease, T.safe, `${T.safe}20`)}
+          <button onClick={onStop} style={{
+            flex:1.5, padding:'13px 8px', border:'none', borderRadius:10, cursor:'pointer',
+            fontFamily:T.sans, fontSize:14, fontWeight:900, letterSpacing:'0.06em',
+            textTransform:'uppercase', background:T.danger, color:'#fff',
+          }}>■ Stop</button>
+        </>}
+      </div>
+
     </div>
   );
 }
