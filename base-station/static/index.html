@@ -593,7 +593,7 @@ function App() {
       temp:  telem.temp, bilgeWet: telem.bilge,
       // Control positions: normalised → display units
       sail: Math.round(sail * 100),       // 0–100 %
-      rud:  Math.round(rudder * 35),      // ±35 °
+      rud:  Math.round(rudder * 100),      // ±100 %
       thr:  Math.round(throttle * 100),   // ±100 %
       trim: rudderTrim,
       homeDist: Math.round(dist),

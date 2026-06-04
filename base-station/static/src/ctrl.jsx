@@ -133,7 +133,7 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
           </div>
           {/* Step buttons — each press trims/eases by 5% */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
-            <div style={btnStyle(T.accentSoft, T.accent, `1.5px solid ${T.accent}`)}
+            <div style={btnStyle(T.inset, T.text, `1px solid ${T.border}`)}
               onClick={() => setSail(s => Math.max(0, s-0.05))}>◀ IN</div>
             <div style={btnStyle(T.inset, T.text, `1px solid ${T.border}`)}
               onClick={() => setSail(s => Math.min(1, s+0.05))}>OUT ▶</div>
@@ -148,9 +148,9 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
           <span style={lbl()}>RUDDER</span>
           <div style={{ display:'flex', gap:12, alignItems:'baseline' }}>
             <span style={{ fontFamily:_MONO, fontSize:10, fontWeight:700,
-              color:T.warn }}>TRIM {rudderTrim>=0?'+':''}{Math.round(rudderTrim*35)}°</span>
+              color:T.warn }}>TRIM {rudderTrim>=0?'+':''}{Math.round(rudderTrim*100)}%</span>
             <span style={val(18,T.accent)}>
-              {d.rud>=0?'+':''}{d.rud}°
+              {d.rud>=0?'+':''}{d.rud}%
             </span>
           </div>
         </div>
@@ -190,7 +190,7 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
             boxShadow: rudDrag ? `0 0 0 4px ${T.accentSoft}` : '0 2px 6px rgba(28,52,86,0.16)',
             display:'flex', alignItems:'center', justifyContent:'center',
             transition: rudDrag ? 'none' : 'left 0.06s' }}>
-            <span style={val(11,T.accent)}>{d.rud>=0?'+':''}{d.rud}</span>
+            <span style={val(10,T.accent)}>{d.rud>=0?'+':''}{d.rud}%</span>
           </div>
           <span style={{ position:'absolute', left:9, bottom:5,
             fontFamily:_MONO, fontSize:8.5, fontWeight:700, color:T.faint,
@@ -203,9 +203,9 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
         {/* Trim stepper — each press also moves the rudder so position updates immediately */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1.4fr 1fr', gap:5, marginTop:8 }}>
           {[
-            ['− TRIM', () => { const t = Math.max(-1, rudderTrim-0.01); setRudderTrim(t); setRudder(t); }],
+            ['− TRIM', () => { const t = Math.round(Math.max(-100, rudderTrim*100-1))/100; setRudderTrim(t); setRudder(t); }],
             ['CENTRE', () => { setRudderTrim(0); setRudder(0); }],
-            ['TRIM +', () => { const t = Math.min(1, rudderTrim+0.01); setRudderTrim(t); setRudder(t); }],
+            ['TRIM +', () => { const t = Math.round(Math.min(100, rudderTrim*100+1))/100; setRudderTrim(t); setRudder(t); }],
           ].map(([label, fn]) => (
             <div key={label} style={btnStyle(T.inset, T.dim, `1px solid ${T.border}`)}
               onClick={fn}>{label}</div>

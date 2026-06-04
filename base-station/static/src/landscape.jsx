@@ -369,9 +369,9 @@ const Landscape = ({
                 <span style={lbl()}>Rudder</span>
                 <div style={{ display:'flex',gap:9,alignItems:'baseline' }}>
                   <span style={{ fontFamily:_MONO,fontSize:9,fontWeight:700,color:T.warn }}>
-                    Trim {rudderTrim>=0?'+':''}{Math.round(rudderTrim*35)}°
+                    Trim {rudderTrim>=0?'+':''}{Math.round(rudderTrim*100)}%
                   </span>
-                  <span style={val(14,T.accent)}>{d.rud>=0?'+':''}{d.rud}°</span>
+                  <span style={val(14,T.accent)}>{d.rud>=0?'+':''}{d.rud}%</span>
                 </div>
               </div>
               <div ref={rudRef} style={{ position:'relative',flex:1,minHeight:0,
@@ -394,16 +394,16 @@ const Landscape = ({
                   boxShadow:'0 2px 6px rgba(28,52,86,0.18)',
                   display:'flex',alignItems:'center',justifyContent:'center',
                   transition:rudDrag?'none':'left 0.05s' }}>
-                  <span style={val(12,T.accent)}>{d.rud>=0?'+':''}{d.rud}</span>
+                  <span style={val(11,T.accent)}>{d.rud>=0?'+':''}{d.rud}%</span>
                 </div>
                 <span style={{ position:'absolute',left:9,bottom:6,fontFamily:_MONO,fontSize:8.5,fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',color:T.faint }}>Port</span>
                 <span style={{ position:'absolute',right:9,bottom:6,fontFamily:_MONO,fontSize:8.5,fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',color:T.faint }}>Stbd</span>
                 <span style={{ position:'absolute',left:0,right:0,top:7,textAlign:'center',fontFamily:_MONO,fontSize:7.5,fontWeight:600,color:T.faint }}>drag · self-centres</span>
               </div>
               <div style={{ display:'grid',gridTemplateColumns:'1fr 1.3fr 1fr',gap:5 }}>
-                {[['−',()=>{ const t=Math.max(-1,rudderTrim-0.01); setRudderTrim(t); setRudder(t); }],
+                {[['−',()=>{ const t=Math.round(Math.max(-100,rudderTrim*100-1))/100; setRudderTrim(t); setRudder(t); }],
                   ['Centre',()=>{ setRudderTrim(0); setRudder(0); }],
-                  ['+',()=>{ const t=Math.min(1,rudderTrim+0.01); setRudderTrim(t); setRudder(t); }]
+                  ['+',()=>{ const t=Math.round(Math.min(100,rudderTrim*100+1))/100; setRudderTrim(t); setRudder(t); }]
                 ].map(([label,fn])=>(
                   <div key={label} onClick={fn} style={{ textAlign:'center',padding:'8px 4px',
                     borderRadius:7,background:T.inset,border:`1px solid ${T.border}`,
