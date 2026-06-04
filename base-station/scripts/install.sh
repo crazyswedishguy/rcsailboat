@@ -66,7 +66,7 @@ if [[ ! -d "${VENV_DIR}" ]]; then
 fi
 "${VENV_DIR}/bin/pip" install -q --upgrade pip
 "${VENV_DIR}/bin/pip" install -q -r "${APP_DIR}/requirements.txt"
-chown -R pi:pi "${VENV_DIR}"
+chown -R "${REAL_USER}:${REAL_GROUP}" "${VENV_DIR}"
 
 # ── 4. Environment file ───────────────────────────────────────────────────────
 echo "[4/5] Writing environment file ${ENV_FILE}..."
