@@ -242,7 +242,7 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
                 <div key={id} onClick={() => {
                   setMotorMode(id);
                   // Switching to Off resets throttle to neutral
-                  if (id === 'off') setThrottle(0);
+                  if (id === 'off' || id === 'hold') setThrottle(0);
                 }} style={{ padding:'5px 11px', borderRadius:6,
                   background:on?T.surface:'transparent',
                   boxShadow:on?'0 1px 2px rgba(28,52,86,0.12)':'none',
