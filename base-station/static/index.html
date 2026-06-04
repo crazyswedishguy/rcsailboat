@@ -2,507 +2,153 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- Disable user scaling — this is a precision control UI; pinch-zoom would
+       accidentally move sail/rudder sliders instead of zooming. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-  <title>Dark &amp; Stormy — Pi</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;0,9..40,800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-
+  <title>Mistral — RC Sail Control</title>
+  <!-- Only JetBrains Mono is loaded from Google Fonts; sans-serif uses system fonts. -->
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <!-- React 18 + Babel standalone — lets us write JSX without a build step. -->
   <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root { height: 100%; }
     body {
-      background: #0d1520;
-      font-family: 'DM Sans', -apple-system, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      /* Prevent pull-to-refresh and elastic scroll bouncing when dragging controls */
       overscroll-behavior: none;
       -webkit-tap-highlight-color: transparent;
     }
+    /* Thin scrollbars on Webkit/Blink */
+    ::-webkit-scrollbar { width: 3px; background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(100,120,150,0.3); border-radius: 99px; }
   </style>
 </head>
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="/static/tweaks-panel.jsx"></script>
+<!-- Component files are loaded in dependency order.
+     ds.jsx defines globals (THEMES, atoms, SVG widgets) used by all others. -->
+<script type="text/babel" src="/static/src/ds.jsx"></script>
+<script type="text/babel" src="/static/src/ctrl.jsx"></script>
+<script type="text/babel" src="/static/src/instr.jsx"></script>
+<script type="text/babel" src="/static/src/map.jsx"></script>
+<script type="text/babel" src="/static/src/dev.jsx"></script>
+<script type="text/babel" src="/static/src/con.jsx"></script>
+<script type="text/babel" src="/static/src/landscape.jsx"></script>
 
 <script type="text/babel">
-// ─────────────────────────────────────────────────────────────────────────────
-// TOKENS
-// ─────────────────────────────────────────────────────────────────────────────
-const DARK = {
-  bg:        'oklch(12% 0.04 240)',
-  surface:   'oklch(17% 0.05 240)',
-  surface2:  'oklch(22% 0.05 240)',
-  border:    'oklch(28% 0.05 240)',
-  accent:    'oklch(74% 0.18 192)',
-  accentDim: 'oklch(74% 0.18 192 / 0.18)',
-  safe:      'oklch(70% 0.17 152)',
-  danger:    'oklch(62% 0.22 25)',
-  warn:      'oklch(75% 0.18 65)',
-  text:      'oklch(90% 0.02 240)',
-  dim:       'oklch(60% 0.04 240)',
-  mono:      "'JetBrains Mono', monospace",
-  sans:      "'DM Sans', sans-serif",
-};
+const { useState, useRef, useEffect, useMemo } = React;
 
-const LIGHT = {
-  bg:        'oklch(95% 0.01 220)',
-  surface:   'oklch(99% 0.005 220)',
-  surface2:  'oklch(90% 0.015 220)',
-  border:    'oklch(82% 0.02 220)',
-  accent:    'oklch(46% 0.18 215)',
-  accentDim: 'oklch(46% 0.18 215 / 0.14)',
-  safe:      'oklch(42% 0.17 152)',
-  danger:    'oklch(48% 0.22 25)',
-  warn:      'oklch(52% 0.18 65)',
-  text:      'oklch(16% 0.02 240)',
-  dim:       'oklch(48% 0.04 240)',
-  mono:      "'JetBrains Mono', monospace",
-  sans:      "'DM Sans', sans-serif",
-};
+// ── GPS helpers ───────────────────────────────────────────────────────────────
+// Flat-earth approximation is accurate to < 0.1 % at the distances a sailboat
+// covers, so the full Haversine formula is used for correctness.
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DEFAULT TELEMETRY — shown until first WebSocket message arrives
-// ─────────────────────────────────────────────────────────────────────────────
-const DEFAULT_TELEM = {
-  volts: 0, amps: 0, pct: 0, mah: 0,
-  sats: 0, speed: 0, lat: 0, lng: 0, alt: 0, hdg: 0,
-  roll: 0, pitch: 0, yaw: 0,
-  rssi: 0, lq: 100,
-  mode: 'MANUAL', bridge: false,
-  bilge: false, pump: false,
-  temp: 0,
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TINY HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-const cx = (...parts) => parts.filter(Boolean).join(' ');
-
-function lbl(text, T, extra={}) {
-  return <div style={{ fontFamily:T.sans, fontSize:9, fontWeight:700,
-    letterSpacing:'0.09em', textTransform:'uppercase', color:T.dim, ...extra }}>{text}</div>;
-}
-function mono(text, color, T, size=14) {
-  return <span style={{ fontFamily:T.mono, fontSize:size, fontWeight:700, color }}>{text}</span>;
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const f1 = lat1*Math.PI/180, f2 = lat2*Math.PI/180;
+  const df = (lat2-lat1)*Math.PI/180, dl = (lon2-lon1)*Math.PI/180;
+  const a  = Math.sin(df/2)**2 + Math.cos(f1)*Math.cos(f2)*Math.sin(dl/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-function elrsLevelNote(id, level) {
-  if (level === 'ok')    return id === 'sd' ? 'Ready' : id === 'bilge' ? 'Dry' : 'OK';
-  if (level === 'warn')  return id === 'bilge' ? 'WET' : 'Warn';
-  if (level === 'error') return id === 'bilge' ? 'Unverified' : 'Fault';
-  return '—';
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const f1 = lat1*Math.PI/180, f2 = lat2*Math.PI/180;
+  const dl = (lon2-lon1)*Math.PI/180;
+  const y  = Math.sin(dl)*Math.cos(f2);
+  const x  = Math.cos(f1)*Math.sin(f2) - Math.sin(f1)*Math.cos(f2)*Math.cos(dl);
+  return ((Math.atan2(y,x)*180/Math.PI) + 360) % 360;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STATUS PILL
-// ─────────────────────────────────────────────────────────────────────────────
-function StatusPill({ connected, T }) {
+// ── App-shell components ──────────────────────────────────────────────────────
+
+// StatusBar: topmost row — clock, orientation toggle, theme toggle, signal icons.
+// In production the clock would be device time (or omitted); here we show
+// a static "live" indicator and the two toggles.
+function StatusBar({ T, theme, setTheme, orient, setOrient, onSettings }) {
   return (
-    <div style={{
-      padding:'3px 10px', borderRadius:99, fontSize:9, fontWeight:700,
-      letterSpacing:'0.07em', textTransform:'uppercase',
-      background: connected ? `${T.safe}22` : `${T.danger}22`,
-      color: connected ? T.safe : T.danger,
-      border: `1px solid ${connected ? T.safe : T.danger}`,
-    }}>{connected ? 'Online' : 'Offline'}</div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SAIL ARC WIDGET
-// ─────────────────────────────────────────────────────────────────────────────
-function SailArc({ value, onChange, size=152, T }) {
-  const CX=18, CY=18, R=size-36;
-  const ref = React.useRef(null);
-  const [drag, setDrag] = React.useState(false);
-
-  function ptOnArc(v) {
-    const a = v * Math.PI/2;
-    return { x: CX + R*Math.cos(a), y: CY + R*Math.sin(a) };
-  }
-  function valFromEvt(e) {
-    const rect = ref.current.getBoundingClientRect();
-    const dx = Math.max(0, (e.clientX-rect.left)*(size/rect.width) - CX);
-    const dy = Math.max(0, (e.clientY-rect.top)*(size/rect.height) - CY);
-    return Math.min(Math.PI/2, Math.atan2(dy,dx)) / (Math.PI/2);
-  }
-  const pt  = ptOnArc(value);
-  const a   = value * Math.PI/2;
-  const mid = { x:(CX+pt.x)/2, y:(CY+pt.y)/2 };
-  const ctrl = { x: mid.x+20*Math.sin(a), y: mid.y-20*Math.cos(a) };
-
-  return (
-    <svg ref={ref} viewBox={`0 0 ${size} ${size}`} width={size} height={size}
-      style={{ touchAction:'none', cursor:'crosshair', display:'block', flexShrink:0 }}
-      onPointerDown={e=>{ setDrag(true); ref.current.setPointerCapture(e.pointerId); onChange(valFromEvt(e)); }}
-      onPointerMove={e=>{ if(drag) onChange(valFromEvt(e)); }}
-      onPointerUp={()=>setDrag(false)} onPointerCancel={()=>setDrag(false)}>
-      {/* Sector background */}
-      <path fill={T.accentDim}
-        d={`M ${CX},${CY} L ${CX+R},${CY} A ${R},${R} 0 0,1 ${CX},${CY+R} Z`}/>
-      {/* Arc track */}
-      <path fill="none" stroke={T.border} strokeWidth="2.5" strokeLinecap="round"
-        strokeDasharray="8 5"
-        d={`M ${CX+R},${CY} A ${R},${R} 0 0,1 ${CX},${CY+R}`}/>
-      {/* Sail shape */}
-      <path fill={`${T.accent}28`} stroke={T.accent} strokeWidth="1.8"
-        d={`M ${CX},${CY} Q ${ctrl.x.toFixed(1)},${ctrl.y.toFixed(1)} ${pt.x.toFixed(1)},${pt.y.toFixed(1)} Z`}/>
-      {/* Boom */}
-      <line x1={CX} y1={CY} x2={pt.x.toFixed(1)} y2={pt.y.toFixed(1)}
-        stroke={T.dim} strokeWidth="1.8" strokeLinecap="round"/>
-      {/* Mast */}
-      <circle cx={CX} cy={CY} r={5} fill={T.text}/>
-      {/* Thumb */}
-      <circle cx={pt.x.toFixed(1)} cy={pt.y.toFixed(1)} r={12}
-        fill={T.accent} fillOpacity="0.92" stroke={T.bg} strokeWidth="2.5"
-        style={{ filter:`drop-shadow(0 0 7px ${T.accent})` }}/>
-      {/* Labels */}
-      <text x={CX+R+4} y={CY+4} fontSize="8" fill={T.dim}
-        fontFamily="DM Sans,sans-serif">ease</text>
-      <text x={CX} y={CY+R+11} fontSize="8" textAnchor="middle" fill={T.dim}
-        fontFamily="DM Sans,sans-serif">trim</text>
-    </svg>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// THROTTLE SLIDER (vertical, with lock toggle)
-// ─────────────────────────────────────────────────────────────────────────────
-function ThrottleSlider({ value, onChange, onRelease, locked, onToggleLock, height=160, T }) {
-  const ref = React.useRef(null);
-  const [drag, setDrag] = React.useState(false);
-
-  function getVal(e) {
-    const rect = ref.current.getBoundingClientRect();
-    const y = 1 - Math.max(0, Math.min(1, (e.clientY-rect.top)/rect.height));
-    return y*2-1;
-  }
-
-  const thumbPct = (1-(value+1)/2)*100;
-  const fillTop  = value>0 ? thumbPct : 50;
-  const fillH    = Math.abs(value)*50;
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
-      <div ref={ref} style={{
-        position:'relative', width:44, height,
-        background:T.surface2, borderRadius:22,
-        cursor:'ns-resize', touchAction:'none',
-      }}
-        onPointerDown={e=>{ setDrag(true); ref.current.setPointerCapture(e.pointerId); onChange(getVal(e)); }}
-        onPointerMove={e=>{ if(drag) onChange(getVal(e)); }}
-        onPointerUp={()=>{ setDrag(false); if(!locked) onRelease(); }}
-        onPointerCancel={()=>{ setDrag(false); if(!locked) onRelease(); }}
-      >
-        {/* Track */}
-        <div style={{ position:'absolute', left:'50%', top:'5%', bottom:'5%', width:6,
-          transform:'translateX(-50%)', borderRadius:3, background:T.border }}/>
-        {/* Fill */}
-        {Math.abs(value)>0.01 && <div style={{
-          position:'absolute', left:'50%', transform:'translateX(-50%)',
-          width:6, top:`${fillTop}%`, height:`${fillH}%`,
-          borderRadius:3, background:T.accent,
-        }}/>}
-        {/* Center mark */}
-        <div style={{ position:'absolute', left:'20%', right:'20%', top:'50%', height:1, background:T.dim }}/>
-        {/* Thumb */}
-        <div style={{
-          position:'absolute', left:'50%', top:`${thumbPct}%`,
-          width:34, height:34, transform:'translate(-50%,-50%)',
-          borderRadius:'50%', background:T.surface,
-          border:`3px solid ${T.accent}`,
-          boxShadow: drag ? `0 0 16px ${T.accent}` : 'none',
-          transition: drag ? 'none' : 'top 0.05s',
-        }}/>
+    <div style={{ height:30, display:'flex', alignItems:'center',
+      justifyContent:'space-between', padding:'0 22px',
+      background:T.surface, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+      <span style={{ fontFamily:_MONO, fontWeight:700, fontSize:13, color:T.text }}>
+        {new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+      </span>
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <div onClick={() => setOrient(o => o==='portrait'?'landscape':'portrait')}
+          style={{ fontFamily:_MONO, fontSize:9, fontWeight:700, letterSpacing:'0.08em',
+            color:T.faint, padding:'3px 8px', borderRadius:6, background:T.inset,
+            cursor:'pointer' }}>
+          {orient==='portrait' ? '⇄ LANDSCAPE' : '⇅ PORTRAIT'}
+        </div>
+        <div onClick={() => setTheme(t => t==='day'?'dusk':'day')}
+          style={{ fontFamily:_MONO, fontSize:9, fontWeight:700, letterSpacing:'0.08em',
+            color:T.faint, padding:'3px 8px', borderRadius:6, background:T.inset,
+            cursor:'pointer' }}>
+          {theme==='day' ? '☀ DAY' : '☾ DUSK'}
+        </div>
+        {/* Settings gear — opens the token / device-label modal */}
+        <div onClick={onSettings}
+          style={{ fontFamily:_MONO, fontSize:12, color:T.faint,
+            padding:'2px 6px', borderRadius:6, background:T.inset, cursor:'pointer' }}>⚙</div>
       </div>
-      {/* Value */}
-      {mono(`${value>=0?'+':''}${(value*100).toFixed(0)}%`, T.accent, T, 11)}
-      {/* Lock toggle */}
-      <button onClick={onToggleLock} style={{
-        padding:'3px 8px', borderRadius:6, cursor:'pointer', fontSize:9,
-        fontWeight:700, letterSpacing:'0.07em', textTransform:'uppercase',
-        fontFamily:T.sans, border:`1px solid ${locked ? T.accent : T.border}`,
-        background: locked ? T.accentDim : T.surface2,
-        color: locked ? T.accent : T.dim,
-      }}>{locked ? '🔒 Lock' : '↩ Return'}</button>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RUDDER PAD — auto-centers on release; trim offset controls
-// ─────────────────────────────────────────────────────────────────────────────
-function RudderPad({ rudder, trim, onRudder, onTrim, T }) {
-  const ref = React.useRef(null);
-  const [active, setActive] = React.useState(false);
-
-  function getVal(e) {
-    const rect = ref.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (e.clientX-rect.left)/rect.width));
-    return parseFloat(((x-0.5)*2).toFixed(3));
-  }
-
-  const displayPos = rudder;
-
+// Masthead: logo + wordmark + Pi·ELRS label + LINKED/NO LINK badge.
+function Masthead({ T, linked }) {
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-      {/* The touch pad */}
-      <div ref={ref} style={{
-        position:'relative', width:'100%', height:78,
-        background:T.surface2, borderRadius:12,
-        border:`2px solid ${active ? T.accent : T.border}`,
-        overflow:'hidden', touchAction:'none', cursor:'crosshair',
-        transition:'border-color 0.12s',
-      }}
-        onPointerDown={e=>{ setActive(true); ref.current.setPointerCapture(e.pointerId); onRudder(getVal(e)); }}
-        onPointerMove={e=>{ if(active) onRudder(getVal(e)); }}
-        onPointerUp={()=>{ setActive(false); onRudder(trim); }}
-        onPointerCancel={()=>{ setActive(false); onRudder(trim); }}
-      >
-        {/* Fill region */}
-        {Math.abs(displayPos-trim) > 0.01 && (() => {
-          const lo = Math.min(displayPos, trim);
-          const hi = Math.max(displayPos, trim);
-          return <div style={{
-            position:'absolute', top:0, bottom:0,
-            left:`${(lo*0.42+0.5)*100}%`,
-            width:`${(hi-lo)*42}%`,
-            background:T.accentDim,
-          }}/>;
-        })()}
-        {/* Center line */}
-        <div style={{ position:'absolute', left:'50%', top:'12%', bottom:'12%',
-          width:1, background:T.border, transform:'translateX(-50%)' }}/>
-        {/* Trim tick */}
-        {Math.abs(trim) > 0.01 && <div style={{
-          position:'absolute', top:0, bottom:0,
-          left:`${(trim*0.42+0.5)*100}%`,
-          width:2, background:`${T.warn}80`, transform:'translateX(-50%)',
-        }}/>}
-        {/* Thumb */}
-        <div style={{
-          position:'absolute', top:'50%',
-          left:`${(displayPos*0.42+0.5)*100}%`,
-          width:40, height:40, transform:'translate(-50%,-50%)',
-          borderRadius:'50%', background: active ? T.accent : T.surface,
-          border:`3px solid ${T.accent}`,
-          boxShadow: active ? `0 0 18px ${T.accent}` : 'none',
-          transition: active ? 'none' : 'left 0.07s ease',
-        }}/>
-        {/* Labels */}
-        <span style={{ position:'absolute', left:10, bottom:7, fontFamily:T.sans,
-          fontSize:9, fontWeight:700, color:T.dim, textTransform:'uppercase' }}>◀ Port</span>
-        <span style={{ position:'absolute', right:10, bottom:7, fontFamily:T.sans,
-          fontSize:9, fontWeight:700, color:T.dim, textTransform:'uppercase' }}>Stbd ▶</span>
-        {/* Big value */}
-        <div style={{ position:'absolute', top:'50%', left:'50%',
-          transform:'translate(-50%,-50%)', pointerEvents:'none',
-          fontFamily:T.mono, fontSize:20, fontWeight:800,
-          color: active ? T.accent : T.dim, transition:'color 0.1s',
-        }}>{displayPos>=0?'+':''}{(displayPos*100).toFixed(0)}</div>
+    <div style={{ display:'flex', alignItems:'stretch',
+      background:T.surface, borderBottom:`2px solid ${T.accent}`, flexShrink:0 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 16px', flex:1 }}>
+        <Logo T={T} height={26}/>
+        <span style={{ fontSize:18, fontWeight:700, letterSpacing:'-0.01em', color:T.accent }}>
+          Mistral
+        </span>
+        <span style={{ fontFamily:_MONO, fontSize:9, fontWeight:600,
+          letterSpacing:'0.12em', color:T.faint, textTransform:'uppercase' }}>
+          Pi · ELRS
+        </span>
       </div>
-
-      {/* Trim row */}
-      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-        <span style={{ fontFamily:T.sans, fontSize:9, fontWeight:700,
-          letterSpacing:'0.08em', textTransform:'uppercase', color:T.dim }}>Trim:</span>
-        <button onClick={()=>onTrim(-1)} style={{
-          padding:'4px 10px', borderRadius:6, cursor:'pointer', border:`1px solid ${T.border}`,
-          background: T.surface2, color: T.dim,
-          fontFamily:T.sans, fontSize:10, fontWeight:700,
-        }}>−1%</button>
-        <button onClick={()=>onTrim(0)} style={{
-          padding:'4px 10px', borderRadius:6, cursor:'pointer', border:`1px solid ${trim===0 ? T.accent : T.border}`,
-          background: trim===0 ? T.accentDim : T.surface2,
-          color: trim===0 ? T.accent : T.dim,
-          fontFamily:T.sans, fontSize:10, fontWeight:700,
-        }}>CTR</button>
-        <button onClick={()=>onTrim(1)} style={{
-          padding:'4px 10px', borderRadius:6, cursor:'pointer', border:`1px solid ${T.border}`,
-          background: T.surface2, color: T.dim,
-          fontFamily:T.sans, fontSize:10, fontWeight:700,
-        }}>+1%</button>
-        <span style={{ marginLeft:'auto', fontFamily:T.mono, fontSize:11, color: trim===0 ? T.dim : T.warn }}>
-          {trim>=0?'+':''}{(trim*100).toFixed(0)}%
+      {/* Linked badge — green when ELRS bridge is connected, red otherwise */}
+      <div style={{ display:'flex', alignItems:'center', gap:7, padding:'0 16px',
+        background:linked?T.safeSoft:T.dangerSoft, borderLeft:`1px solid ${T.border}` }}>
+        <span style={{ width:7, height:7, borderRadius:99,
+          background:linked?T.safe:T.danger,
+          boxShadow:`0 0 0 3px ${linked?T.safeSoft:T.dangerSoft}` }}/>
+        <span style={{ fontFamily:_MONO, fontSize:10, fontWeight:700, letterSpacing:'0.09em',
+          color:linked?T.safe:T.danger }}>
+          {linked ? 'LINKED' : 'NO LINK'}
         </span>
       </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ATTITUDE HORIZON WIDGET
-// ─────────────────────────────────────────────────────────────────────────────
-function AttitudeHorizon({ roll, pitch, size=180, T }) {
-  const r = size/2;
-  const pitchOff = pitch * (r/20);
+// TabBar: five tabs across the full width.
+const TABS = [
+  {id:'control', label:'Control'},
+  {id:'instr',   label:'Instr'},
+  {id:'map',     label:'Map'},
+  {id:'devices', label:'Devices'},
+  {id:'console', label:'Console'},
+];
 
+function TabBar({ T, tab, setTab }) {
   return (
-    <svg viewBox={`${-r} ${-r} ${size} ${size}`} width={size} height={size}>
-      <defs>
-        <clipPath id="att-clip"><circle cx="0" cy="0" r={r*0.88}/></clipPath>
-      </defs>
-      <g clipPath="url(#att-clip)" transform={`rotate(${roll})`}>
-        {/* Sky */}
-        <rect x={-r} y={-r*2+pitchOff} width={r*2} height={r*2}
-          fill={T.accent} fillOpacity="0.18"/>
-        {/* Ground */}
-        <rect x={-r} y={pitchOff} width={r*2} height={r*2}
-          fill="oklch(38% 0.08 40 / 0.32)"/>
-        {/* Horizon line */}
-        <line x1={-r} y1={pitchOff} x2={r} y2={pitchOff}
-          stroke={T.accent} strokeWidth="1.5" opacity="0.9"/>
-        {/* Pitch ladder */}
-        {[-20,-10,10,20].map(deg => {
-          const y = pitchOff - deg*(r/20);
-          const w = deg%20===0 ? r*0.55 : r*0.35;
-          return <g key={deg}>
-            <line x1={-w/2} y1={y} x2={w/2} y2={y}
-              stroke={T.text} strokeWidth="1" opacity="0.4"/>
-            <text x={w/2+4} y={y+3} fontSize={r*0.1} fill={T.dim} fontFamily="DM Sans,sans-serif"
-              opacity="0.7">{deg>0?'+':''}{deg}</text>
-          </g>;
-        })}
-      </g>
-      {/* Outer ring */}
-      <circle cx="0" cy="0" r={r*0.88} fill="none" stroke={T.border} strokeWidth="2"/>
-      {/* Roll ticks */}
-      {[-45,-30,-20,-10,10,20,30,45].map(deg => {
-        const rad = (deg-90)*Math.PI/180;
-        const inner = r*0.85, outer = r*0.93;
-        return <line key={deg}
-          x1={inner*Math.cos(rad)} y1={inner*Math.sin(rad)}
-          x2={outer*Math.cos(rad)} y2={outer*Math.sin(rad)}
-          stroke={T.dim} strokeWidth={deg%30===0?1.5:1} opacity="0.6"/>;
-      })}
-      {/* Aircraft symbol */}
-      <line x1={-r*0.28} y1="0" x2={-r*0.06} y2="0" stroke={T.text} strokeWidth="2.5" strokeLinecap="round"/>
-      <line x1={r*0.06} y1="0" x2={r*0.28} y2="0" stroke={T.text} strokeWidth="2.5" strokeLinecap="round"/>
-      <circle cx="0" cy="0" r={r*0.04} fill={T.text}/>
-      {/* Roll pointer */}
-      <polygon points={`0,${-r*0.84} ${-r*0.04},${-r*0.76} ${r*0.04},${-r*0.76}`}
-        fill={T.accent} transform={`rotate(${roll})`}/>
-    </svg>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TELEMETRY GAUGE CARD
-// ─────────────────────────────────────────────────────────────────────────────
-function GaugeCard({ label, value, unit, sub, min, max, warn, danger, T }) {
-  const pct = Math.max(0, Math.min(1, (value-min)/(max-min)));
-  const color = danger ? T.danger : warn ? T.warn : T.accent;
-  return (
-    <div style={{ background:T.surface, borderRadius:10, padding:'9px 11px',
-      border:`1px solid ${danger?T.danger:warn?T.warn:T.border}`,
-      display:'flex', flexDirection:'column', gap:3 }}>
-      {lbl(label, T)}
-      <div style={{ display:'flex', alignItems:'baseline', gap:3 }}>
-        {mono(value, color, T, 18)}
-        <span style={{ fontFamily:T.sans, fontSize:10, color:T.dim }}>{unit}</span>
-      </div>
-      {sub && <div style={{ fontFamily:T.mono, fontSize:9, color:T.dim }}>{sub}</div>}
-      <div style={{ height:3, background:T.surface2, borderRadius:2, marginTop:2 }}>
-        <div style={{ width:`${pct*100}%`, height:'100%', borderRadius:2, background:color,
-          transition:'width 0.3s' }}/>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BILGE INDICATOR
-// ─────────────────────────────────────────────────────────────────────────────
-function BilgeBar({ wet, pump, T }) {
-  return (
-    <div style={{
-      display:'flex', alignItems:'center', gap:8,
-      padding:'7px 12px', borderRadius:10,
-      background: wet ? `${T.danger}14` : T.surface2,
-      border:`1px solid ${wet ? T.danger : T.border}`,
-      transition:'all 0.3s',
-    }}>
-      <div style={{ width:8, height:8, borderRadius:'50%', flexShrink:0,
-        background: wet ? T.danger : T.safe,
-        boxShadow: wet ? `0 0 8px ${T.danger}` : 'none',
-        transition:'all 0.3s' }}/>
-      <span style={{ fontFamily:T.sans, fontSize:11, fontWeight:700,
-        textTransform:'uppercase', letterSpacing:'0.06em',
-        color: wet ? T.danger : T.dim, flex:1 }}>
-        {wet ? 'Bilge Wet' : 'Bilge OK'}
-      </span>
-      {pump && <span style={{ fontFamily:T.mono, fontSize:9, color:T.warn,
-        letterSpacing:'0.06em' }}>PUMP ON</span>}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TELEM STRIP — compact (single row) or expanded (2×3 gauge cards)
-// ─────────────────────────────────────────────────────────────────────────────
-function TelemStrip({ t, T, expanded }) {
-  if (!expanded) {
-    const items = [
-      { label:'Batt', value:`${t.volts.toFixed(1)}V`, warn:t.volts<11.4, danger:t.volts<11 },
-      { label:'Chg',  value:`${t.pct}%`,  warn:t.pct<30 },
-      { label:'Amps', value:`${t.amps.toFixed(1)}A` },
-      { label:'Sats', value:`${t.sats}`,  warn:t.sats<4 },
-      { label:'Spd',  value:`${t.speed.toFixed(1)}` },
-      { label:'LQ',   value:`${t.lq}%`,   warn:t.lq<50, danger:t.lq<25 },
-      { label:'RSSI', value:`${t.rssi}`,  warn:t.rssi<-85, danger:t.rssi<-95 },
-    ];
-    return (
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-        padding:'7px 13px', background:T.surface, borderRadius:10, border:`1px solid ${T.border}` }}>
-        {items.map(it => (
-          <div key={it.label} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-            <span style={{ fontFamily:T.sans, fontSize:8, fontWeight:700, letterSpacing:'0.08em',
-              textTransform:'uppercase', color:T.dim }}>{it.label}</span>
-            <span style={{ fontFamily:T.mono, fontSize:12, fontWeight:700,
-              color: it.danger?T.danger : it.warn?T.warn : T.text }}>
-              {it.value}
-            </span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  // Expanded: 2×3 gauge cards with bar graphs
-  const cards = [
-    { label:'Battery',  value:t.volts.toFixed(1), unit:'V',   sub:`${t.pct}% · ${t.amps.toFixed(1)}A`,  min:10.5, max:12.6, warn:t.volts<11.4, danger:t.volts<11 },
-    { label:'Charge',   value:t.pct,              unit:'%',   sub:`${t.mah} mAh used`,                   min:0,    max:100,  warn:t.pct<30,    danger:t.pct<15 },
-    { label:'GPS',      value:t.sats,             unit:'sat', sub:`${t.speed.toFixed(1)} km/h`,          min:0,    max:16,   warn:t.sats<4,    danger:t.sats<2 },
-    { label:'Link LQ',  value:t.lq,               unit:'%',   sub:`${t.rssi} dBm`,                       min:0,    max:100,  warn:t.lq<50,     danger:t.lq<25 },
-    { label:'MCU Temp', value:t.temp,             unit:'°C',  sub:'',                                    min:20,   max:100,  warn:t.temp>60,   danger:t.temp>80 },
-    { label:'Mode',     value:t.mode,             unit:'',    sub:t.bridge?'linked':'no link',           min:0,    max:1 },
-  ];
-  return (
-    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
-      {cards.map(c => {
-        const pct = typeof c.value === 'number'
-          ? Math.max(0, Math.min(1, (c.value - c.min) / (c.max - c.min))) * 100
-          : null;
-        const color = c.danger ? T.danger : c.warn ? T.warn : T.accent;
+    <div style={{ display:'flex', background:T.surface,
+      borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+      {TABS.map(({id,label}) => {
+        const on = id===tab;
         return (
-          <div key={c.label} style={{ background:T.surface, borderRadius:10, padding:'8px 10px',
-            border:`1px solid ${c.danger?T.danger : c.warn?T.warn : T.border}`,
-            display:'flex', flexDirection:'column', gap:3 }}>
-            {lbl(c.label, T)}
-            <div style={{ display:'flex', alignItems:'baseline', gap:3 }}>
-              <span style={{ fontFamily:T.mono, fontSize:16, fontWeight:700, color }}>{c.value}</span>
-              {c.unit && <span style={{ fontFamily:T.sans, fontSize:9, color:T.dim }}>{c.unit}</span>}
-            </div>
-            {c.sub && <div style={{ fontFamily:T.mono, fontSize:9, color:T.dim }}>{c.sub}</div>}
-            {pct !== null && (
-              <div style={{ height:3, background:T.surface2, borderRadius:2, marginTop:1 }}>
-                <div style={{ width:`${pct}%`, height:'100%', borderRadius:2, background:color, transition:'width 0.3s' }}/>
-              </div>
-            )}
+          <div key={id} onClick={() => setTab(id)} style={{ flex:1, textAlign:'center',
+            padding:'9px 4px', fontFamily:_MONO, fontSize:10, fontWeight:700,
+            letterSpacing:'0.05em', color:on?T.accent:T.faint, cursor:'pointer',
+            borderBottom:`2.5px solid ${on?T.accent:'transparent'}`,
+            overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {label}
           </div>
         );
       })}
@@ -510,864 +156,524 @@ function TelemStrip({ t, T, expanded }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN APP
-// ─────────────────────────────────────────────────────────────────────────────
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "theme": "dark",
-  "telemDensity": "compact",
-  "esp32Host": "192.168.4.1",
-  "deviceLabel": "My device",
-  "accessToken": ""
-}/*EDITMODE-END*/;
+// HelmBanner: the full-width banner below the tab bar on the Control tab.
+// Four states:
+//   observer (no controller)   → navy "TAP TO TAKE HELM"
+//   observer (someone helming) → dim  "TAP TO REQUEST HELM FROM <name>"
+//   requesting                 → amber "REQUESTING HELM… Xs"
+//   controller                 → navy filled "HELM ACTIVE"
+// When the controller has a pending request, an extra notification bar appears.
+function HelmBanner({ T, controlRole, controllerLabel, pendingLabel, pendingExpiresIn,
+                      onRequest, onAccept, onDismiss }) {
+  const inControl  = controlRole === 'controller';
+  const requesting = controlRole === 'requesting';
 
+  return (
+    <>
+      {/* ── Main banner ───────────────────────────────────────────────────── */}
+      <div onClick={inControl ? undefined : onRequest}
+        style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 16px',
+          flexShrink:0, cursor:inControl?'default':'pointer',
+          background:inControl ? T.accent : requesting ? T.warnSoft : T.inset,
+          borderBottom:`1px solid ${inControl?T.accent:requesting?T.warn:T.border}` }}>
+        {/* Bell icon — white on active, dim otherwise */}
+        <svg width="13" height="13" viewBox="0 0 24 24"
+          fill={inControl?'#fff':requesting?T.warn:T.dim}>
+          <path d="M12 2a3 3 0 0 1 3 3v1.6a6 6 0 0 1 3 5.2V18l2 2v1H4v-1l2-2v-5.2a6 6 0 0 1 3-5.2V5a3 3 0 0 1 3-3z"/>
+        </svg>
+        <span style={{ fontFamily:_MONO, fontSize:11.5, fontWeight:700,
+          letterSpacing:'0.09em',
+          color:inControl?'#fff':requesting?T.warn:T.dim }}>
+          {inControl   ? 'HELM ACTIVE'
+           : requesting ? `REQUESTING HELM…${pendingExpiresIn!=null?` ${pendingExpiresIn}s`:''}`
+           : controllerLabel ? `TAP TO REQUEST HELM FROM ${controllerLabel.toUpperCase()}`
+           : 'TAP TO TAKE HELM'}
+        </span>
+        <span style={{ flex:1 }}/>
+        {inControl && (
+          <span style={{ fontFamily:_MONO, fontSize:9,
+            color:'rgba(255,255,255,0.70)', letterSpacing:'0.04em' }}>
+            STOP CUTS POWER
+          </span>
+        )}
+      </div>
+
+      {/* ── Incoming request notification (shown to the controller) ──────── */}
+      {inControl && pendingLabel && (
+        <div style={{ display:'flex', alignItems:'center', gap:8,
+          padding:'7px 16px', flexShrink:0,
+          background:T.accentSoft, borderBottom:`1px solid ${T.accentLine}` }}>
+          <span style={{ fontFamily:_MONO, fontSize:10, fontWeight:700,
+            color:T.accent, flex:1 }}>
+            {pendingLabel} wants the helm
+            {pendingExpiresIn!=null && (
+              <span style={{ color:T.dim }}> · {pendingExpiresIn}s left</span>
+            )}
+          </span>
+          <div onClick={onAccept} style={{ padding:'4px 12px', borderRadius:7,
+            background:T.safeSoft, border:`1px solid ${T.safe}`,
+            fontFamily:_MONO, fontSize:10, fontWeight:700,
+            color:T.safe, cursor:'pointer' }}>
+            Hand off
+          </div>
+          <div onClick={onDismiss} style={{ padding:'4px 12px', borderRadius:7,
+            background:T.inset, border:`1px solid ${T.border}`,
+            fontFamily:_MONO, fontSize:10, fontWeight:700,
+            color:T.dim, cursor:'pointer' }}>
+            Dismiss
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// TelemetryBar: compact 5-column strip shown on non-Control tabs.
+function TelemetryBar({ T, d, stale }) {
+  const items = [
+    ['BATT',  stale.telem, `${d.volts.toFixed(1)}V`],
+    ['CHG',   stale.telem, `${d.chg}%`],
+    ['LQ',    stale.link,  `${d.lq}%`],
+    ['SATS',  stale.gps,   `${d.sats}`],
+    ['SPD',   stale.gps,   `${d.spd.toFixed(1)} kn`],
+  ];
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)',
+      background:T.surface, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+      {items.map(([k,isStale,v], i) => (
+        <div key={k} style={{ padding:'9px 6px', display:'flex',
+          flexDirection:'column', alignItems:'center', gap:3,
+          borderLeft:i?`1px solid ${T.border}`:'none' }}>
+          <span style={{ fontFamily:_MONO, fontSize:7.5, fontWeight:600,
+            letterSpacing:'0.10em', textTransform:'uppercase', color:T.faint }}>
+            {k}
+          </span>
+          <span style={{ fontFamily:_MONO, fontWeight:700, fontSize:11.5,
+            color:isStale?T.faint:T.text, fontFeatureSettings:'"tnum","zero"' }}>
+            {v}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// SettingsModal: overlay for device label and access token.
+// Token changes take effect on the next WebSocket reconnect.
+function SettingsModal({ T, tweaks, setTweak, onClose, onReconnect }) {
+  const inp = { width:'100%', padding:'6px 10px', borderRadius:7,
+    border:`1px solid ${T.border}`, background:T.inset,
+    color:T.text, fontFamily:_MONO, fontSize:12, outline:'none' };
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:999,
+      background:'rgba(0,0,0,0.55)', display:'flex',
+      alignItems:'flex-end', justifyContent:'center' }}
+      onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()}
+        style={{ width:'100%', maxWidth:430, background:T.surface,
+          borderRadius:'18px 18px 0 0', padding:'20px 20px 32px',
+          border:`1px solid ${T.border}` }}>
+        <div style={{ fontFamily:_MONO, fontSize:11, fontWeight:700,
+          letterSpacing:'0.10em', textTransform:'uppercase',
+          color:T.accent, marginBottom:16 }}>Settings</div>
+        {/* Device label — shown to other clients when requesting the helm */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontFamily:_MONO, fontSize:9, fontWeight:600,
+            letterSpacing:'0.10em', textTransform:'uppercase',
+            color:T.dim, marginBottom:5 }}>Device label</div>
+          <input style={inp} value={tweaks.label||''}
+            placeholder="My phone"
+            onChange={e => setTweak('label', e.target.value)}/>
+          <div style={{ fontFamily:_MONO, fontSize:9, color:T.faint, marginTop:3 }}>
+            Shown to other controllers during handoff
+          </div>
+        </div>
+        {/* Access token — must match RCSB_TOKEN on the Pi */}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontFamily:_MONO, fontSize:9, fontWeight:600,
+            letterSpacing:'0.10em', textTransform:'uppercase',
+            color:T.dim, marginBottom:5 }}>Access token</div>
+          <input type="password" style={inp} value={tweaks.token||''}
+            placeholder="(none)"
+            onChange={e => setTweak('token', e.target.value)}/>
+          <div style={{ fontFamily:_MONO, fontSize:9, color:T.faint, marginTop:3 }}>
+            Must match RCSB_TOKEN in /etc/rcsailboat.env
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:10 }}>
+          <div onClick={() => { onReconnect(); onClose(); }}
+            style={{ flex:1, padding:'12px', borderRadius:10, textAlign:'center',
+              background:T.accentSoft, border:`1.5px solid ${T.accent}`,
+              fontFamily:_MONO, fontSize:12, fontWeight:700,
+              color:T.accent, cursor:'pointer' }}>
+            Reconnect
+          </div>
+          <div onClick={onClose}
+            style={{ flex:1, padding:'12px', borderRadius:10, textAlign:'center',
+              background:T.inset, border:`1px solid ${T.border}`,
+              fontFamily:_MONO, fontSize:12, fontWeight:700,
+              color:T.dim, cursor:'pointer' }}>
+            Close
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
 function App() {
-  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const T = tweaks.theme === 'light' ? LIGHT : DARK;
+  // ── Persistent settings (token + device label) ─────────────────────────────
+  // Stored in localStorage so they survive page reloads.
+  const [tweaks, _setTweaks] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('rcsb-tweaks')||'{}'); }
+    catch { return {}; }
+  });
+  function setTweak(k, v) {
+    _setTweaks(prev => {
+      const next = { ...prev, [k]:v };
+      localStorage.setItem('rcsb-tweaks', JSON.stringify(next));
+      return next;
+    });
+  }
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Control state
-  const [tab,        setTab]        = React.useState('ctrl');
-  const [rudder,     setRudder]     = React.useState(0);
-  const [rudderTrim, setRudderTrim] = React.useState(0);
-  const [sail,       setSail]       = React.useState(0.2);
-  const [throttle,   setThrottle]   = React.useState(0);
-  const [throttleLocked, setThrottleLocked] = React.useState(false);
+  // ── Layout state ───────────────────────────────────────────────────────────
+  const [theme,  setTheme]  = useState('day');
+  const [orient, setOrient] = useState('portrait');
+  const [tab,    setTab]    = useState('control');
+  const T = THEMES[theme];
 
-  // Controller / observer state
-  const mySessionRef    = React.useRef(null);
-  const [controlRole,      setControlRole]      = React.useState('observer');
-  const [controllerLabel,  setControllerLabel]  = React.useState(null);
-  const [pendingLabel,     setPendingLabel]      = React.useState(null);
-  const [pendingExpiresIn, setPendingExpiresIn]  = React.useState(null);
-  const pendingTimerRef = React.useRef(null);
+  // Auto-switch orientation when the device rotates
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: landscape)');
+    const handle = e => setOrient(e.matches ? 'landscape' : 'portrait');
+    mq.addEventListener('change', handle);
+    return () => mq.removeEventListener('change', handle);
+  }, []);
 
-  // Telemetry state — populated by WebSocket pushes from the Pi
-  const [telem, setTelem] = React.useState(DEFAULT_TELEM);
+  // ── Control inputs (local state — optimistic updates before WS confirms) ───
+  const [sail,         setSail]         = useState(0.2);
+  const [rudder,       setRudder]       = useState(0);
+  const [rudderTrim,   setRudderTrim]   = useState(0);
+  const [throttle,     setThrottle]     = useState(0);
+  const [motorMode,    setMotorMode]    = useState('off');
 
-  // ESP32 direct-link state (fetches /diag.json from ESP32 WiFi AP)
-  const [esp32Status,  setEsp32Status]  = React.useState('disconnected'); // disconnected|connecting|connected|error
-  const [esp32Devices, setEsp32Devices] = React.useState(null);           // raw array from /diag.json
-  const [elrsDevices,  setElrsDevices]  = React.useState(null);           // device_status from CRSF 0x81
-  const wsRef = React.useRef(null);
+  // ── Telemetry state (populated from incoming WS messages) ─────────────────
+  const [telem, setTelem] = useState({
+    bridge:false,
+    volts:0, amps:0, pct:0, mah:0,
+    sats:0, speed:0, lat:0, lng:0, alt:0, hdg:0,
+    roll:0, pitch:0,
+    lq:0, rssi:0,
+    temp:0, bilge:false,
+  });
+  const [deviceStatus, setDeviceStatus] = useState({});
 
-  // USB console state — lines from ESP32 serial port forwarded over WebSocket
-  const [consoleLines,   setConsoleLines]   = React.useState([]);
-  const [consoleEnabled, setConsoleEnabled] = React.useState(false);
+  // ── Staleness tracking ─────────────────────────────────────────────────────
+  // We record the browser wall-clock time when each data group last arrived.
+  // A 1-second ticker (nowMs) drives the staleness check in the render path.
+  const [lastTelemMs, setLastTelemMs] = useState(0);
+  const [lastGpsMs,   setLastGpsMs]   = useState(0);
+  const [nowMs,       setNowMs]       = useState(Date.now());
 
-  // Helpers to read tweaks from localStorage at connect time (avoids stale closure)
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const stale = {
+    // Boat telemetry is stale after 3 s without a CRSF frame
+    telem: !telem.bridge || lastTelemMs===0 || (nowMs-lastTelemMs > 3000),
+    // GPS updates at 1 Hz; stale after 8 s (allows a few missed frames)
+    gps:   !telem.bridge || lastGpsMs===0   || (nowMs-lastGpsMs   > 8000),
+    // Link statistics come with the same CRSF frame as other telemetry
+    link:  !telem.bridge || lastTelemMs===0 || (nowMs-lastTelemMs > 3000),
+  };
+
+  // ── GPS home position ──────────────────────────────────────────────────────
+  // Set automatically on first fix; user can override via "SET HOME HERE".
+  const [homePos, setHomePos] = useState(null);
+  const homePosSetRef = useRef(false); // prevent re-setting on every render
+
+  // ── Console (ESP32 USB serial) ─────────────────────────────────────────────
+  const [consoleLines,   setConsoleLines]   = useState([]);
+  const [consoleEnabled, setConsoleEnabled] = useState(false);
+
+  // ── Controller / observer state ────────────────────────────────────────────
+  // mySessionRef holds the short session ID assigned by the server on connect.
+  // It's a ref (not state) because it only needs to be read inside callbacks,
+  // not trigger re-renders.
+  const mySessionRef   = useRef(null);
+  const [controlRole,      setControlRole]      = useState('observer');
+  const [controllerLabel,  setControllerLabel]  = useState(null);
+  const [pendingLabel,     setPendingLabel]      = useState(null);
+  const [pendingExpiresIn, setPendingExpiresIn]  = useState(null);
+  const pendingTimerRef = useRef(null); // setInterval handle for countdown
+
+  // ── WebSocket ──────────────────────────────────────────────────────────────
+  const wsRef = useRef(null);
+
+  // Read fresh settings from localStorage at connect time so a token change
+  // (from the settings modal) takes effect on the next reconnect without
+  // needing to re-render the component.
   function getStoredTweak(key) {
-    try { return JSON.parse(localStorage.getItem('rcsb-tweaks') || '{}')[key] || ''; }
+    try { return JSON.parse(localStorage.getItem('rcsb-tweaks')||'{}')[key]||''; }
     catch { return ''; }
   }
 
+  function connect() {
+    const token = getStoredTweak('token');
+    const url   = `ws://${location.host}/ws${token?'?token='+encodeURIComponent(token):''}`;
+    const ws    = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onmessage = (evt) => {
+      let msg;
+      try { msg = JSON.parse(evt.data); } catch { return; }
+
+      // ── Session assigned by server ─────────────────────────────────────
+      if (msg.type === 'session') {
+        mySessionRef.current = msg.id;
+        return;
+      }
+
+      // ── Controller / observer state update ─────────────────────────────
+      if (msg.type === 'control_state') {
+        const sid = mySessionRef.current;
+        const role = sid && msg.controller_session===sid ? 'controller'
+                   : sid && msg.pending_session===sid    ? 'requesting'
+                   : 'observer';
+        setControlRole(role);
+        setControllerLabel(msg.controller_label);
+        setPendingLabel(msg.pending_label);
+
+        // Start or clear the client-side countdown timer.
+        // The server sends expires_in at state-change events; we count down
+        // locally between events for smooth display.
+        if (pendingTimerRef.current) {
+          clearInterval(pendingTimerRef.current);
+          pendingTimerRef.current = null;
+        }
+        if (msg.pending_expires_in > 0) {
+          const startAt = Date.now(), initial = msg.pending_expires_in;
+          setPendingExpiresIn(Math.ceil(initial));
+          pendingTimerRef.current = setInterval(() => {
+            const rem = initial - (Date.now()-startAt)/1000;
+            if (rem <= 0) {
+              clearInterval(pendingTimerRef.current);
+              pendingTimerRef.current = null;
+              setPendingExpiresIn(0);
+            } else {
+              setPendingExpiresIn(Math.ceil(rem));
+            }
+          }, 250);
+        } else {
+          setPendingExpiresIn(null);
+        }
+        return;
+      }
+
+      // ── ESP32 USB serial line ──────────────────────────────────────────
+      if (msg.type === 'console') {
+        setConsoleLines(prev => {
+          const next = [...prev, msg.line];
+          return next.length > 500 ? next.slice(-500) : next; // ring buffer
+        });
+        return;
+      }
+
+      // ── Telemetry frame ────────────────────────────────────────────────
+      if (msg.type !== 'telemetry') return;
+
+      const now = Date.now();
+      // Only update freshness timestamps when data was actually received
+      // (updated_at > 0 means the Pi has seen at least one CRSF frame of that type)
+      if (msg.updated_at?.telem > 0) setLastTelemMs(now);
+      if (msg.updated_at?.gps   > 0) setLastGpsMs(now);
+
+      setConsoleEnabled(msg.console?.enabled ?? false);
+
+      const ds = msg.device_status || {};
+      setDeviceStatus(ds);
+
+      setTelem({
+        bridge: msg.bridge ?? false,
+        volts:  msg.battery?.voltage_v   ?? 0,
+        amps:   msg.battery?.current_a   ?? 0,
+        pct:    msg.battery?.battery_pct ?? 0,
+        mah:    msg.battery?.mah_used    ?? 0,
+        sats:   msg.gps?.satellites      ?? 0,
+        speed:  msg.gps?.speed_kmh       ?? 0, // km/h; converted to kn in d
+        lat:    msg.gps?.lat             ?? 0,
+        lng:    msg.gps?.lng             ?? 0,
+        alt:    msg.gps?.altitude_m      ?? 0,
+        hdg:    msg.attitude?.yaw_deg    ?? 0,
+        roll:   msg.attitude?.roll_deg   ?? 0,
+        pitch:  msg.attitude?.pitch_deg  ?? 0,
+        lq:     msg.link?.lq_uplink      ?? 0,
+        rssi:   msg.link?.rssi_uplink    ?? 0,
+        temp:   msg.sailboat?.mcu_temp_c ?? 0,
+        bilge:  ds.bilge === 'warn',
+      });
+    };
+
+    ws.onclose = () => {
+      wsRef.current = null;
+      setTelem(prev => ({ ...prev, bridge:false }));
+      setTimeout(connect, 2000); // reconnect after 2 s
+    };
+  }
+
+  useEffect(() => {
+    connect();
+    return () => { wsRef.current?.close(); wsRef.current = null; };
+  }, []);
+
+  // Auto-set home position on first valid GPS fix
+  useEffect(() => {
+    if (!homePosSetRef.current && telem.sats >= 3 && telem.lat !== 0) {
+      setHomePos({ lat:telem.lat, lng:telem.lng });
+      homePosSetRef.current = true;
+    }
+  }, [telem.sats, telem.lat, telem.lng]);
+
+  // ── Send control commands when role or axis values change ─────────────────
+  // Only the active controller sends servo commands.
+  useEffect(() => {
+    if (controlRole !== 'controller') return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type:'control', rudder, sail, throttle }));
+  }, [rudder, sail, throttle, controlRole]);
+
+  // ── Helm action helpers ────────────────────────────────────────────────────
   function sendWs(msg) {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   }
 
-  // Controller actions
-  function handleRequestControl() {
-    sendWs({ type: 'request_control', label: getStoredTweak('deviceLabel') || 'unnamed' });
+  function onRequestControl() {
+    sendWs({ type:'request_control', label:getStoredTweak('label')||'Anonymous' });
   }
-  function handleReleaseControl() { sendWs({ type: 'release_control' }); }
-  function handleAcceptHandoff()  { sendWs({ type: 'accept_handoff' }); }
-  function handleDismissRequest() { sendWs({ type: 'dismiss_request' }); }
+  function onReleaseControl()  { sendWs({ type:'release_control' }); }
+  function onAcceptHandoff()   { sendWs({ type:'accept_handoff' }); }
+  function onDismissRequest()  { sendWs({ type:'dismiss_request' }); }
 
-  // WebSocket connection — reconnects automatically on close
-  React.useEffect(() => {
-    function connect() {
-      const token = getStoredTweak('accessToken');
-      const wsUrl = `ws://${location.host}/ws${token ? '?token=' + encodeURIComponent(token) : ''}`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-      ws.onmessage = (evt) => {
-        let msg;
-        try { msg = JSON.parse(evt.data); } catch { return; }
-
-        if (msg.type === 'session') {
-          mySessionRef.current = msg.id;
-          return;
-        }
-
-        if (msg.type === 'control_state') {
-          const sid  = mySessionRef.current;
-          const role = sid && msg.controller_session === sid ? 'controller'
-                     : sid && msg.pending_session    === sid ? 'requesting'
-                     : 'observer';
-          setControlRole(role);
-          setControllerLabel(msg.controller_label);
-          setPendingLabel(msg.pending_label);
-          // Start or clear the client-side countdown timer
-          if (pendingTimerRef.current) { clearInterval(pendingTimerRef.current); pendingTimerRef.current = null; }
-          if (msg.pending_expires_in > 0) {
-            const startedAt = Date.now(), initial = msg.pending_expires_in;
-            setPendingExpiresIn(Math.ceil(initial));
-            pendingTimerRef.current = setInterval(() => {
-              const rem = initial - (Date.now() - startedAt) / 1000;
-              if (rem <= 0) { clearInterval(pendingTimerRef.current); pendingTimerRef.current = null; setPendingExpiresIn(0); }
-              else { setPendingExpiresIn(Math.ceil(rem)); }
-            }, 250);
-          } else {
-            setPendingExpiresIn(null);
-          }
-          return;
-        }
-
-        if (msg.type === 'console') {
-          setConsoleLines(prev => {
-            const next = [...prev, msg.line];
-            return next.length > 500 ? next.slice(-500) : next;
-          });
-          return;
-        }
-
-        if (msg.type !== 'telemetry') return;
-        setConsoleEnabled(msg.console?.enabled ?? false);
-        const ds = msg.device_status || {};
-        setElrsDevices(Object.keys(ds).length > 0 ? ds : null);
-        setTelem({
-          volts:  msg.battery?.voltage_v   ?? 0,
-          amps:   msg.battery?.current_a   ?? 0,
-          pct:    msg.battery?.battery_pct ?? 0,
-          mah:    msg.battery?.mah_used    ?? 0,
-          sats:   msg.gps?.satellites      ?? 0,
-          speed:  msg.gps?.speed_kmh       ?? 0,
-          lat:    msg.gps?.lat             ?? 0,
-          lng:    msg.gps?.lng             ?? 0,
-          alt:    msg.gps?.altitude_m      ?? 0,
-          hdg:    msg.gps?.heading_deg     ?? 0,
-          roll:   msg.attitude?.roll_deg   ?? 0,
-          pitch:  msg.attitude?.pitch_deg  ?? 0,
-          yaw:    msg.attitude?.yaw_deg    ?? 0,
-          temp:   msg.sailboat?.mcu_temp_c ?? 0,
-          bridge: msg.bridge               ?? false,
-          rssi:   msg.link?.rssi_uplink ?? 0,
-          lq:     msg.link?.lq_uplink   ?? 0,
-          mode:   'MANUAL',
-          bilge:  ds.bilge === 'warn',   // true only when water detected
-          pump:   false,
-        });
-      };
-      ws.onclose = () => {
-        setTelem(prev => ({ ...prev, bridge: false }));
-        wsRef.current = null;
-        setTimeout(connect, 2000);
-      };
-    }
-    connect();
-    return () => { wsRef.current?.close(); wsRef.current = null; };
-  }, []);
-
-  // Send servo commands whenever the controller changes an axis
-  React.useEffect(() => {
-    if (controlRole !== 'controller') return;
-    sendWs({ type: 'control', rudder, sail, throttle });
-  }, [rudder, sail, throttle, controlRole]);
-
-  const t = telem;
-
-  // Map ESP32 /diag.json device IDs → Pi device list IDs
-  const ESP32_TO_PI = {
-    qmi:'imu', pca:'servodrv', ina:'current',
-    sd:'sdcard', bilge:'bilge', pump:'pump',
-    rudder:'rudder', winch:'winch', esc:'esc',
-  };
-
-  // Merge static defaults with live data. Priority (lowest → highest):
-  //   1. ELRS device-status frame (0x81) — primary source in field use
-  //   2. ESP32 WiFi probe (/diag.json) — adds stat strings; bench use
-  //   3. Telemetry inferences (bridge, GPS, temp) — always available when linked
-  const displayDevices = React.useMemo(() => {
-    const overrides = {};
-
-    // 1. ELRS device status (primary)
-    if (elrsDevices) {
-      Object.entries(elrsDevices).forEach(([id, level]) => {
-        const piId = ESP32_TO_PI[id];
-        if (piId) overrides[piId] = { status: level, note: elrsLevelNote(id, level) };
-      });
-    }
-
-    // 2. WiFi probe overrides (richer stat strings when available)
-    if (esp32Devices) {
-      esp32Devices.forEach(item => {
-        const piId = ESP32_TO_PI[item.id];
-        if (piId) overrides[piId] = { status: item.level || 'absent', note: item.stat || '—' };
-      });
-    }
-
-    // 3. Telemetry inferences
-    if (t.bridge) {
-      overrides['elrsrx'] = { status:'ok', note:'Linked' };
-      if (t.temp > 0) overrides['mcu'] = { status:'ok', note:`${t.temp.toFixed(0)}°C` };
-    }
-    if (t.volts > 0 && !overrides['current']) {
-      overrides['current'] = { status:'ok', note:`${t.volts.toFixed(1)}V · ${t.amps.toFixed(1)}A` };
-    }
-    if (t.sats > 0) overrides['gps'] = { status:'ok', note:`${t.sats} sats` };
-
-    return DEVICE_GROUPS.map(grp => ({
-      ...grp,
-      devices: grp.devices.map(dev => {
-        const ov = overrides[dev.id];
-        return ov ? { ...dev, ...ov } : dev;
-      }),
-    }));
-  }, [elrsDevices, esp32Devices, t.bridge, t.temp, t.volts, t.amps, t.sats]);
-
-  // Connect to ESP32 WiFi AP and fetch device status
-  async function connectESP32() {
-    setEsp32Status('connecting');
-    try {
-      const resp = await fetch(`/api/esp32-diag?host=${encodeURIComponent(tweaks.esp32Host)}`);
-      const data = await resp.json();
-      if (!data.ok) throw new Error(data.error || 'Request failed');
-      setEsp32Devices(data.devices);
-      setEsp32Status('connected');
-    } catch (e) {
-      setEsp32Status('error');
-    }
-  }
-
-  function disconnectESP32() {
-    setEsp32Status('disconnected');
-    setEsp32Devices(null);
-  }
-
-  // Auto-refresh device status every 5 s when connected
-  React.useEffect(() => {
-    if (esp32Status !== 'connected') return;
-    const id = setInterval(async () => {
-      try {
-        const resp = await fetch(`/api/esp32-diag?host=${encodeURIComponent(tweaks.esp32Host)}`);
-        const data = await resp.json();
-        if (data.ok) setEsp32Devices(data.devices);
-      } catch (_) {}
-    }, 5000);
-    return () => clearInterval(id);
-  }, [esp32Status, tweaks.esp32Host]);
-
-  function handleTrimChange(val) {
-    const next = val === 0 ? 0 : Math.max(-1, Math.min(1, rudderTrim + (val < 0 ? -0.01 : 0.01)));
-    setRudderTrim(next);
-    setRudder(next);
-  }
-
-  function handleStop() {
+  function onStop() {
     setThrottle(0);
-    setRudder(rudderTrim);
-    sendWs({ type: 'stop' });
+    setRudder(rudderTrim); // return rudder to trim position
+    sendWs({ type:'stop' });
   }
 
-  const tabs = [
-    { id:'ctrl',    label:'Control' },
-    { id:'instr',   label:'Instruments' },
-    { id:'map',     label:'Map' },
-    { id:'dev',     label:'Devices' },
-    { id:'console', label:'Console' },
-  ];
+  // ── Data object (d) ───────────────────────────────────────────────────────
+  // Built from live telem + local control state.  Passed to every screen
+  // component so they all share a single consistent snapshot.
+  const d = useMemo(() => {
+    const dist = homePos && telem.lat
+      ? haversineM(telem.lat, telem.lng, homePos.lat, homePos.lng)
+      : 0;
+    const brg = homePos && telem.lat
+      ? bearingDeg(homePos.lat, homePos.lng, telem.lat, telem.lng)
+      : 0;
+    return {
+      volts: telem.volts, chg: telem.pct, amps: telem.amps, mah: telem.mah,
+      sats:  telem.sats,
+      spd:   telem.speed / 1.852,   // km/h → knots
+      lat:   telem.lat,  lon: telem.lng, alt: telem.alt, hdg: telem.hdg,
+      roll:  telem.roll, pitch: telem.pitch,
+      lq:    telem.lq,   rssi: telem.rssi,
+      temp:  telem.temp, bilgeWet: telem.bilge,
+      // Control positions: normalised → display units
+      sail: Math.round(sail * 100),       // 0–100 %
+      rud:  Math.round(rudder * 35),      // ±35 °
+      thr:  Math.round(throttle * 100),   // ±100 %
+      trim: rudderTrim,
+      homeDist: Math.round(dist),
+      homeBrg:  Math.round(brg),
+    };
+  }, [telem, sail, rudder, throttle, rudderTrim, homePos]);
 
-  const pageBg = { background:T.bg, color:T.text, fontFamily:T.sans,
-    minHeight:'100%', display:'flex', flexDirection:'column' };
+  // ── Render ────────────────────────────────────────────────────────────────
+  const inControl = controlRole === 'controller';
 
-  return (
-    <div style={pageBg}>
-      <TweaksPanel>
-        <TweakSection title="Appearance">
-          <TweakRadio id="theme" label="Theme" options={['dark','light']}
-            value={tweaks.theme} onChange={v=>setTweak('theme',v)}/>
-        </TweakSection>
-        <TweakSection title="Telemetry">
-          <TweakRadio id="telemDensity" label="Density" options={['compact','expanded']}
-            value={tweaks.telemDensity} onChange={v=>setTweak('telemDensity',v)}/>
-        </TweakSection>
-        <TweakSection title="Connection">
-          <div>
-            <div style={{ fontSize:10, color:'#5a7a96', marginBottom:3 }}>Device label</div>
-            <input value={tweaks.deviceLabel || ''} onChange={e=>setTweak('deviceLabel',e.target.value)}
-              placeholder="My phone"
-              style={{ width:'100%', padding:'5px 8px', borderRadius:6,
-                border:'1px solid #253650', background:'#1a2a40',
-                color:'#e0e8f0', fontFamily:'inherit', fontSize:11, outline:'none' }}/>
-          </div>
-          <div>
-            <div style={{ fontSize:10, color:'#5a7a96', marginBottom:3 }}>Access token</div>
-            <input type="password" value={tweaks.accessToken || ''} onChange={e=>setTweak('accessToken',e.target.value)}
-              placeholder="(none)"
-              style={{ width:'100%', padding:'5px 8px', borderRadius:6,
-                border:'1px solid #253650', background:'#1a2a40',
-                color:'#e0e8f0', fontFamily:'monospace', fontSize:11, outline:'none' }}/>
-            <div style={{ fontSize:9, color:'#5a7a96', marginTop:2 }}>Reconnect to apply</div>
-          </div>
-        </TweakSection>
-      </TweaksPanel>
-
-      {/* ── HEADER ── */}
-      <div style={{ padding:'14px 14px 0', background:T.surface,
-        borderBottom:`1px solid ${T.border}` }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
-          <span style={{ fontSize:16, fontWeight:800, letterSpacing:'0.05em',
-            color:T.accent, flex:1 }}>⛵ Dark &amp; Stormy</span>
-          <span style={{ fontFamily:T.mono, fontSize:9, color:T.dim }}>Pi · ELRS</span>
-          <StatusPill connected={t.bridge} T={T}/>
-        </div>
-        {/* Tabs */}
-        <div style={{ display:'flex', gap:2 }}>
-          {tabs.map(tb => (
-            <button key={tb.id} onClick={()=>setTab(tb.id)} style={{
-              flex:1, padding:'9px 4px', border:'none',
-              borderRadius:'8px 8px 0 0', cursor:'pointer',
-              fontFamily:T.sans, fontSize:11, fontWeight:700,
-              background: tab===tb.id ? T.bg : 'transparent',
-              color: tab===tb.id ? T.accent : T.dim,
-              borderBottom: `2px solid ${tab===tb.id ? T.accent : 'transparent'}`,
-              transition:'color 0.15s',
-            }}>{tb.label}</button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── CONTENT ── */}
-      <div style={{ flex:1, padding:'12px 14px 20px', display:'flex',
-        flexDirection:'column', gap:10, overflowY:'auto' }}>
-
-        {/* ── CONTROL TAB ── */}
-        {tab==='ctrl' && <>
-          <TelemStrip t={t} T={T} expanded={tweaks.telemDensity==='expanded'}/>
-          <BilgeBar wet={t.bilge} pump={t.pump} T={T}/>
-
-          {/* Compact attitude + quick telem row */}
-          <div style={{ display:'flex', gap:10, alignItems:'center',
-            background:T.surface, borderRadius:12, padding:'10px 13px',
-            border:`1px solid ${T.border}` }}>
-            <AttitudeHorizon roll={t.roll} pitch={t.pitch} size={88} T={T}/>
-            <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 12px' }}>
-              {[
-                { label:'Roll',  value:`${t.roll>=0?'+':''}${t.roll.toFixed(1)}°`,  warn:Math.abs(t.roll)>20 },
-                { label:'Pitch', value:`${t.pitch>=0?'+':''}${t.pitch.toFixed(1)}°` },
-                { label:'Hdg',   value:`${t.yaw.toFixed(0)}°` },
-                { label:'Temp',  value:`${t.temp}°C`, warn:t.temp>60, danger:t.temp>80 },
-              ].map(it=>(
-                <div key={it.label} style={{ display:'flex', flexDirection:'column', gap:1 }}>
-                  <span style={{ fontFamily:T.sans, fontSize:8, fontWeight:700,
-                    letterSpacing:'0.08em', textTransform:'uppercase', color:T.dim }}>{it.label}</span>
-                  <span style={{ fontFamily:T.mono, fontSize:13, fontWeight:700,
-                    color: it.danger?T.danger : it.warn?T.warn : T.accent }}>{it.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Throttle + Sail */}
-          <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
-            {/* Throttle */}
-            <div style={{ background:T.surface, borderRadius:12, padding:'11px 10px',
-              border:`1px solid ${T.border}`, display:'flex', flexDirection:'column',
-              alignItems:'center', gap:6 }}>
-              {lbl('Throttle', T)}
-              <ThrottleSlider
-                value={throttle} onChange={setThrottle}
-                onRelease={()=>setThrottle(0)}
-                locked={throttleLocked}
-                onToggleLock={()=>{ setThrottleLocked(l=>!l); setThrottle(0); }}
-                height={158} T={T}/>
-            </div>
-
-            {/* Sail */}
-            <div style={{ flex:1, background:T.surface, borderRadius:12, padding:'11px 10px',
-              border:`1px solid ${T.border}`, display:'flex', flexDirection:'column',
-              alignItems:'center', gap:7 }}>
-              {lbl('Sail Trim', T)}
-              <SailArc value={sail} onChange={setSail} size={152} T={T}/>
-              <div style={{ display:'flex', gap:6, width:'100%', justifyContent:'center' }}>
-                <button onClick={()=>setSail(v=>Math.min(1, v+1/18))} style={{
-                  flex:1, padding:'6px 4px', borderRadius:7, cursor:'pointer',
-                  border:`1px solid ${T.border}`, background:T.surface2,
-                  color:T.dim, fontFamily:T.sans, fontSize:10, fontWeight:700 }}>◀ Trim</button>
-                <button onClick={()=>setSail(v=>Math.max(0, v-1/18))} style={{
-                  flex:1, padding:'6px 4px', borderRadius:7, cursor:'pointer',
-                  border:`1px solid ${T.border}`, background:T.surface2,
-                  color:T.dim, fontFamily:T.sans, fontSize:10, fontWeight:700 }}>Ease ▶</button>
-              </div>
-              {mono(`${Math.round(sail*100)}% trimmed`, T.accent, T, 11)}
-            </div>
-          </div>
-
-          {/* Rudder */}
-          <div style={{ background:T.surface, borderRadius:12, padding:'11px 13px',
-            border:`1px solid ${T.border}` }}>
-            {lbl('Rudder', T, { marginBottom:8 })}
-            <RudderPad
-              rudder={rudder} trim={rudderTrim}
-              onRudder={setRudder} onTrim={handleTrimChange} T={T}/>
-          </div>
-
-          <ControlBar
-            role={controlRole}
-            controllerLabel={controllerLabel}
-            pendingLabel={pendingLabel}
-            pendingExpiresIn={pendingExpiresIn}
-            onRequest={handleRequestControl}
-            onRelease={handleReleaseControl}
-            onAccept={handleAcceptHandoff}
-            onDismiss={handleDismissRequest}
-            onStop={handleStop}
-            T={T}
-          />
-        </>}
-
-        {/* ── INSTRUMENTS TAB ── */}
-        {tab==='instr' && <>
-          {/* Attitude horizon — central */}
-          <div style={{ background:T.surface, borderRadius:12, padding:'14px',
-            border:`1px solid ${T.border}`, display:'flex', flexDirection:'column',
-            alignItems:'center', gap:10 }}>
-            {lbl('Attitude', T)}
-            <AttitudeHorizon roll={t.roll} pitch={t.pitch} size={200} T={T}/>
-            <div style={{ display:'flex', gap:16 }}>
-              <div style={{ textAlign:'center' }}>
-                {lbl('Roll', T)}
-                {mono(`${t.roll>=0?'+':''}${t.roll.toFixed(1)}°`, Math.abs(t.roll)>20?T.warn:T.accent, T, 16)}
-              </div>
-              <div style={{ textAlign:'center' }}>
-                {lbl('Pitch', T)}
-                {mono(`${t.pitch>=0?'+':''}${t.pitch.toFixed(1)}°`, T.accent, T, 16)}
-              </div>
-              <div style={{ textAlign:'center' }}>
-                {lbl('Hdg', T)}
-                {mono(`${t.yaw.toFixed(0)}°`, T.accent, T, 16)}
-              </div>
-            </div>
-          </div>
-
-          {/* Gauge grid */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            <GaugeCard label="Battery" value={t.volts.toFixed(1)} unit="V"
-              sub={`${t.pct}%  ·  ${t.mah}mAh`}
-              min={10.5} max={12.6} warn={t.volts<11.4} danger={t.volts<11} T={T}/>
-            <GaugeCard label="Current" value={t.amps.toFixed(1)} unit="A"
-              min={0} max={10} T={T}/>
-            <GaugeCard label="GPS Sats" value={t.sats} unit=""
-              sub={`${t.speed.toFixed(1)} km/h`}
-              min={0} max={16} warn={t.sats<4} danger={t.sats<2} T={T}/>
-            <GaugeCard label="Link Quality" value={t.lq} unit="%"
-              sub={`${t.rssi} dBm`}
-              min={0} max={100} warn={t.lq<50} danger={t.lq<25} T={T}/>
-            <GaugeCard label="MCU Temp" value={t.temp} unit="°C"
-              min={20} max={100} warn={t.temp>60} danger={t.temp>80} T={T}/>
-            <GaugeCard label="Mode" value={t.mode} unit=""
-              min={0} max={1} T={T}/>
-          </div>
-
-          {/* Bilge */}
-          <BilgeBar wet={t.bilge} pump={t.pump} T={T}/>
-        </>}
-
-        {/* ── MAP TAB ── */}
-        {tab==='map' && <>
-          {/* GPS fix info */}
-          <div style={{ display:'flex', gap:8 }}>
-            {[
-              { label:'Lat',  value:`${t.lat.toFixed(4)}°` },
-              { label:'Lon',  value:`${t.lng.toFixed(4)}°` },
-              { label:'Alt',  value:`${t.alt}m` },
-              { label:'Hdg',  value:`${t.hdg}°` },
-              { label:'Spd',  value:`${t.speed.toFixed(1)}` },
-            ].map(it => (
-              <div key={it.label} style={{ flex:1, background:T.surface, borderRadius:8,
-                padding:'7px 6px', border:`1px solid ${T.border}`,
-                display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-                {lbl(it.label, T)}
-                {mono(it.value, T.accent, T, 10)}
-              </div>
-            ))}
-          </div>
-
-          {/* Map placeholder */}
-          <div style={{ background:T.surface, borderRadius:12, overflow:'hidden',
-            border:`1px solid ${T.border}` }}>
-            <div style={{ height:280, background:T.surface2, display:'flex',
-              alignItems:'center', justifyContent:'center', flexDirection:'column', gap:10 }}>
-              <svg viewBox="0 0 200 160" width="200" height="160" opacity="0.5">
-                {[0,40,80,120,160].map(x=><line key={`v${x}`} x1={x} y1={0} x2={x} y2={160}
-                  stroke={T.border} strokeWidth="1"/>)}
-                {[0,40,80,120,160].map(y=><line key={`h${y}`} x1={0} y1={y} x2={200} y2={y}
-                  stroke={T.border} strokeWidth="1"/>)}
-                <polyline points="60,120 80,100 95,80 100,60 105,45 112,32"
-                  fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round"
-                  strokeLinejoin="round"/>
-                <circle cx="112" cy="32" r="5" fill={T.accent}
-                  style={{ filter:`drop-shadow(0 0 4px ${T.accent})` }}/>
-                <text x="120" y="30" fontSize="9" fill={T.accent} fontFamily="DM Sans,sans-serif">
-                  ⛵
-                </text>
-                <circle cx="60" cy="120" r="4" fill={T.safe}/>
-              </svg>
-              <div style={{ textAlign:'center' }}>
-                <div style={{ fontFamily:T.sans, fontSize:11, color:T.dim, lineHeight:1.5 }}>
-                  Leaflet map loads here
-                </div>
-                <div style={{ fontFamily:T.mono, fontSize:10, color:T.accent }}>
-                  {t.sats} sats · {t.sats > 3 ? 'GPS fix ✓' : 'No fix'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <BilgeBar wet={t.bilge} pump={t.pump} T={T}/>
-        </>}
-
-        {/* ── DEVICES TAB ── */}
-        {tab==='dev' && <DevicesTab T={T} groups={displayDevices}
-          esp32Status={esp32Status}
-          esp32Host={tweaks.esp32Host}
-          onHostChange={v => setTweak('esp32Host', v)}
-          onConnect={connectESP32}
-          onDisconnect={disconnectESP32}
-        />}
-
-        {/* ── CONSOLE TAB ── */}
-        {tab==='console' && <ConsolePanel
-          lines={consoleLines}
-          enabled={consoleEnabled}
-          onClear={() => setConsoleLines([])}
-          T={T}
-        />}
-
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CONTROL BAR — context-sensitive claim / release / handoff controls
-// ─────────────────────────────────────────────────────────────────────────────
-function ControlBar({ role, controllerLabel, pendingLabel, pendingExpiresIn,
-                      onRequest, onRelease, onAccept, onDismiss, onStop, T }) {
-  const btn = (label, onClick, color, bg, extra={}) => (
-    <button onClick={onClick} style={{
-      flex:1, padding:'13px 8px', borderRadius:10, cursor:'pointer',
-      fontFamily:T.sans, fontSize:13, fontWeight:800, letterSpacing:'0.06em',
-      textTransform:'uppercase', border:`2px solid ${color}`,
-      background:bg, color,
-      ...extra,
-    }}>{label}</button>
-  );
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-
-      {/* Incoming request banner — shown to the controller */}
-      {role === 'controller' && pendingLabel && (
-        <div style={{
-          display:'flex', alignItems:'center', gap:8, padding:'9px 13px',
-          borderRadius:10, background:`${T.accent}14`, border:`1px solid ${T.accent}`,
-        }}>
-          <span style={{ fontFamily:T.sans, fontSize:11, color:T.text, flex:1 }}>
-            <span style={{ color:T.accent, fontWeight:700 }}>{pendingLabel}</span>
-            {' '}wants control
-            {pendingExpiresIn != null && (
-              <span style={{ color:T.dim }}> · {pendingExpiresIn}s</span>
-            )}
-          </span>
-          <button onClick={onAccept} style={{
-            padding:'5px 12px', borderRadius:7, cursor:'pointer', fontFamily:T.sans,
-            fontSize:10, fontWeight:700, border:`1px solid ${T.safe}`,
-            background:`${T.safe}22`, color:T.safe,
-          }}>Hand off</button>
-          <button onClick={onDismiss} style={{
-            padding:'5px 12px', borderRadius:7, cursor:'pointer', fontFamily:T.sans,
-            fontSize:10, fontWeight:700, border:`1px solid ${T.border}`,
-            background:T.surface2, color:T.dim,
-          }}>Dismiss</button>
-        </div>
-      )}
-
-      {/* Status line — shown to observers and requesters */}
-      {role === 'observer' && controllerLabel && (
-        <div style={{ padding:'8px 13px', borderRadius:8, background:T.surface2,
-          border:`1px solid ${T.border}`, fontFamily:T.sans, fontSize:11,
-          color:T.dim, textAlign:'center' }}>
-          <span style={{ color:T.accent, fontWeight:700 }}>{controllerLabel}</span>
-          {' '}is in control
-        </div>
-      )}
-
-      {role === 'requesting' && (
-        <div style={{ padding:'8px 13px', borderRadius:8,
-          background:`${T.warn}14`, border:`1px solid ${T.warn}`,
-          fontFamily:T.sans, fontSize:11, color:T.warn, textAlign:'center' }}>
-          Requesting control
-          {pendingExpiresIn != null && (
-            <span style={{ fontFamily:T.mono }}> · {pendingExpiresIn}s</span>
-          )}
-        </div>
-      )}
-
-      {/* Action buttons */}
-      <div style={{ display:'flex', gap:8 }}>
-        {role === 'observer' && btn(
-          controllerLabel ? '○ Request Control' : '▶ Take Control',
-          onRequest, T.accent, T.accentDim
+  if (orient === 'landscape') {
+    return (
+      <>
+        <Landscape
+          T={T} tab={tab} setTab={setTab} d={d} stale={stale}
+          sail={sail} setSail={setSail}
+          rudder={rudder} setRudder={setRudder}
+          rudderTrim={rudderTrim} setRudderTrim={setRudderTrim}
+          throttle={throttle} setThrottle={setThrottle}
+          motorMode={motorMode} setMotorMode={setMotorMode}
+          homePos={homePos} setHomePos={setHomePos}
+          deviceStatus={deviceStatus}
+          consoleLines={consoleLines} consoleEnabled={consoleEnabled}
+          controlRole={controlRole} controllerLabel={controllerLabel}
+          pendingLabel={pendingLabel} pendingExpiresIn={pendingExpiresIn}
+          wsRef={wsRef} theme={theme} setTheme={setTheme} setOrient={setOrient}
+          onRequestControl={onRequestControl} onReleaseControl={onReleaseControl}
+          onAcceptHandoff={onAcceptHandoff} onDismissRequest={onDismissRequest}
+          onStop={onStop}
+        />
+        {settingsOpen && (
+          <SettingsModal T={T} tweaks={tweaks} setTweak={setTweak}
+            onClose={() => setSettingsOpen(false)}
+            onReconnect={() => { wsRef.current?.close(); }}/>
         )}
-        {role === 'requesting' && btn('✕ Cancel', onRelease, T.dim, T.surface2)}
-        {role === 'controller' && <>
-          {btn('◼ Release', onRelease, T.safe, `${T.safe}20`)}
-          <button onClick={onStop} style={{
-            flex:1.5, padding:'13px 8px', border:'none', borderRadius:10, cursor:'pointer',
-            fontFamily:T.sans, fontSize:14, fontWeight:900, letterSpacing:'0.06em',
-            textTransform:'uppercase', background:T.danger, color:'#fff',
-          }}>■ Stop</button>
-        </>}
-      </div>
-
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CONSOLE TAB — streams ESP32 USB serial output
-// ─────────────────────────────────────────────────────────────────────────────
-function consoleLineColor(line, T) {
-  const lo = line.toLowerCase();
-  if (lo.includes('error') || lo.includes('fault') || lo.includes('fail')) return T.danger;
-  if (lo.includes('warn')) return T.warn;
-  if (lo.startsWith('rcsailboat') || lo.includes('ready') || lo.includes('done') || lo.includes('ok')) return T.safe;
-  return T.text;
-}
-
-function ConsolePanel({ lines, enabled, onClear, T }) {
-  const bottomRef = React.useRef(null);
-  const scrollRef = React.useRef(null);
-
-  // Auto-scroll only when already near the bottom
-  React.useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    if (atBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [lines]);
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:8, height:'100%' }}>
-      {/* Header row */}
-      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        {lbl('ESP32 USB Console', T, { flex:1 })}
-        <span style={{ fontFamily:T.mono, fontSize:10, color:T.dim }}>{lines.length} lines</span>
-        <button onClick={onClear} style={{
-          padding:'3px 10px', borderRadius:6, cursor:'pointer',
-          border:`1px solid ${T.border}`, background:T.surface2,
-          color:T.dim, fontFamily:T.sans, fontSize:10, fontWeight:700,
-        }}>Clear</button>
-      </div>
-
-      {/* Status badge */}
-      {!enabled && (
-        <div style={{ padding:'8px 12px', borderRadius:8,
-          background:T.surface2, border:`1px solid ${T.border}`,
-          fontFamily:T.mono, fontSize:10, color:T.dim }}>
-          USB console not configured — set <span style={{ color:T.accent }}>ESP32_DBG_PORT</span> on the Pi
-        </div>
-      )}
-
-      {/* Log area */}
-      <div ref={scrollRef} style={{
-        flex:1, minHeight:320, overflowY:'auto',
-        background:T.surface, borderRadius:10, border:`1px solid ${T.border}`,
-        padding:'10px 12px',
-      }}>
-        {lines.length === 0 ? (
-          <div style={{ fontFamily:T.mono, fontSize:11, color:T.dim, opacity:0.5 }}>
-            {enabled ? 'Waiting for output…' : 'No data'}
-          </div>
-        ) : lines.map((line, i) => (
-          <div key={i} style={{
-            fontFamily:T.mono, fontSize:11, lineHeight:1.55,
-            color: consoleLineColor(line, T),
-            whiteSpace:'pre-wrap', wordBreak:'break-all',
-          }}>{line}</div>
-        ))}
-        <div ref={bottomRef}/>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DEVICES TAB
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Base device list — all start absent; live data from ESP32 overlaid by App.
-const DEVICE_GROUPS = [
-  {
-    group: 'Sensors',
-    devices: [
-      { id:'imu',     name:'IMU',            detail:'QMI8658 · I²C 0x6B',   status:'absent', note:'—' },
-      { id:'compass', name:'Compass',         detail:'HMC5883L · I²C 0x1E',  status:'absent', note:'GPS_ENABLED build only' },
-      { id:'gps',     name:'GPS',             detail:'BN-880 · UART2 9600',  status:'absent', note:'GPS_ENABLED build only' },
-      { id:'current', name:'Current Sensor',  detail:'INA228 · I²C 0x41',    status:'absent', note:'—' },
-      { id:'bilge',   name:'Bilge Sensor',    detail:'Float switch · GPIO2',  status:'absent', note:'—' },
-    ],
-  },
-  {
-    group: 'Actuators',
-    devices: [
-      { id:'servodrv', name:'Servo Driver',   detail:'PCA9685 · I²C 0x40',   status:'absent', note:'—' },
-      { id:'rudder',   name:'Rudder Servo',   detail:'PCA9685 Ch 0',          status:'absent', note:'—' },
-      { id:'winch',    name:'Sail Winch',     detail:'PCA9685 Ch 1',          status:'absent', note:'—' },
-      { id:'esc',      name:'ESC',            detail:'PCA9685 Ch 2',          status:'absent', note:'—' },
-      { id:'motor',    name:'Motor',          detail:'ESC → Ch 2',            status:'absent', note:'—' },
-      { id:'pump',     name:'Bilge Pump',     detail:'MOSFET · GPIO3',        status:'absent', note:'—' },
-    ],
-  },
-  {
-    group: 'Radio',
-    devices: [
-      { id:'elrsrx',  name:'ELRS Receiver',  detail:'RP3 · UART1 420000',   status:'absent', note:'ELRS mode only' },
-      { id:'elrstx',  name:'ELRS TX Module', detail:'Ranger Micro · Pi USB', status:'absent', note:'—' },
-    ],
-  },
-  {
-    group: 'System',
-    devices: [
-      { id:'sdcard',  name:'SD Card',        detail:'SPI3 · GPIO38–41',     status:'absent', note:'—' },
-    ],
-  },
-];
-
-function DeviceCard({ dev, T, onRepair }) {
-  const [repairing, setRepairing] = React.useState(false);
-  const colors = {
-    ok:     { bg:`${T.safe}14`,    border:T.safe,   dot:T.safe,   text:T.safe },
-    warn:   { bg:`${T.warn}14`,    border:T.warn,   dot:T.warn,   text:T.warn },
-    error:  { bg:`${T.danger}14`,  border:T.danger, dot:T.danger, text:T.danger },
-    absent: { bg:T.surface2,       border:T.border, dot:T.dim,    text:T.dim },
-  };
-  const c = colors[dev.status] || colors.absent;
-  const label = { ok:'OK', warn:'WARN', error:'FAULT', absent:'N/A' }[dev.status] || '—';
-  const canRepair = dev.status === 'absent' || dev.status === 'error' || dev.status === 'warn';
-
-  function handleRepair() {
-    setRepairing(true);
-    fetch(`/repair?id=${dev.id}`).catch(()=>{});
-    setTimeout(() => setRepairing(false), 1500);
-    if (onRepair) onRepair(dev.id);
+      </>
+    );
   }
 
+  // Portrait layout
   return (
-    <div style={{ background:c.bg, border:`1px solid ${c.border}`, borderRadius:10,
-      padding:'9px 11px', display:'flex', flexDirection:'column', gap:4 }}>
-      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-        <div style={{ width:7, height:7, borderRadius:'50%', flexShrink:0,
-          background:c.dot, boxShadow: dev.status==='ok' ? `0 0 6px ${c.dot}` : 'none' }}/>
-        <span style={{ fontFamily:T.sans, fontSize:12, fontWeight:700,
-          color:T.text, flex:1 }}>{dev.name}</span>
-        <span style={{ fontFamily:T.mono, fontSize:9, fontWeight:700,
-          color:c.text, textTransform:'uppercase', letterSpacing:'0.07em' }}>{label}</span>
-      </div>
-      <div style={{ fontFamily:T.mono, fontSize:9, color:T.dim, paddingLeft:13 }}>
-        {dev.detail}
-      </div>
-      {dev.note && (
-        <div style={{ fontFamily:T.sans, fontSize:10,
-          color: dev.status==='absent' ? T.dim : T.text,
-          paddingLeft:13, opacity:0.8 }}>{dev.note}</div>
+    <div style={{ height:'100%', display:'flex', flexDirection:'column',
+      background:T.bg, color:T.text, overflowY:'hidden' }}>
+
+      <StatusBar T={T} theme={theme} setTheme={setTheme}
+        orient={orient} setOrient={setOrient}
+        onSettings={() => setSettingsOpen(true)}/>
+
+      <Masthead T={T} linked={telem.bridge}/>
+
+      <TabBar T={T} tab={tab} setTab={setTab}/>
+
+      {/* Helm banner — only on Control tab */}
+      {tab==='control' && (
+        <HelmBanner T={T} controlRole={controlRole}
+          controllerLabel={controllerLabel}
+          pendingLabel={pendingLabel} pendingExpiresIn={pendingExpiresIn}
+          onRequest={onRequestControl}
+          onAccept={onAcceptHandoff} onDismiss={onDismissRequest}/>
       )}
-      {canRepair && (
-        <button onClick={handleRepair} disabled={repairing} style={{
-          marginTop:2, padding:'4px 0', borderRadius:6, cursor: repairing ? 'default' : 'pointer',
-          border:`1px solid ${repairing ? T.border : c.border}`,
-          background: repairing ? T.surface2 : `${c.border}22`,
-          color: repairing ? T.dim : c.text,
-          fontFamily:T.sans, fontSize:10, fontWeight:700,
-          letterSpacing:'0.05em', textTransform:'uppercase',
-          width:'100%', transition:'all 0.2s',
-        }}>{repairing ? '⟳ Probing…' : '↻ Repair'}</button>
+
+      {/* Compact telemetry strip — all other tabs */}
+      {tab!=='control' && <TelemetryBar T={T} d={d} stale={stale}/>}
+
+      {/* Scrollable content area */}
+      <div style={{ flex:1, overflowY:'auto', overflowX:'hidden' }}>
+        {tab==='control' && (
+          <Ctrl T={T} d={d} stale={stale}
+            sail={sail} setSail={setSail}
+            rudder={rudder} setRudder={setRudder}
+            rudderTrim={rudderTrim} setRudderTrim={setRudderTrim}
+            throttle={throttle} setThrottle={setThrottle}
+            motorMode={motorMode} setMotorMode={setMotorMode}
+            onRelease={onReleaseControl} onStop={onStop}/>
+        )}
+        {tab==='instr'   && <Instr   T={T} d={d} stale={stale}/>}
+        {tab==='map'     && <MapTab  T={T} d={d} stale={stale} homePos={homePos} setHomePos={setHomePos}/>}
+        {tab==='devices' && <Dev     T={T} d={d} stale={stale} deviceStatus={deviceStatus}/>}
+        {tab==='console' && <Con     T={T} lines={consoleLines} enabled={consoleEnabled}/>}
+      </div>
+
+      {/* Settings modal — slides up from the bottom */}
+      {settingsOpen && (
+        <SettingsModal T={T} tweaks={tweaks} setTweak={setTweak}
+          onClose={() => setSettingsOpen(false)}
+          onReconnect={() => { wsRef.current?.close(); }}/>
       )}
-    </div>
-  );
-}
-
-function DevicesTab({ T, groups, esp32Status, esp32Host, onHostChange, onConnect, onDisconnect }) {
-  const statusColor = {
-    disconnected: T.dim, connecting: T.warn, connected: T.safe, error: T.danger,
-  }[esp32Status] || T.dim;
-  const statusLabel = {
-    disconnected: 'Not connected', connecting: 'Connecting…',
-    connected: 'Connected', error: 'Connection failed',
-  }[esp32Status] || '—';
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-      {/* ESP32 connection panel */}
-      <div style={{ background:T.surface, borderRadius:12, padding:'11px 14px',
-        border:`1px solid ${T.border}`, display:'flex', flexDirection:'column', gap:8 }}>
-        {lbl('ESP32 Direct Link', T)}
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div style={{ width:7, height:7, borderRadius:'50%', flexShrink:0,
-            background:statusColor, boxShadow: esp32Status==='connected' ? `0 0 6px ${statusColor}` : 'none' }}/>
-          <span style={{ fontFamily:T.mono, fontSize:11, color:statusColor, flex:1 }}>{statusLabel}</span>
-          {esp32Status==='connected' && (
-            <button onClick={onDisconnect} style={{ padding:'4px 10px', borderRadius:6,
-              border:`1px solid ${T.border}`, background:T.surface2,
-              color:T.dim, fontFamily:T.sans, fontSize:10, fontWeight:700, cursor:'pointer' }}>Disconnect</button>
-          )}
-        </div>
-        {esp32Status !== 'connected' && (
-          <div style={{ display:'flex', gap:8 }}>
-            <input type="text" value={esp32Host} onChange={e=>onHostChange(e.target.value)}
-              placeholder="192.168.4.1"
-              style={{ flex:1, padding:'6px 10px', borderRadius:7,
-                border:`1px solid ${T.border}`, background:T.surface2,
-                color:T.text, fontFamily:T.mono, fontSize:11, outline:'none' }}/>
-            <button onClick={onConnect} disabled={esp32Status==='connecting'}
-              style={{ padding:'6px 14px', borderRadius:7, flexShrink:0,
-                border:`1px solid ${esp32Status==='connecting' ? T.border : T.accent}`,
-                background: esp32Status==='connecting' ? T.surface2 : T.accentDim,
-                color: esp32Status==='connecting' ? T.dim : T.accent,
-                fontFamily:T.sans, fontSize:11, fontWeight:700,
-                cursor: esp32Status==='connecting' ? 'default' : 'pointer' }}>
-              {esp32Status==='connecting' ? '⟳ Connecting…' : esp32Status==='error' ? '↺ Retry' : '⟳ Connect'}
-            </button>
-          </div>
-        )}
-        {esp32Status==='error' && (
-          <div style={{ fontFamily:T.sans, fontSize:10, color:T.danger, paddingLeft:15 }}>
-            Could not reach {esp32Host} — join "darkandstormy" AP first
-          </div>
-        )}
-        {esp32Status==='connected' && (
-          <div style={{ fontFamily:T.mono, fontSize:10, color:T.dim }}>{esp32Host} · refreshes every 5 s</div>
-        )}
-      </div>
-
-      {lbl('Device Status', T)}
-      {groups.map(grp => (
-        <div key={grp.group} style={{ display:'flex', flexDirection:'column', gap:6 }}>
-          {lbl(grp.group, T, { marginBottom:2 })}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
-            {grp.devices.map(dev => <DeviceCard key={dev.id} dev={dev} T={T}/>)}
-          </div>
-        </div>
-      ))}
-
-      {/* Legend */}
-      <div style={{ display:'flex', gap:12, padding:'8px 12px',
-        background:T.surface, borderRadius:8, border:`1px solid ${T.border}`,
-        justifyContent:'center' }}>
-        {[
-          { status:'ok',    label:'OK',    color:T.safe },
-          { status:'warn',  label:'Warn',  color:T.warn },
-          { status:'error', label:'Fault', color:T.danger },
-          { status:'absent',label:'N/A',   color:T.dim },
-        ].map(l => (
-          <div key={l.status} style={{ display:'flex', alignItems:'center', gap:5 }}>
-            <div style={{ width:7, height:7, borderRadius:'50%', background:l.color,
-              boxShadow: l.status==='ok' ? `0 0 5px ${l.color}` : 'none' }}/>
-            <span style={{ fontFamily:T.sans, fontSize:10, color:T.dim }}>{l.label}</span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
