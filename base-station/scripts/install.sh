@@ -29,6 +29,10 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_BASE_STATION="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# Detect the real user behind sudo (falls back to current user if run as root directly)
+REAL_USER="${SUDO_USER:-${USER}}"
+REAL_GROUP="$(id -gn "${REAL_USER}" 2>/dev/null || echo "${REAL_USER}")"
+
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root: sudo $0"
   exit 1
@@ -53,7 +57,7 @@ rsync -a --delete \
   --exclude='*.egg-info' \
   --exclude='tiles/' \
   "${REPO_BASE_STATION}/" "${APP_DIR}/"
-chown -R pi:pi "${INSTALL_DIR}"
+chown -R "${REAL_USER}:${REAL_GROUP}" "${INSTALL_DIR}"
 
 # ── 3. Python venv + dependencies ─────────────────────────────────────────────
 echo "[3/5] Creating Python venv and installing requirements..."
@@ -91,7 +95,9 @@ fi
 
 # ── 5. Systemd service ────────────────────────────────────────────────────────
 echo "[5/5] Installing systemd service..."
-cp "${REPO_BASE_STATION}/rcsailboat-base.service" "${SERVICE_FILE}"
+# Substitute the placeholder user with the detected real user
+sed "s/^User=pi$/User=${REAL_USER}/" \
+  "${REPO_BASE_STATION}/rcsailboat-base.service" > "${SERVICE_FILE}"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
 
