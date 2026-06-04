@@ -123,7 +123,7 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
       {/* ── Sail trim card ─────────────────────────────────────────────────── */}
       <Card T={T} style={{ display:'flex' }}>
         <div style={{ padding:'13px 14px', borderRight:`1px solid ${T.border}`, flexShrink:0 }}>
-          <SailArc value={sail} size={116} T={T}/>
+          <SailArc value={sail} size={116} T={T} onChange={setSail}/>
         </div>
         <div style={{ flex:1, padding:'13px 14px', display:'flex',
           flexDirection:'column', gap:10, justifyContent:'center' }}>
@@ -148,7 +148,7 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
           <span style={lbl()}>RUDDER</span>
           <div style={{ display:'flex', gap:12, alignItems:'baseline' }}>
             <span style={{ fontFamily:_MONO, fontSize:10, fontWeight:700,
-              color:T.warn }}>TRIM {rudderTrim>=0?'+':''}{Math.round(rudderTrim*100)}%</span>
+              color:T.warn }}>TRIM {rudderTrim>=0?'+':''}{Math.round(rudderTrim*35)}°</span>
             <span style={val(18,T.accent)}>
               {d.rud>=0?'+':''}{d.rud}°
             </span>
@@ -200,12 +200,12 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
             letterSpacing:'0.06em' }}>STBD</span>
         </div>
 
-        {/* Trim stepper */}
+        {/* Trim stepper — each press also moves the rudder so position updates immediately */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1.4fr 1fr', gap:5, marginTop:8 }}>
           {[
-            ['− TRIM', () => setRudderTrim(t => Math.max(-1, t-0.01))],
-            ['CENTRE', () => setRudderTrim(0)],
-            ['TRIM +', () => setRudderTrim(t => Math.min(1, t+0.01))],
+            ['− TRIM', () => { const t = Math.max(-1, rudderTrim-0.01); setRudderTrim(t); setRudder(t); }],
+            ['CENTRE', () => { setRudderTrim(0); setRudder(0); }],
+            ['TRIM +', () => { const t = Math.min(1, rudderTrim+0.01); setRudderTrim(t); setRudder(t); }],
           ].map(([label, fn]) => (
             <div key={label} style={btnStyle(T.inset, T.dim, `1px solid ${T.border}`)}
               onClick={fn}>{label}</div>

@@ -144,17 +144,42 @@ const AttHorizon = ({ roll=0, pitch=0, size=100, T }) => {
 // ── Sail arc (SVG) ────────────────────────────────────────────────────────────
 // Quarter-circle arc showing sail trim angle.
 // value: 0.0 = fully eased (sheet out), 1.0 = fully trimmed in.
-// A curved "boom" line runs from the mast (corner) to the thumb on the arc.
-const SailArc = ({ value=0.5, size=116, T }) => {
+// When onChange is provided the widget becomes a drag control: the user drags
+// the thumb along the arc and the angle maps back to a 0.0–1.0 sail value.
+const SailArc = ({ value=0.5, size=116, T, onChange }) => {
+  const { useRef, useState } = React;
+  const svgRef  = useRef(null);
+  const [drag, setDrag] = useState(false);
   const CX=20, CY=20, R=size-52;
   const a = (1-value) * Math.PI/2;   // angle measured from horizontal
   const pt = { x:CX+R*Math.cos(a), y:CY+R*Math.sin(a) };
   const mid = { x:(CX+pt.x)/2, y:(CY+pt.y)/2 };
   // Quadratic bezier control point — offsets the boom line to look curved
   const ctrl = { x:mid.x+12*Math.sin(a), y:mid.y-12*Math.cos(a) };
+
+  // Convert a pointer event's client coordinates to SVG viewBox coordinates,
+  // then derive the angle from the mast origin and map it to a sail value.
+  function sailFromEvent(e) {
+    const rect = svgRef.current.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (size / rect.width);
+    const sy = (e.clientY - rect.top)  * (size / rect.height);
+    const angle = Math.atan2(sy - CY, sx - CX); // 0 = right, π/2 = down
+    return 1 - Math.max(0, Math.min(Math.PI/2, angle)) / (Math.PI/2);
+  }
+
+  const interactive = !!onChange;
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}
-      style={{ display:'block', flexShrink:0 }}>
+    <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} width={size} height={size}
+      style={{ display:'block', flexShrink:0, touchAction:interactive?'none':'auto',
+               cursor:interactive?'crosshair':'default' }}
+      onPointerDown={interactive ? e => {
+        setDrag(true);
+        svgRef.current.setPointerCapture(e.pointerId);
+        onChange(sailFromEvent(e));
+      } : undefined}
+      onPointerMove={interactive ? e => { if (drag) onChange(sailFromEvent(e)); } : undefined}
+      onPointerUp={interactive ? () => setDrag(false) : undefined}
+      onPointerCancel={interactive ? () => setDrag(false) : undefined}>
       {/* Filled sector background */}
       <path d={`M ${CX},${CY} L ${CX+R},${CY} A ${R},${R} 0 0,1 ${CX},${CY+R} Z`}
         fill={T.accentSoft}/>

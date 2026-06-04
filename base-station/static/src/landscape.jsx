@@ -252,7 +252,7 @@ const Landscape = ({
       {tab==='control' ? (
         <div style={{ flex:1, display:'flex', gap:10, padding:11, minHeight:0 }}>
 
-          {/* LEFT — Sail vertical slider */}
+          {/* LEFT — Sail trim (SailArc widget + step buttons) */}
           <div style={{ ...card, width:136, padding:12, display:'flex',
             flexDirection:'column', alignItems:'center', gap:8 }}>
             <div style={{ display:'flex', alignItems:'baseline',
@@ -260,36 +260,21 @@ const Landscape = ({
               <span style={lbl()}>Sail</span>
               <span style={val(14,T.accent)}>{d.sail}%</span>
             </div>
-            {/* Vertical pill — filled from top proportional to trim */}
-            <div style={{ position:'relative', flex:1, width:54, minHeight:0,
-              background:T.inset, borderRadius:27, border:`1px solid ${T.border}`,
-              touchAction:'none' }}
-              onPointerDown={e => {
-                const r = e.currentTarget.getBoundingClientRect();
-                const v = 1 - Math.max(0, Math.min(1, (e.clientY-r.top)/r.height));
-                setSail(v);
-              }}>
-              <span style={{ position:'absolute',top:8,left:0,right:0,
-                textAlign:'center',fontFamily:_MONO,fontSize:8,fontWeight:600,
-                letterSpacing:'0.10em',textTransform:'uppercase',color:T.faint }}>In</span>
-              <span style={{ position:'absolute',bottom:8,left:0,right:0,
-                textAlign:'center',fontFamily:_MONO,fontSize:8,fontWeight:600,
-                letterSpacing:'0.10em',textTransform:'uppercase',color:T.faint }}>Out</span>
-              {/* Filled track from top */}
-              <div style={{ position:'absolute',left:'50%',top:'12%',width:5,
-                transform:'translateX(-50%)',borderRadius:3,
-                height:`${(1-sail)*74}%`, background:T.accent }}/>
-              {/* Thumb */}
-              <div style={{ position:'absolute',left:'50%',
-                top:`${(1-sail)*74+12}%`, width:42,height:42,
-                transform:'translate(-50%,-50%)',borderRadius:'50%',
-                background:T.surface, border:`2.5px solid ${T.accent}`,
-                boxShadow:'0 2px 6px rgba(28,52,86,0.18)',
-                display:'flex',alignItems:'center',justifyContent:'center' }}>
-                <span style={val(11,T.accent)}>{d.sail}</span>
-              </div>
+            {/* SailArc widget — draggable, same as portrait */}
+            <SailArc value={sail} size={108} T={T} onChange={setSail}/>
+            {/* Step buttons for fine adjustment */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, width:'100%' }}>
+              {[['◀ IN', () => setSail(s=>Math.min(1,s+0.05))],
+                ['OUT ▶', () => setSail(s=>Math.max(0,s-0.05))]
+              ].map(([label,fn]) => (
+                <div key={label} onClick={fn} style={{ textAlign:'center',
+                  padding:'6px 4px', borderRadius:7, background:T.inset,
+                  border:`1px solid ${T.border}`, fontFamily:_MONO, fontSize:10,
+                  fontWeight:700, color:T.dim, cursor:'pointer' }}>
+                  {label}
+                </div>
+              ))}
             </div>
-            <span style={lbl({ fontSize:8.5 })}>trimmed</span>
           </div>
 
           {/* CENTRE — Map + motor + buttons */}
@@ -335,7 +320,7 @@ const Landscape = ({
                   <div style={{ display:'flex',gap:2,padding:2,borderRadius:8,background:T.inset,border:`1px solid ${T.border}` }}>
                     {[['off','Off'],['hold','Hold'],['set','Set']].map(([id,label])=>{
                       const on=id===motorMode;
-                      return <div key={id} onClick={()=>{setMotorMode(id);if(id==='off')setThrottle(0);}}
+                      return <div key={id} onClick={()=>{setMotorMode(id);if(id==='off'||id==='hold')setThrottle(0);}}
                         style={{ padding:'4px 9px',borderRadius:6,background:on?T.surface:'transparent',
                           boxShadow:on?'0 1px 2px rgba(28,52,86,0.10)':'none',
                           fontSize:10,fontWeight:700,cursor:'pointer',
@@ -384,7 +369,7 @@ const Landscape = ({
                 <span style={lbl()}>Rudder</span>
                 <div style={{ display:'flex',gap:9,alignItems:'baseline' }}>
                   <span style={{ fontFamily:_MONO,fontSize:9,fontWeight:700,color:T.warn }}>
-                    Trim {rudderTrim>=0?'+':''}{Math.round(rudderTrim*100)}%
+                    Trim {rudderTrim>=0?'+':''}{Math.round(rudderTrim*35)}°
                   </span>
                   <span style={val(14,T.accent)}>{d.rud>=0?'+':''}{d.rud}°</span>
                 </div>
@@ -416,9 +401,9 @@ const Landscape = ({
                 <span style={{ position:'absolute',left:0,right:0,top:7,textAlign:'center',fontFamily:_MONO,fontSize:7.5,fontWeight:600,color:T.faint }}>drag · self-centres</span>
               </div>
               <div style={{ display:'grid',gridTemplateColumns:'1fr 1.3fr 1fr',gap:5 }}>
-                {[['−',()=>setRudderTrim(t=>Math.max(-1,t-0.01))],
-                  ['Centre',()=>setRudderTrim(0)],
-                  ['+',()=>setRudderTrim(t=>Math.min(1,t+0.01))]
+                {[['−',()=>{ const t=Math.max(-1,rudderTrim-0.01); setRudderTrim(t); setRudder(t); }],
+                  ['Centre',()=>{ setRudderTrim(0); setRudder(0); }],
+                  ['+',()=>{ const t=Math.min(1,rudderTrim+0.01); setRudderTrim(t); setRudder(t); }]
                 ].map(([label,fn])=>(
                   <div key={label} onClick={fn} style={{ textAlign:'center',padding:'8px 4px',
                     borderRadius:7,background:T.inset,border:`1px solid ${T.border}`,

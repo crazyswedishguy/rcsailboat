@@ -5,6 +5,13 @@
 // Props: { T, d, stale, homePos, setHomePos }
 
 const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
+  const { useState } = React;
+  const [flash, setFlash] = useState(''); // brief confirmation label
+
+  function flashMsg(msg) {
+    setFlash(msg);
+    setTimeout(() => setFlash(''), 1500);
+  }
   const lbl = (x) => ({ fontFamily:_MONO, fontSize:8.5, fontWeight:600,
     letterSpacing:'0.13em', textTransform:'uppercase', color:T.dim, ...(x||{}) });
   const val = (s,c) => ({ fontFamily:_MONO, fontWeight:700, fontSize:s||14,
@@ -116,29 +123,36 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
       </div>
 
       {/* ── Action buttons ───────────────────────────────────────────────── */}
-      <Card T={T} style={{ padding:'11px 16px', display:'flex', gap:9 }}>
-        <div onClick={() => setHomePos({ lat:d.lat, lng:d.lon })}
-          style={{ flex:1, padding:'11px 8px', borderRadius:8,
-            background:T.safe, color:'#fff', textAlign:'center',
-            fontFamily:_MONO, fontSize:11, fontWeight:800,
-            letterSpacing:'0.06em', cursor:'pointer' }}>
-          SET HOME HERE
-        </div>
-        <div onClick={() => setHomePos(null)}
-          style={{ flex:1, padding:'11px 8px', borderRadius:8,
+      <Card T={T} style={{ padding:'11px 16px', display:'flex', flexDirection:'column', gap:8 }}>
+        {flash && (
+          <div style={{ textAlign:'center', fontFamily:_MONO, fontSize:10,
+            fontWeight:700, color:T.safe, letterSpacing:'0.08em' }}>
+            ✓ {flash}
+          </div>
+        )}
+        <div style={{ display:'flex', gap:9 }}>
+          <div onClick={() => { setHomePos({ lat:d.lat, lng:d.lon }); flashMsg(d.lat ? 'Home set' : 'Home set (no GPS fix yet)'); }}
+            style={{ flex:1, padding:'11px 8px', borderRadius:8,
+              background:T.safe, color:'#fff', textAlign:'center',
+              fontFamily:_MONO, fontSize:11, fontWeight:800,
+              letterSpacing:'0.06em', cursor:'pointer' }}>
+            SET HOME HERE
+          </div>
+          <div onClick={() => { setHomePos(null); flashMsg('Home cleared'); }}
+            style={{ flex:1, padding:'11px 8px', borderRadius:8,
+              background:T.inset, border:`1px solid ${T.border}`,
+              color:T.text, textAlign:'center',
+              fontFamily:_MONO, fontSize:11, fontWeight:700,
+              letterSpacing:'0.06em', cursor:'pointer' }}>
+            RESET HOME
+          </div>
+          <div style={{ flex:1, padding:'11px 8px', borderRadius:8,
             background:T.inset, border:`1px solid ${T.border}`,
-            color:T.text, textAlign:'center',
+            color:T.faint, textAlign:'center',
             fontFamily:_MONO, fontSize:11, fontWeight:700,
-            letterSpacing:'0.06em', cursor:'pointer' }}>
-          RESET HOME
-        </div>
-        {/* GPX export — placeholder until track logging is implemented */}
-        <div style={{ flex:1, padding:'11px 8px', borderRadius:8,
-          background:T.inset, border:`1px solid ${T.border}`,
-          color:T.faint, textAlign:'center',
-          fontFamily:_MONO, fontSize:11, fontWeight:700,
-          letterSpacing:'0.06em' }}>
-          EXPORT GPX
+            letterSpacing:'0.06em' }}>
+            EXPORT GPX
+          </div>
         </div>
       </Card>
 
