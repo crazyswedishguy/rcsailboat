@@ -264,8 +264,8 @@ const Landscape = ({
             <SailArc value={sail} size={108} T={T} onChange={setSail}/>
             {/* Step buttons for fine adjustment */}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, width:'100%' }}>
-              {[['◀ IN', () => setSail(s=>Math.min(1,s+0.05))],
-                ['OUT ▶', () => setSail(s=>Math.max(0,s-0.05))]
+              {[['◀ IN', () => setSail(s=>Math.max(0,s-0.05))],
+                ['OUT ▶', () => setSail(s=>Math.min(1,s+0.05))]
               ].map(([label,fn]) => (
                 <div key={label} onClick={fn} style={{ textAlign:'center',
                   padding:'6px 4px', borderRadius:7, background:T.inset,

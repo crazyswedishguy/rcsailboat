@@ -134,9 +134,9 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
           {/* Step buttons — each press trims/eases by 5% */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
             <div style={btnStyle(T.accentSoft, T.accent, `1.5px solid ${T.accent}`)}
-              onClick={() => setSail(s => Math.min(1, s+0.05))}>◀ IN</div>
+              onClick={() => setSail(s => Math.max(0, s-0.05))}>◀ IN</div>
             <div style={btnStyle(T.inset, T.text, `1px solid ${T.border}`)}
-              onClick={() => setSail(s => Math.max(0, s-0.05))}>OUT ▶</div>
+              onClick={() => setSail(s => Math.min(1, s+0.05))}>OUT ▶</div>
           </div>
         </div>
       </Card>

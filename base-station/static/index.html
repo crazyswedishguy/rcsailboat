@@ -301,7 +301,7 @@ function SettingsModal({ T, tweaks, setTweak, onClose, onReconnect }) {
             letterSpacing:'0.10em', textTransform:'uppercase',
             color:T.dim, marginBottom:5 }}>Access token</div>
           <input type="password" style={inp} value={tweaks.token||''}
-            placeholder="(none)"
+            placeholder="changeme"
             onChange={e => setTweak('token', e.target.value)}/>
           <div style={{ fontFamily:_MONO, fontSize:9, color:T.faint, marginTop:3 }}>
             Must match RCSB_TOKEN in /etc/rcsailboat.env
@@ -430,8 +430,8 @@ function App() {
   }
 
   function connect() {
-    const token = getStoredTweak('token');
-    const url   = `ws://${location.host}/ws${token?'?token='+encodeURIComponent(token):''}`;
+    const token = getStoredTweak('token') || 'changeme';
+    const url   = `ws://${location.host}/ws?token=${encodeURIComponent(token)}`;
     const ws    = new WebSocket(url);
     wsRef.current = ws;
 

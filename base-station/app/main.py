@@ -64,7 +64,7 @@ _telem = TelemetryState()
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
-RCSB_TOKEN = os.environ.get("RCSB_TOKEN", "")   # empty string = auth disabled
+RCSB_TOKEN = os.environ.get("RCSB_TOKEN", "changeme")  # set to "" to disable auth
 
 # ── Controller / observer state ───────────────────────────────────────────────
 
