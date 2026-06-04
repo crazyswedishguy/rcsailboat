@@ -667,7 +667,7 @@ function App() {
             rudderTrim={rudderTrim} setRudderTrim={setRudderTrim}
             throttle={throttle} setThrottle={setThrottle}
             motorMode={motorMode} setMotorMode={setMotorMode}
-            onRelease={onReleaseControl} onStop={onStop}/>
+            onStop={onStop}/>
         )}
         {tab==='instr'   && <Instr   T={T} d={d} stale={stale}/>}
         {tab==='map'     && <MapTab  T={T} d={d} stale={stale} homePos={homePos} setHomePos={setHomePos}/>}

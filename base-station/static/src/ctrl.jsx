@@ -22,7 +22,7 @@
 
 const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
                 rudderTrim, setRudderTrim, throttle, setThrottle,
-                motorMode, setMotorMode, onRelease, onStop }) => {
+                motorMode, setMotorMode, onStop }) => {
 
   const { useRef, useState } = React;
 
@@ -324,19 +324,12 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
         )}
       </Card>
 
-      {/* ── Release + Stop row ─────────────────────────────────────────────── */}
-      {/* Shown at the bottom of the content area so it's always reachable */}
-      <div style={{ display:'flex', gap:10, padding:'14px 16px 20px', background:T.bg }}>
-        <div onClick={onRelease}
-          style={{ ...btnStyle(T.surface, T.text, `1.5px solid ${T.borderStrong}`),
-            flex:1, borderRadius:10 }}>
-          RELEASE
-        </div>
+      {/* ── Stop row ───────────────────────────────────────────────────────── */}
+      <div style={{ padding:'14px 16px 20px', background:T.bg }}>
         <div onClick={onStop}
           style={{ ...btnStyle(T.danger, '#fff'),
-            flex:1.6, borderRadius:10,
+            borderRadius:10,
             boxShadow:'0 3px 14px rgba(192,57,43,0.28)', gap:8 }}>
-          {/* Square stop icon */}
           <span style={{ width:11, height:11, background:'#fff',
             borderRadius:2, display:'inline-block' }}/>
           STOP

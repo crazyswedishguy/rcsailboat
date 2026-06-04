@@ -330,15 +330,6 @@ const Landscape = ({
                 </div>
                 <LandThrottle T={T} motorMode={motorMode} throttle={throttle} setThrottle={setThrottle}/>
               </div>
-              {inControl && (
-                <div onClick={onReleaseControl}
-                  style={{ width:90,borderRadius:12,background:T.surface,
-                    border:`1.5px solid ${T.borderStrong}`,color:T.text,
-                    fontSize:12,fontWeight:700,fontFamily:_MONO,letterSpacing:'0.06em',
-                    display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer' }}>
-                  RELEASE
-                </div>
-              )}
               <div onClick={onStop}
                 style={{ width:130,borderRadius:12,background:T.danger,color:'#fff',
                   fontSize:15,fontWeight:800,letterSpacing:'0.08em',
