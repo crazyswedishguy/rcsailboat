@@ -118,6 +118,9 @@ const Landscape = ({
   const inControl = controlRole === 'controller';
   const engaged   = motorMode !== 'off';
 
+  const battLow  = !stale.telem && d.chg < 20;
+  const battCrit = !stale.telem && d.chg < 10;
+
   const lbl = (x) => ({ fontFamily:_MONO, fontSize:8.5, fontWeight:600,
     letterSpacing:'0.12em', textTransform:'uppercase', color:T.dim, ...(x||{}) });
   const val = (s,c) => ({ fontFamily:_MONO, fontWeight:700, fontSize:s||14,
@@ -177,10 +180,10 @@ const Landscape = ({
         </div>
         <span style={{ flex:1 }}/>
         {/* Vital readouts */}
-        {[['Batt',`${d.volts.toFixed(1)}V`],['LQ',`${d.lq}%`],['Sats',`${d.sats}`],['Spd',`${d.spd.toFixed(1)} kn`]].map(([k,v]) => (
+        {[['Batt',`${d.chg}%`, battCrit?T.danger:battLow?T.warn:null],['LQ',`${d.lq}%`],['Sats',`${d.sats}`],['Spd',`${d.spd.toFixed(1)} kn`]].map(([k,v,c]) => (
           <div key={k} style={{ display:'flex', alignItems:'baseline', gap:5 }}>
             <span style={lbl({ fontSize:8 })}>{k}</span>
-            <span style={val(11.5)}>{v}</span>
+            <span style={val(11.5, c||T.text)}>{v}</span>
           </div>
         ))}
         {/* Theme toggle */}
@@ -208,6 +211,18 @@ const Landscape = ({
           {pillLabel}
         </div>
       </div>
+
+      {/* ── Low battery warning ──────────────────────────────────────────────── */}
+      {battLow && (
+        <div style={{ display:'flex',alignItems:'center',gap:8,padding:'6px 16px',
+          background:battCrit?T.dangerSoft:T.warnSoft,
+          borderBottom:`1px solid ${battCrit?T.danger:T.warn}`,flexShrink:0 }}>
+          <span style={{ fontFamily:_MONO,fontSize:10,fontWeight:700,
+            color:battCrit?T.danger:T.warn }}>
+            {battCrit?'⚠ BATTERY CRITICAL':'⚠ BATTERY LOW'} · {d.volts.toFixed(1)} V · {d.chg}%
+          </span>
+        </div>
+      )}
 
       {/* ── Helm take/request banner (Control tab only, when not in control) */}
       {tab==='control' && !inControl && (

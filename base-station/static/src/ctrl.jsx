@@ -56,6 +56,9 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
   const thrFwd  = thrVal >= 0;
   const thrFill = thrFwd ? T.warn : T.danger; // amber = forward, red = reverse
 
+  const battLow  = !stale.telem && d.chg < 20;
+  const battCrit = !stale.telem && d.chg < 10;
+
   // Inline style factories — keeps JSX readable without a CSS file
   const lbl = (x) => ({ fontFamily:_MONO, fontSize:8.5, fontWeight:600,
     letterSpacing:'0.13em', textTransform:'uppercase', color:T.dim, ...(x||{}) });
@@ -104,21 +107,32 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
         </div>
       </Card>
 
-      {/* ── Bilge row ──────────────────────────────────────────────────────────*/}
-      <Inset T={T} style={{ display:'flex', alignItems:'center', gap:9,
+      {/* ── Bilge + battery row ──────────────────────────────────────────────*/}
+      <Inset T={T} style={{ display:'flex', alignItems:'center',
         padding:'8px 16px', borderBottom:`1px solid ${T.border}` }}>
         <span style={{ width:7, height:7, borderRadius:99, flexShrink:0,
           background: d.bilgeWet ? T.danger : T.safe }}/>
-        <span style={lbl({ color:T.text })}>
+        <span style={lbl({ color:T.text, marginLeft:9 })}>
           {d.bilgeWet ? 'WATER IN BILGE' : 'BILGE DRY'}
         </span>
         <span style={{ flex:1 }}/>
-        {/* MCU temperature — shown faint when stale */}
-        <span style={{ fontFamily:_MONO, fontSize:10, fontWeight:600,
-          color:sc(stale.telem, T.dim, T) }}>
-          {sv(stale.telem && d.temp===0, `${d.temp}°C`)}
+        <span style={{ width:1, height:14, background:T.border, flexShrink:0, margin:'0 14px' }}/>
+        <span style={lbl({ fontSize:7.5 })}>BATT</span>
+        <span style={{ fontFamily:_MONO, fontSize:11, fontWeight:700, marginLeft:6,
+          color: battCrit ? T.danger : battLow ? T.warn : sc(stale.telem, T.text, T) }}>
+          {sv(stale.telem, `${d.chg}%`)}
         </span>
       </Inset>
+      {battLow && (
+        <div style={{ display:'flex', alignItems:'center', gap:8,
+          padding:'7px 16px', borderBottom:`1px solid ${battCrit?T.danger:T.warn}`,
+          background: battCrit ? T.dangerSoft : T.warnSoft }}>
+          <span style={{ fontFamily:_MONO, fontSize:10, fontWeight:700,
+            color: battCrit ? T.danger : T.warn }}>
+            {battCrit ? '⚠ BATTERY CRITICAL' : '⚠ BATTERY LOW'} · {d.volts.toFixed(1)} V
+          </span>
+        </div>
+      )}
 
       {/* ── Sail trim card ─────────────────────────────────────────────────── */}
       <Card T={T} style={{ display:'flex' }}>
