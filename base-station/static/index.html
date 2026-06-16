@@ -44,12 +44,12 @@
 <!-- Component files are loaded in dependency order.
      ds.jsx defines globals (THEMES, atoms, SVG widgets) used by all others. -->
 <script type="text/babel" src="/static/src/ds.jsx?v=2"></script>
-<script type="text/babel" src="/static/src/ctrl.jsx?v=3"></script>
+<script type="text/babel" src="/static/src/ctrl.jsx?v=4"></script>
 <script type="text/babel" src="/static/src/instr.jsx?v=2"></script>
-<script type="text/babel" src="/static/src/map.jsx?v=5"></script>
+<script type="text/babel" src="/static/src/map.jsx?v=6"></script>
 <script type="text/babel" src="/static/src/dev.jsx?v=4"></script>
 <script type="text/babel" src="/static/src/con.jsx?v=2"></script>
-<script type="text/babel" src="/static/src/landscape.jsx?v=6"></script>
+<script type="text/babel" src="/static/src/landscape.jsx?v=7"></script>
 
 <script type="text/babel">
 const { useState, useRef, useEffect, useMemo } = React;
@@ -654,7 +654,7 @@ function App() {
         orient={orient} setOrient={setOrient}
         onSettings={() => setSettingsOpen(true)}/>
 
-      <Masthead T={T} linked={telem.bridge}/>
+      <Masthead T={T} linked={!stale.telem}/>
 
       <TabBar T={T} tab={tab} setTab={setTab}/>
 

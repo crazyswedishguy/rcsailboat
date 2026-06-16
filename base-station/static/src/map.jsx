@@ -14,11 +14,13 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
 
   function flashMsg(m) { setFlash(m); setTimeout(() => setFlash(''), 1500); }
 
-  function makeBoatIcon(L, hdg) {
+  function makeBoatIcon(L, hdg, isStale) {
+    const color = isStale ? T.faint : T.accent;
     return L.divIcon({
-      html: `<svg width="22" height="22" viewBox="0 0 22 22" style="overflow:visible">
-        <circle cx="11" cy="11" r="8" fill="${T.surface}" stroke="${T.accent}" stroke-width="2"/>
-        <polygon points="11,3 14.5,15 11,13 7.5,15" fill="${T.accent}"
+      html: `<svg width="22" height="22" viewBox="0 0 22 22"
+        style="overflow:visible;opacity:${isStale ? 0.55 : 1}">
+        <circle cx="11" cy="11" r="8" fill="${T.surface}" stroke="${color}" stroke-width="2"/>
+        <polygon points="11,3 14.5,15 11,13 7.5,15" fill="${color}"
           transform="rotate(${hdg || 0},11,11)"/>
       </svg>`,
       iconSize: [22, 22], iconAnchor: [11, 11], className: '',
@@ -62,7 +64,7 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
 
     L.control.scale({ maxWidth: 100, imperial: true }).addTo(map);
 
-    const boatIcon = makeBoatIcon(L, d.hdg);
+    const boatIcon = makeBoatIcon(L, d.hdg, false);
     const homeIcon = makeHomeIcon(L);
 
     const initPos = (d.lat && d.lon) ? [d.lat, d.lon] : initCenter;
@@ -81,16 +83,21 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
   useEffect(() => {
     const L = window.L;
     const lf = lfRef.current;
-    if (!L || !lf || !d.lat || !d.lon || stale.gps) return;
+    if (!L || !lf) return;
+
+    // Always update icon color to reflect current GPS staleness
+    lf.boat.setIcon(makeBoatIcon(L, d.hdg, stale.gps));
+
+    // Only update position and track when GPS is fresh
+    if (!d.lat || !d.lon || stale.gps) return;
 
     const pos = [d.lat, d.lon];
     lf.boat.setLatLng(pos);
-    lf.boat.setIcon(makeBoatIcon(L, d.hdg));
 
     trackPtsRef.current.push(pos);
     if (trackPtsRef.current.length > 500) trackPtsRef.current.shift();
     lf.track.setLatLngs(trackPtsRef.current);
-  }, [d.lat, d.lon, d.hdg]);
+  }, [d.lat, d.lon, d.hdg, stale.gps]);
 
   // ── Update home marker ────────────────────────────────────────────────────
   useEffect(() => {
@@ -153,11 +160,25 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
           </span>
         </div>
       ) : (
-        <div ref={containerRef}
-          style={{ height:340,
-            background: T.id==='dusk' ? '#0e1f36' : '#d4e4f0',
-            borderTop:`1px solid ${T.border}`,
-            borderBottom:`1px solid ${T.border}` }}/>
+        <div style={{ position:'relative', height:340,
+          borderTop:`1px solid ${T.border}`,
+          borderBottom:`1px solid ${T.border}` }}>
+          <div ref={containerRef}
+            style={{ height:'100%',
+              background: T.id==='dusk' ? '#0e1f36' : '#d4e4f0' }}/>
+          {stale.gps && (
+            <div style={{ position:'absolute', top:8, left:0, right:0, zIndex:1000,
+              display:'flex', justifyContent:'center', pointerEvents:'none' }}>
+              <div style={{ padding:'4px 10px', borderRadius:6,
+                background: trackPtsRef.current.length > 0
+                  ? 'rgba(243,156,18,0.90)' : 'rgba(192,57,43,0.90)',
+                color:'#fff', fontFamily:_MONO, fontSize:9, fontWeight:700,
+                letterSpacing:'0.06em' }}>
+                {trackPtsRef.current.length > 0 ? 'GPS STALE · LAST KNOWN POSITION' : 'NO GPS FIX'}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Actions ──────────────────────────────────────────────────────── */}

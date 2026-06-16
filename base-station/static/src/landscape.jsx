@@ -18,11 +18,13 @@ const LandMap = ({ T, d, stale, homePos }) => {
   const containerRef = useRef(null);
   const lfRef        = useRef(null);
 
-  function makeBoatIcon(L, hdg) {
+  function makeBoatIcon(L, hdg, isStale) {
+    const color = isStale ? T.faint : T.accent;
     return L.divIcon({
-      html: `<svg width="18" height="18" viewBox="0 0 22 22" style="overflow:visible">
-        <circle cx="11" cy="11" r="8" fill="${T.surface}" stroke="${T.accent}" stroke-width="2"/>
-        <polygon points="11,3 14.5,15 11,13 7.5,15" fill="${T.accent}"
+      html: `<svg width="18" height="18" viewBox="0 0 22 22"
+        style="overflow:visible;opacity:${isStale ? 0.55 : 1}">
+        <circle cx="11" cy="11" r="8" fill="${T.surface}" stroke="${color}" stroke-width="2"/>
+        <polygon points="11,3 14.5,15 11,13 7.5,15" fill="${color}"
           transform="rotate(${hdg||0},11,11)"/>
       </svg>`,
       iconSize: [18, 18], iconAnchor: [9, 9], className: '',
@@ -54,7 +56,7 @@ const LandMap = ({ T, d, stale, homePos }) => {
       errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
     }).addTo(map);
     const initPos = (d.lat && d.lon) ? [d.lat, d.lon] : center;
-    const boat = L.marker(initPos, { icon: makeBoatIcon(L, d.hdg), zIndexOffset: 100 }).addTo(map);
+    const boat = L.marker(initPos, { icon: makeBoatIcon(L, d.hdg, false), zIndexOffset: 100 }).addTo(map);
     const home = homePos ? L.marker([homePos.lat, homePos.lng], { icon: makeHomeIcon(L) }).addTo(map) : null;
     lfRef.current = { map, boat, home };
     return () => { map.remove(); lfRef.current = null; };
@@ -63,10 +65,11 @@ const LandMap = ({ T, d, stale, homePos }) => {
   useEffect(() => {
     const L = window.L;
     const lf = lfRef.current;
-    if (!L || !lf || !d.lat || !d.lon || stale.gps) return;
+    if (!L || !lf) return;
+    lf.boat.setIcon(makeBoatIcon(L, d.hdg, stale.gps));
+    if (!d.lat || !d.lon || stale.gps) return;
     lf.boat.setLatLng([d.lat, d.lon]);
-    lf.boat.setIcon(makeBoatIcon(L, d.hdg));
-  }, [d.lat, d.lon, d.hdg]);
+  }, [d.lat, d.lon, d.hdg, stale.gps]);
 
   useEffect(() => {
     const L = window.L;
@@ -86,8 +89,23 @@ const LandMap = ({ T, d, stale, homePos }) => {
       </div>
     );
   }
-  return <div ref={containerRef} style={{ width:'100%', height:'100%',
-    background: T.id==='dusk' ? '#0e1f36' : '#d4e4f0' }}/>;
+  return (
+    <div style={{ position:'relative', width:'100%', height:'100%' }}>
+      <div ref={containerRef} style={{ width:'100%', height:'100%',
+        background: T.id==='dusk' ? '#0e1f36' : '#d4e4f0' }}/>
+      {stale.gps && (
+        <div style={{ position:'absolute', top:6, left:0, right:0, zIndex:1000,
+          display:'flex', justifyContent:'center', pointerEvents:'none' }}>
+          <div style={{ padding:'3px 8px', borderRadius:5,
+            background: d.lat ? 'rgba(243,156,18,0.90)' : 'rgba(192,57,43,0.90)',
+            color:'#fff', fontFamily:_MONO, fontSize:8, fontWeight:700,
+            letterSpacing:'0.05em' }}>
+            {d.lat ? 'GPS STALE' : 'NO GPS FIX'}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 // ── Compact throttle control ──────────────────────────────────────────────────
@@ -176,12 +194,15 @@ const Landscape = ({
   const pillLabel = inControl ? 'Helm active'
     : controlRole==='requesting' ? `Requesting…`
     : controllerLabel ? `${controllerLabel} helming`
-    : 'Linked';
+    : stale.telem ? 'No link'
+    : 'Observer';
   const pillBg = inControl ? T.accent
     : controlRole==='requesting' ? T.warnSoft
+    : stale.telem ? T.dangerSoft
     : T.safeSoft;
   const pillColor = inControl ? '#fff'
     : controlRole==='requesting' ? T.warn
+    : stale.telem ? T.danger
     : T.safe;
 
   // Rudder drag for right column
@@ -237,17 +258,16 @@ const Landscape = ({
               CAPSIZED
             </span>
           )}
-          {inControl && (
-            <div onClick={() => onPump && onPump(!d.pumpActive)}
-              style={{ fontFamily:_MONO, fontSize:8, fontWeight:700,
-                color: d.pumpActive ? T.warn : T.dim,
-                padding:'3px 7px', borderRadius:5,
-                background: d.pumpActive ? T.warnSoft : T.inset,
-                border:`1px solid ${d.pumpActive ? T.warn : T.border}`,
-                cursor:'pointer' }}>
-              PUMP {d.pumpActive ? 'ON' : 'OFF'}
-            </div>
-          )}
+          <div onClick={() => inControl && onPump && onPump(!d.pumpActive)}
+            style={{ fontFamily:_MONO, fontSize:8, fontWeight:700,
+              color: d.pumpActive ? T.warn : T.dim,
+              padding:'3px 7px', borderRadius:5,
+              background: d.pumpActive ? T.warnSoft : T.inset,
+              border:`1px solid ${d.pumpActive ? T.warn : T.border}`,
+              cursor: inControl ? 'pointer' : 'default',
+              opacity: inControl ? 1 : 0.40 }}>
+            PUMP {d.pumpActive ? 'ON' : 'OFF'}
+          </div>
         </div>
         {/* Theme toggle */}
         <div onClick={()=>setTheme(t=>t==='day'?'dusk':'day')}
