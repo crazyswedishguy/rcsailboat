@@ -13,7 +13,8 @@ ELRS supports up to 16 channels per packet (via CRSF). We use the first few; the
 | 3 | Throttle | -1.0 (reverse) to +1.0 (forward) | Neutral = 0.0; the ESC must see neutral at arm |
 | 4 | Arm / disarm | 0.0 = disarmed, 1.0 = armed | Required to be 1.0 for motor to respond |
 | 5 | Mode | discrete: 0.0 = manual, 0.5 = (reserved), 1.0 = (reserved) | For future use |
-| 6–16 | Reserved | — | Don't use without updating this doc |
+| 6 | System restart | 0.0 = idle, 1.0 = restart requested | Hold at max for ≥ 2 s **while arm channel is low (disarmed)** → `ESP.restart()`. Disarmed gate is mandatory — never restart while motor could be running. Implement in Phase 3 alongside the CRSF channel handler. |
+| 7–16 | Reserved | — | Don't use without updating this doc |
 
 ### On-the-wire encoding
 

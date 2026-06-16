@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-PI="${1:-${PI:-pi@rcsailboat.local}}"
+PI="${1:-${PI:-asb@rcsailboat.local}}"
 REMOTE_DIR="/opt/rcsailboat/base-station"
 SERVICE="rcsailboat-base"
 
@@ -26,8 +26,35 @@ rsync -az --delete \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
   --exclude='*.egg-info' \
-  --exclude='tiles/' \
+  --exclude='static/tiles/' \
+  --exclude='static/leaflet/' \
   "${LOCAL_SRC}/" "${PI}:${REMOTE_DIR}/"
+
+# Restore the tiles symlink — rsync replaces it with an empty real dir even with --exclude.
+# Tiles live in the git repo working tree and are served via symlink so they don't need
+# to be copied on every deploy.
+ssh "${PI}" "
+  TILES_LINK=${REMOTE_DIR}/static/tiles
+  TILES_REAL=\$HOME/Documents/Projects/rcsailboat/base-station/static/tiles
+  if [ ! -L \"\$TILES_LINK\" ]; then
+    rm -rf \"\$TILES_LINK\"
+    ln -s \"\$TILES_REAL\" \"\$TILES_LINK\"
+    echo 'Restored tiles symlink.'
+  fi
+"
+
+# Deploy Leaflet library files (not tracked by git — downloaded by download_tiles.py --fetch-leaflet).
+# If the local copy is absent, copy from the Pi's own repo copy (which may already have them).
+LEAFLET_SRC="${LOCAL_SRC}/static/leaflet"
+if [ -f "${LEAFLET_SRC}/leaflet.min.js" ]; then
+  rsync -az "${LEAFLET_SRC}/" "${PI}:${REMOTE_DIR}/static/leaflet/"
+else
+  ssh "${PI}" "
+    SRC=\$HOME/Documents/Projects/rcsailboat/base-station/static/leaflet
+    DEST=${REMOTE_DIR}/static/leaflet
+    [ -f \"\$SRC/leaflet.min.js\" ] && cp \"\$SRC/leaflet.min.js\" \"\$SRC/leaflet.min.css\" \"\$DEST/\" || true
+  "
+fi
 
 echo "Updating Python dependencies..."
 ssh "${PI}" "

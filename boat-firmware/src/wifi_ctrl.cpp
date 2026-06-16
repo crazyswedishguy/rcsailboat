@@ -1,6 +1,6 @@
 // wifi_ctrl.cpp — WiFi Direct AP + embedded web control server.
 //
-// The ESP32 broadcasts its own Wi-Fi access point ("darkandstormy") so any phone,
+// The ESP32 broadcasts its own Wi-Fi access point ("Mistral") so any phone,
 // tablet, or laptop can connect and control the boat without a Raspberry Pi.
 // This is the default mode at boot and serves as a useful bench-testing interface
 // before the ELRS radio link is wired up.
@@ -64,33 +64,47 @@ static const char HTML_PAGE[] PROGMEM = R"html(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-  <title>Dark &amp; Stormy</title>
+  <title>Mistral — RC Sail Control</title>
   <style>
     :root {
-      --bg:      #0d1520;
-      --surf:    #121e30;
-      --surf2:   #1a2a40;
-      --bdr:     #253650;
-      --acc:     #3ecfcf;
-      --acc-dim: rgba(62,207,207,0.15);
-      --safe:    #3ecf82;
-      --danger:  #e8573a;
-      --warn:    #e8a83a;
-      --text:    #dce8f0;
-      --dim:     #5a7a96;
+      --bg:          #0a111d;
+      --surf:        #121d2e;
+      --surf2:       #0f1828;
+      --bdr:         rgba(130,160,200,0.14);
+      --bdr-s:       rgba(130,160,200,0.24);
+      --acc:         #5a8fe6;
+      --acc-dim:     rgba(90,143,230,0.14);
+      --safe:        #3fbf83;
+      --safe-soft:   rgba(63,191,131,0.14);
+      --warn:        #f0b54a;
+      --warn-soft:   rgba(240,181,74,0.12);
+      --danger:      #ff6f5e;
+      --danger-soft: rgba(255,111,94,0.12);
+      --text:        #e8eef7;
+      --dim:         #8b9bb3;
+      --faint:       #4e5e78;
+      --att-sky:     #1c3756;
+      --att-gnd:     #0a0f17;
     }
-    .light {
-      --bg:      #edf2f7;
-      --surf:    #ffffff;
-      --surf2:   #dde6ef;
-      --bdr:     #b8ccd8;
-      --acc:     #1a8fa0;
-      --acc-dim: rgba(26,143,160,0.12);
-      --safe:    #1a8f55;
-      --danger:  #c0391e;
-      --warn:    #b07a10;
-      --text:    #1a2530;
-      --dim:     #5a7a96;
+    .day {
+      --bg:          #eaeef3;
+      --surf:        #ffffff;
+      --surf2:       #eef1f5;
+      --bdr:         rgba(28,52,86,0.11);
+      --bdr-s:       rgba(28,52,86,0.20);
+      --acc:         #1c4ea0;
+      --acc-dim:     rgba(28,78,160,0.09);
+      --safe:        #1d7a4d;
+      --safe-soft:   rgba(29,122,77,0.12);
+      --warn:        #b5730c;
+      --warn-soft:   rgba(181,115,12,0.12);
+      --danger:      #c0392b;
+      --danger-soft: rgba(192,57,43,0.12);
+      --text:        #0f1722;
+      --dim:         #5a6878;
+      --faint:       #97a3b2;
+      --att-sky:     #cfe0f2;
+      --att-gnd:     #1d2735;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -109,7 +123,7 @@ static const char HTML_PAGE[] PROGMEM = R"html(
 
     /* ── HEADER ── */
     header { display: flex; align-items: center; gap: 8px; }
-    .logo { font-size: 17px; font-weight: 800; letter-spacing: 0.05em; color: var(--acc); flex: 1; }
+    .logo { font-size: 15px; font-weight: 800; letter-spacing: 0.06em; color: var(--text); flex: 1; margin-left: 6px; }
     .mode-lbl {
       font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
       text-transform: uppercase; color: var(--dim);
@@ -149,7 +163,7 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       padding: 7px 12px; border-radius: 10px;
       background: var(--surf2); border: 1px solid var(--bdr); transition: all 0.3s;
     }
-    #bilge.wet { background: rgba(232,87,58,0.1); border-color: var(--danger); }
+    #bilge.wet { background: var(--danger-soft); border-color: var(--danger); }
     .bdot { width: 8px; height: 8px; border-radius: 50%; background: var(--safe); flex-shrink: 0; transition: all 0.3s; }
     #bilge.wet .bdot { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
     #bilge-txt { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); flex: 1; transition: color 0.3s; }
@@ -160,7 +174,7 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       background: var(--surf2); color: var(--dim); cursor: pointer;
       text-transform: uppercase; letter-spacing: 0.06em;
     }
-    #pump-btn.on { background: rgba(232,168,58,0.15); border-color: var(--warn); color: var(--warn); }
+    #pump-btn.on { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
 
     /* ── CONTROLS ROW ── */
     .ctrl-row { display: flex; gap: 10px; align-items: flex-start; }
@@ -248,6 +262,7 @@ static const char HTML_PAGE[] PROGMEM = R"html(
     }
     .trim-btn.sel { background: var(--acc-dim); border-color: var(--acc); color: var(--acc); }
     #r-trim-val { margin-left: auto; font-size: 11px; font-weight: 700; font-family: 'Courier New', monospace; color: var(--dim); }
+    .ctrl-dis { opacity: 0.38; pointer-events: none; transition: opacity 0.15s; }
 
     /* ── ARM / STOP ── */
     .action-row { display: flex; gap: 8px; }
@@ -259,7 +274,7 @@ static const char HTML_PAGE[] PROGMEM = R"html(
     }
     .act-btn:active { opacity: 0.72; }
     #btn-arm { background: var(--surf2); color: var(--dim); border-color: var(--bdr); }
-    #btn-arm.armed { background: rgba(62,207,130,0.12); border-color: var(--safe); color: var(--safe); }
+    #btn-arm.armed { background: var(--safe-soft); border-color: var(--safe); color: var(--safe); }
     #btn-stop { flex: 1.4; background: var(--danger); color: #fff; font-size: 14px; border-color: transparent; }
 
     /* ── TAB BAR ── */
@@ -294,9 +309,9 @@ static const char HTML_PAGE[] PROGMEM = R"html(
     .dev-group-lbl { font-size:8px; font-weight:700; letter-spacing:0.09em; text-transform:uppercase; color:var(--dim); margin-bottom:2px; }
     .dev-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px; }
     .dev-card { border-radius:10px; padding:9px 11px; display:flex; flex-direction:column; gap:3px; }
-    .dev-card.ok     { background:rgba(62,207,130,0.08);  border:1px solid var(--safe); }
-    .dev-card.warn   { background:rgba(232,168,58,0.08);  border:1px solid var(--warn); }
-    .dev-card.error  { background:rgba(232,87,58,0.08);   border:1px solid var(--danger); }
+    .dev-card.ok     { background:var(--safe-soft);   border:1px solid var(--safe); }
+    .dev-card.warn   { background:var(--warn-soft);   border:1px solid var(--warn); }
+    .dev-card.error  { background:var(--danger-soft); border:1px solid var(--danger); }
     .dev-card.absent { background:var(--surf2);            border:1px solid var(--bdr); }
     .dev-name { font-size:11px; font-weight:700; color:var(--text); }
     .dev-detail { font-size:9px; font-family:'Courier New',monospace; color:var(--dim); }
@@ -318,8 +333,8 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       border:1px solid var(--bdr); background:var(--surf2); color:var(--dim);
       transition:all 0.2s;
     }
-    .repair-btn.warn  { border-color:var(--warn);   background:rgba(232,168,58,0.1);  color:var(--warn); }
-    .repair-btn.error { border-color:var(--danger); background:rgba(232,87,58,0.1);   color:var(--danger); }
+    .repair-btn.warn  { border-color:var(--warn);   background:var(--warn-soft);   color:var(--warn); }
+    .repair-btn.error { border-color:var(--danger); background:var(--danger-soft); color:var(--danger); }
     .repair-btn.absent{ border-color:var(--acc);    background:var(--acc-dim);         color:var(--acc); }
     .dev-legend { display:flex; gap:12px; justify-content:center; padding:8px 12px;
       background:var(--surf); border-radius:8px; border:1px solid var(--bdr); }
@@ -330,14 +345,37 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       font-size: 9px; font-weight: 700; padding: 3px 8px; border-radius: 6px;
       cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; font-family: inherit;
     }
+
+    /* ── LANDSCAPE LAYOUT ── */
+    #app-land {
+      display:none; position:fixed; inset:0;
+      background:var(--bg); color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent;
+      flex-direction:row; align-items:stretch; gap:8px; padding:8px;
+      overflow:hidden; box-sizing:border-box;
+    }
+    .lc-col { display:flex; flex-direction:column; gap:6px; }
+    .lc-card { background:var(--surf); border:1px solid var(--bdr); border-radius:10px; }
+    .lc-fill { flex:1; }
+    #lc-t-lock.on { background:var(--acc-dim); border-color:var(--acc); color:var(--acc); }
+    #lc-r-pad.active { border-color:var(--acc); }
+    #lc-r-bigval.active { color:var(--acc); }
   </style>
 </head>
 <body>
 <div id="app">
 
   <header>
-    <span class="logo">&#9973; Dark &amp; Stormy</span>
-    <button id="theme-btn" onclick="toggleTheme()">&#9728; Day</button>
+    <svg viewBox="0 0 1446 332" height="18" fill="none" style="display:block;flex-shrink:0">
+      <g transform="translate(-1127 -1319)">
+        <path d="M2092.02 1471.14C2091.93 1475.36 2211.1 1511.7 2208.14 1529.07 2205.18 1546.43 2131.11 1561.05 2074.25 1575.36 2017.39 1589.67 1931.56 1606.24 1866.96 1614.93 1802.36 1623.61 1742.65 1651.47 1686.66 1627.47 1891.87 1484.34 1704.44 1481.14 1535.61 1443.47 1366.78 1405.81 1146.87 1447.39 1141.1 1428.98 1135.34 1410.56 1369.82 1333.4 1501.03 1333 1632.24 1332.6 1805.65 1419.92 1928.36 1426.56 2051.07 1433.2 2132.43 1381.09 2237.3 1372.82 2342.17 1364.56 2579.57 1407.98 2557.57 1376.99"
+          style="stroke:var(--acc)" stroke-width="27.5" stroke-miterlimit="8" stroke-linecap="round"/>
+      </g>
+    </svg>
+    <span class="logo">Mistral</span>
+    <span class="mode-lbl">WiFi&#183;AP</span>
+    <button id="theme-btn" onclick="toggleTheme()">Day</button>
     <div id="status">Offline</div>
   </header>
 
@@ -355,10 +393,18 @@ static const char HTML_PAGE[] PROGMEM = R"html(
   <div id="page-ctrl">
   <!-- Telem strip -->
   <div class="card" id="telem">
-    <div class="tg"><div class="tg-l">Battery</div><div class="tg-v" id="tl-v">--.-V</div><div class="tg-v" style="font-size:10px" id="tl-a">-.-A</div></div>
+    <div class="tg"><div class="tg-l">Battery</div><div class="tg-v" id="tl-v">--.-V</div><div class="tg-v" style="font-size:10px" id="tl-a">-.-A</div><div class="tg-v" style="font-size:10px" id="tl-pct">--%</div></div>
     <div class="tg"><div class="tg-l">GPS</div><div class="tg-v" id="tl-s">--sat</div><div class="tg-v" style="font-size:10px" id="tl-spd">--km/h</div></div>
     <div class="tg"><div class="tg-l">Attitude</div><div class="tg-v" id="tl-r">R--&#176;</div><div class="tg-v" style="font-size:10px" id="tl-p">P--&#176;</div></div>
     <div class="tg"><div class="tg-l">Temp</div><div class="tg-v" id="tl-t">--&#176;C</div></div>
+  </div>
+
+  <!-- Low-battery warning -->
+  <div id="batt-warn" style="display:none;align-items:center;gap:8px;
+    padding:7px 12px;border-radius:10px;border:1px solid var(--warn);
+    background:var(--warn-soft)">
+    <span id="batt-warn-txt" style="font-family:'Courier New',monospace;font-size:10px;
+      font-weight:700;color:var(--warn)"></span>
   </div>
 
   <!-- Bilge -->
@@ -366,6 +412,29 @@ static const char HTML_PAGE[] PROGMEM = R"html(
     <div class="bdot"></div>
     <span id="bilge-txt">Bilge OK</span>
     <button id="pump-btn" onclick="togglePump()">Pump: OFF</button>
+  </div>
+
+  <!-- Compact attitude (control tab) -->
+  <div class="card" id="c-att-card" style="display:flex;align-items:center;gap:10px;padding:8px 12px">
+    <svg viewBox="-34 -34 68 68" width="62" height="62" style="flex-shrink:0">
+      <defs><clipPath id="c-att-clip"><circle r="31"/></clipPath></defs>
+      <circle r="31" style="fill:var(--att-gnd)"/>
+      <g id="c-att-g" clip-path="url(#c-att-clip)">
+        <rect id="c-att-sky" x="-34" y="-68" width="68" height="68" style="fill:var(--att-sky)"/>
+        <rect id="c-att-gnd" x="-34" y="0"   width="68" height="68" style="fill:var(--att-gnd)"/>
+        <line id="c-att-hor" x1="-34" y1="0" x2="34" y2="0" stroke="rgba(220,232,240,0.5)" stroke-width="0.8"/>
+      </g>
+      <circle r="31" fill="none" style="stroke:var(--bdr-s)" stroke-width="1.2"/>
+      <line x1="-10" y1="0" x2="-4" y2="0" style="stroke:var(--acc)" stroke-width="2.2" stroke-linecap="round"/>
+      <line x1="4"   y1="0" x2="10" y2="0" style="stroke:var(--acc)" stroke-width="2.2" stroke-linecap="round"/>
+      <circle r="1.8" style="fill:var(--acc)"/>
+      <polygon id="c-att-ptr" points="0,-28 -2,-23 2,-23" style="fill:var(--acc)"/>
+    </svg>
+    <div style="display:flex;gap:18px;flex:1">
+      <div class="tg"><div class="tg-l">Heel</div><div class="tg-v" id="c-att-roll" style="font-size:13px">--&#176;</div></div>
+      <div class="tg"><div class="tg-l">Pitch</div><div class="tg-v" id="c-att-pitch" style="font-size:13px">--&#176;</div></div>
+      <div class="tg"><div class="tg-l">Heading</div><div class="tg-v" id="c-att-hdg" style="font-size:13px">--&#176;</div></div>
+    </div>
   </div>
 
   <!-- Controls row -->
@@ -387,20 +456,20 @@ static const char HTML_PAGE[] PROGMEM = R"html(
     <div class="card" id="s-card">
       <span class="clbl">Sail Trim</span>
       <svg id="sail-svg" viewBox="0 0 152 152" width="148" height="148">
-        <path fill="rgba(62,207,207,0.08)" d="M 18,18 L 138,18 A 120,120 0 0,1 18,138 Z"/>
-        <path fill="none" stroke="#253650" stroke-width="2.5" stroke-linecap="round"
+        <path style="fill:var(--acc-dim)" d="M 18,18 L 138,18 A 120,120 0 0,1 18,138 Z"/>
+        <path fill="none" style="stroke:var(--bdr-s)" stroke-width="2.5" stroke-linecap="round"
               stroke-dasharray="8 5" d="M 138,18 A 120,120 0 0,1 18,138"/>
-        <path id="s-sail" stroke="#3ecfcf" stroke-width="1.8" fill="rgba(62,207,207,0.18)"/>
-        <line id="s-boom" stroke="#5a7a96" stroke-width="1.8" stroke-linecap="round"/>
-        <circle cx="18" cy="18" r="5" fill="#dce8f0"/>
-        <circle id="s-thumb" cx="138" cy="18" r="11" fill="#3ecfcf" fill-opacity="0.9"
-                style="cursor:grab;filter:drop-shadow(0 0 6px #3ecfcf)"/>
-        <text x="142" y="22" font-size="8" fill="#5a7a96">out</text>
-        <text x="18" y="150" font-size="8" text-anchor="middle" fill="#5a7a96">in</text>
+        <path id="s-sail" style="stroke:var(--acc);fill:var(--acc-dim)" stroke-width="1.8"/>
+        <line id="s-boom" style="stroke:var(--dim)" stroke-width="1.8" stroke-linecap="round"/>
+        <circle cx="18" cy="18" r="5" style="fill:var(--text)"/>
+        <circle id="s-thumb" cx="138" cy="18" r="11"
+                style="cursor:grab;fill:var(--acc);fill-opacity:0.9;filter:drop-shadow(0 0 6px var(--acc))"/>
+        <text x="142" y="22" font-size="8" style="fill:var(--dim)">out</text>
+        <text x="18" y="150" font-size="8" text-anchor="middle" style="fill:var(--dim)">in</text>
       </svg>
       <div class="sail-btns">
-        <button class="s-btn" id="s-trim">&#9668; Trim</button>
-        <button class="s-btn" id="s-ease">Ease &#9658;</button>
+        <button class="s-btn" id="s-trim">&#9668; IN</button>
+        <button class="s-btn" id="s-ease">OUT &#9658;</button>
       </div>
       <div id="s-val">0% trimmed</div>
     </div>
@@ -422,16 +491,18 @@ static const char HTML_PAGE[] PROGMEM = R"html(
     </div>
     <div id="r-trim-row">
       <span class="trim-lbl">Trim:</span>
+      <button class="trim-btn" id="trim-n5" onclick="setTrim(-5)">&#8722;5%</button>
       <button class="trim-btn" id="trim-n1" onclick="setTrim(-1)">&#8722;1%</button>
       <button class="trim-btn sel" id="trim-0"  onclick="setTrim(0)">CTR</button>
       <button class="trim-btn" id="trim-p1" onclick="setTrim(1)">+1%</button>
+      <button class="trim-btn" id="trim-p5" onclick="setTrim(5)">+5%</button>
       <span id="r-trim-val">+0%</span>
     </div>
   </div>
 
   <!-- Arm / Stop -->
   <div class="action-row">
-    <button class="act-btn" id="btn-arm">Disarmed</button>
+    <button class="act-btn" id="btn-arm">Take Helm</button>
     <button class="act-btn" id="btn-stop">&#9632; Stop</button>
   </div>
   </div><!-- /page-ctrl -->
@@ -470,9 +541,9 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       <svg id="att-svg" viewBox="-60 -60 120 120" width="180" height="180">
         <defs><clipPath id="att-clip"><circle cx="0" cy="0" r="52"/></clipPath></defs>
         <g id="att-horizon" clip-path="url(#att-clip)">
-          <rect id="att-sky"   x="-60" y="-120" width="120" height="120" fill="rgba(62,207,207,0.18)"/>
-          <rect id="att-gnd"  x="-60" y="0"    width="120" height="120" fill="rgba(120,80,40,0.28)"/>
-          <line id="att-hor"  x1="-60" y1="0" x2="60" y2="0" stroke="#3ecfcf" stroke-width="1.5"/>
+          <rect id="att-sky"   x="-60" y="-120" width="120" height="120" style="fill:var(--att-sky)"/>
+          <rect id="att-gnd"  x="-60" y="0"    width="120" height="120" style="fill:var(--att-gnd)"/>
+          <line id="att-hor"  x1="-60" y1="0" x2="60" y2="0" style="stroke:var(--acc)" stroke-width="1.5"/>
           <line x1="-54" y1="-15" x2="-27" y2="-15" stroke="rgba(220,232,240,0.3)" stroke-width="0.5"/>
           <line x1="-54" y1="-30" x2="-27" y2="-30" stroke="rgba(220,232,240,0.3)" stroke-width="0.5"/>
           <line x1="27"  y1="-15" x2="54"  y2="-15" stroke="rgba(220,232,240,0.3)" stroke-width="0.5"/>
@@ -480,11 +551,11 @@ static const char HTML_PAGE[] PROGMEM = R"html(
           <line x1="-54" y1="15"  x2="-27" y2="15"  stroke="rgba(220,232,240,0.3)" stroke-width="0.5"/>
           <line x1="27"  y1="15"  x2="54"  y2="15"  stroke="rgba(220,232,240,0.3)" stroke-width="0.5"/>
         </g>
-        <circle cx="0" cy="0" r="52" fill="none" stroke="#253650" stroke-width="2"/>
-        <line x1="-16" y1="0" x2="-5" y2="0" stroke="#dce8f0" stroke-width="2.5" stroke-linecap="round"/>
-        <line x1="5"   y1="0" x2="16" y2="0" stroke="#dce8f0" stroke-width="2.5" stroke-linecap="round"/>
-        <circle cx="0" cy="0" r="2.5" fill="#3ecfcf"/>
-        <polygon id="att-ptr" points="0,-48 -3,-42 3,-42" fill="#3ecfcf"/>
+        <circle cx="0" cy="0" r="52" fill="none" style="stroke:var(--bdr-s)" stroke-width="2"/>
+        <line x1="-16" y1="0" x2="-5" y2="0" style="stroke:var(--text)" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="5"   y1="0" x2="16" y2="0" style="stroke:var(--text)" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="0" cy="0" r="2.5" style="fill:var(--acc)"/>
+        <polygon id="att-ptr" points="0,-48 -3,-42 3,-42" style="fill:var(--acc)"/>
       </svg>
       <div style="display:flex;gap:20px">
         <div style="text-align:center"><div class="g-lbl">Roll</div><div class="g-val" id="att-roll" style="font-size:15px">--&#176;</div></div>
@@ -606,7 +677,7 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       </div>
       <div class="dev-card ok" id="dev-wifi">
         <div style="display:flex;align-items:center"><span class="dev-dot ok"></span><span class="dev-name">WiFi AP</span><span class="dev-status ok" style="margin-left:auto">OK</span></div>
-        <div class="dev-detail">darkandstormy</div>
+        <div class="dev-detail">Mistral</div>
         <div class="dev-note">192.168.4.1</div>
       </div>
     </div>
@@ -617,9 +688,121 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       <span><span class="dev-dot error"></span>Fault</span>
       <span><span class="dev-dot absent"></span>N/A</span>
     </div>
+
+    <div style="margin-top:4px;padding:10px 12px;border-radius:10px;border:1px solid var(--bdr);background:var(--surf);display:flex;align-items:center;gap:10px">
+      <span class="g-lbl" style="flex:1">System</span>
+      <button id="restart-btn" onclick="handleRestart()"
+        style="font-size:10px;font-weight:700;font-family:'Courier New',monospace;letter-spacing:0.06em;
+               padding:5px 10px;border-radius:6px;border:1px solid var(--bdr);
+               background:var(--surf2);color:var(--dim);cursor:pointer">
+        RESTART
+      </button>
+    </div>
   </div><!-- /page-dev -->
 
 </div><!-- #app -->
+
+<!-- LANDSCAPE CONTROL VIEW (orientation: landscape) -->
+<div id="app-land">
+
+  <!-- LEFT: throttle -->
+  <div class="lc-col" id="lc-left" style="width:64px">
+    <div class="lc-card lc-fill" id="lc-t-card" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 6px">
+      <span class="clbl">Throt</span>
+      <div id="lc-t-track" style="position:relative;width:44px;flex:1;min-height:80px;background:var(--surf2);border-radius:22px;touch-action:none;cursor:ns-resize">
+        <div style="position:absolute;left:50%;top:6%;bottom:6%;width:6px;transform:translateX(-50%);border-radius:3px;background:var(--bdr)"></div>
+        <div style="position:absolute;left:18%;right:18%;top:50%;height:1px;background:var(--dim)"></div>
+        <div id="lc-t-fill" style="position:absolute;left:50%;width:6px;transform:translateX(-50%);border-radius:3px;background:var(--acc);display:none"></div>
+        <div id="lc-t-thumb" style="position:absolute;left:50%;top:50%;width:34px;height:34px;transform:translate(-50%,-50%);border-radius:50%;background:var(--surf);border:3px solid var(--acc);pointer-events:none"></div>
+      </div>
+      <div id="lc-t-val" style="font-size:11px;font-weight:700;font-family:'Courier New',monospace;color:var(--acc)">+0%</div>
+      <button id="lc-t-lock" onclick="toggleThrottleLock()" style="font-size:9px;font-weight:700;padding:3px 5px;border-radius:6px;border:1px solid var(--bdr);background:var(--surf2);color:var(--dim);cursor:pointer;width:100%;letter-spacing:0.05em;font-family:inherit">&#8617; Ret</button>
+    </div>
+  </div>
+
+  <!-- CENTER: sail + telem + bilge + ARM -->
+  <div class="lc-col" id="lc-center" style="flex:1;min-width:0">
+    <div id="lc-batt-warn" style="display:none;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;border:1px solid var(--warn);background:var(--warn-soft)">
+      <span id="lc-batt-warn-txt" style="font-family:'Courier New',monospace;font-size:9px;font-weight:700;color:var(--warn)"></span>
+    </div>
+    <div class="lc-card" id="lc-s-card" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 8px">
+      <svg id="lc-sail-svg" viewBox="0 0 152 152" width="88" height="88" style="touch-action:none;display:block">
+        <path style="fill:var(--acc-dim)" d="M 18,18 L 138,18 A 120,120 0 0,1 18,138 Z"/>
+        <path fill="none" style="stroke:var(--bdr-s)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="8 5" d="M 138,18 A 120,120 0 0,1 18,138"/>
+        <path id="lc-s-sail" style="stroke:var(--acc);fill:var(--acc-dim)" stroke-width="1.8"/>
+        <line id="lc-s-boom" style="stroke:var(--dim)" stroke-width="1.8" stroke-linecap="round"/>
+        <circle cx="18" cy="18" r="5" style="fill:var(--text)"/>
+        <circle id="lc-s-thumb" cx="138" cy="18" r="11" style="cursor:grab;fill:var(--acc);fill-opacity:0.9;filter:drop-shadow(0 0 6px var(--acc))"/>
+      </svg>
+      <div style="display:flex;gap:4px;width:100%">
+        <button class="s-btn" id="lc-s-trim">&#9668; IN</button>
+        <button class="s-btn" id="lc-s-ease">OUT &#9658;</button>
+      </div>
+      <div id="lc-s-val" style="font-size:10px;font-weight:700;font-family:'Courier New',monospace;color:var(--acc)">0% trimmed</div>
+    </div>
+    <div class="lc-card" style="padding:6px 10px">
+      <div style="display:flex;justify-content:space-between">
+        <div class="tg"><div class="tg-l">Batt</div><div class="tg-v" id="lc-tl-v" style="font-size:11px">--V</div></div>
+        <div class="tg"><div class="tg-l">%</div><div class="tg-v" id="lc-tl-pct" style="font-size:11px">--%</div></div>
+        <div class="tg"><div class="tg-l">GPS</div><div class="tg-v" id="lc-tl-s" style="font-size:11px">--sat</div></div>
+        <div class="tg"><div class="tg-l">Temp</div><div class="tg-v" id="lc-tl-t" style="font-size:11px">--&#176;C</div></div>
+      </div>
+    </div>
+    <div id="lc-bilge" style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--bdr);transition:all 0.3s">
+      <div class="bdot"></div>
+      <span id="lc-bilge-txt" style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--dim);flex:1">Bilge OK</span>
+      <button id="lc-pump-btn" onclick="togglePump()" style="font-size:9px;font-weight:700;padding:3px 8px;border-radius:5px;border:1px solid var(--bdr);background:var(--surf2);color:var(--dim);cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;font-family:inherit">Pump: OFF</button>
+    </div>
+    <button class="act-btn" id="lc-btn-arm" style="flex:none;padding:6px 10px;font-size:11px">Take Helm</button>
+  </div>
+
+  <!-- RIGHT: attitude + rudder + STOP -->
+  <div class="lc-col" id="lc-right" style="width:196px">
+    <div class="lc-card" style="display:flex;align-items:center;gap:8px;padding:6px 10px">
+      <svg viewBox="-27 -27 54 54" width="52" height="52" style="flex-shrink:0">
+        <defs><clipPath id="lc-att-clip"><circle r="24"/></clipPath></defs>
+        <circle r="24" style="fill:var(--att-gnd)"/>
+        <g id="lc-att-g" clip-path="url(#lc-att-clip)">
+          <rect id="lc-att-sky" x="-27" y="-54" width="54" height="54" style="fill:var(--att-sky)"/>
+          <rect id="lc-att-gnd" x="-27" y="0" width="54" height="54" style="fill:var(--att-gnd)"/>
+          <line id="lc-att-hor" x1="-27" y1="0" x2="27" y2="0" stroke="rgba(220,232,240,0.5)" stroke-width="0.8"/>
+        </g>
+        <circle r="24" fill="none" style="stroke:var(--bdr-s)" stroke-width="1.2"/>
+        <line x1="-8" y1="0" x2="-3" y2="0" style="stroke:var(--acc)" stroke-width="2" stroke-linecap="round"/>
+        <line x1="3" y1="0" x2="8" y2="0" style="stroke:var(--acc)" stroke-width="2" stroke-linecap="round"/>
+        <circle r="1.4" style="fill:var(--acc)"/>
+        <polygon id="lc-att-ptr" points="0,-21 -1.8,-17 1.8,-17" style="fill:var(--acc)"/>
+      </svg>
+      <div style="display:flex;gap:10px">
+        <div class="tg"><div class="tg-l">Heel</div><div class="tg-v" id="lc-att-roll" style="font-size:11px">--&#176;</div></div>
+        <div class="tg"><div class="tg-l">Pitch</div><div class="tg-v" id="lc-att-pitch" style="font-size:11px">--&#176;</div></div>
+        <div class="tg"><div class="tg-l">Hdg</div><div class="tg-v" id="lc-att-hdg" style="font-size:11px">--&#176;</div></div>
+      </div>
+    </div>
+    <div class="lc-card lc-fill" id="lc-r-card" style="display:flex;flex-direction:column;gap:6px;padding:8px 10px">
+      <span class="clbl" style="margin-bottom:0">Rudder</span>
+      <div id="lc-r-pad" style="position:relative;width:100%;flex:1;min-height:60px;background:var(--surf2);border-radius:10px;border:2px solid var(--bdr);touch-action:none;cursor:crosshair;overflow:hidden;transition:border-color 0.12s">
+        <div id="lc-r-fill" style="position:absolute;top:0;bottom:0;background:var(--acc-dim);display:none"></div>
+        <div style="position:absolute;left:50%;top:10%;bottom:10%;width:1px;background:var(--bdr);transform:translateX(-50%)"></div>
+        <div id="lc-r-trim-tick" style="position:absolute;top:0;bottom:0;width:2px;background:rgba(232,168,58,0.6);transform:translateX(-50%);display:none"></div>
+        <div id="lc-r-thumb" style="position:absolute;top:50%;left:50%;width:36px;height:36px;transform:translate(-50%,-50%);border-radius:50%;border:3px solid var(--acc);background:var(--surf);pointer-events:none"></div>
+        <span style="position:absolute;bottom:5px;left:8px;font-size:9px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:0.07em">&#9668; Port</span>
+        <span style="position:absolute;bottom:5px;right:8px;font-size:9px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:0.07em">Stbd &#9658;</span>
+        <div id="lc-r-bigval" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:18px;font-weight:800;font-family:'Courier New',monospace;color:var(--dim);pointer-events:none">0%</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <button class="trim-btn" onclick="setTrim(-5)">&#8722;5%</button>
+        <button class="trim-btn" onclick="setTrim(-1)">&#8722;1%</button>
+        <button class="trim-btn sel" id="lc-trim-0" onclick="setTrim(0)">CTR</button>
+        <button class="trim-btn" onclick="setTrim(1)">+1%</button>
+        <button class="trim-btn" onclick="setTrim(5)">+5%</button>
+        <span id="lc-r-trim-val" style="margin-left:auto;font-size:10px;font-weight:700;font-family:'Courier New',monospace;color:var(--dim)">+0%</span>
+      </div>
+      <button class="act-btn" id="lc-btn-stop" style="flex:none;padding:10px;font-size:12px">&#9632; Stop</button>
+    </div>
+  </div>
+
+</div><!-- /app-land -->
 
 <script>
 // ── STATE ──────────────────────────────────────────────────────────
@@ -630,13 +813,14 @@ var throttle = 0;
 var tLocked  = false;
 var armed    = false;
 var pumpOn   = false;
-var darkMode = true;
+var darkMode = false;
+document.body.classList.add('day');
 
 // ── THEME ──────────────────────────────────────────────────────────
 function toggleTheme() {
   darkMode = !darkMode;
-  document.body.classList.toggle('light', !darkMode);
-  document.getElementById('theme-btn').textContent = darkMode ? '☀ Day' : '🌙 Night';
+  document.body.classList.toggle('day', !darkMode);
+  document.getElementById('theme-btn').textContent = darkMode ? 'Day' : 'Dusk';
 }
 
 // ── THROTTLE ──────────────────────────────────────────────────────
@@ -662,6 +846,7 @@ function renderThrottle() {
   } else {
     tFill.style.display = 'none';
   }
+  renderLcThrottle();
 }
 renderThrottle();
 
@@ -689,6 +874,8 @@ function toggleThrottleLock() {
   var btn = document.getElementById('t-lock');
   btn.textContent = tLocked ? '🔒 Lock' : '↩ Return';
   btn.className   = tLocked ? 'on' : '';
+  var lcBtn = document.getElementById('lc-t-lock');
+  if (lcBtn) { lcBtn.textContent = tLocked ? '🔒 Lock' : '↩ Ret'; lcBtn.className = tLocked ? 'on' : ''; }
 }
 
 // ── SAIL ARC ──────────────────────────────────────────────────────
@@ -711,6 +898,7 @@ function renderSail() {
   sBoom.setAttribute('x2',px.toFixed(1)); sBoom.setAttribute('y2',py.toFixed(1));
   sThmb.setAttribute('cx',px.toFixed(1)); sThmb.setAttribute('cy',py.toFixed(1));
   sVal.textContent = Math.round(sail * 100) + '% trimmed';
+  renderLcSail();
 }
 renderSail();
 
@@ -741,7 +929,7 @@ var rDrag  = false;
 function renderRudder() {
   var pct = (0.5 + rudder * 0.42) * 100;
   rThumb.style.left = pct + '%';
-  rBigv.textContent = (rudder >= 0 ? '+' : '') + Math.round(rudder * 100);
+  rBigv.textContent = (rudder >= 0 ? '+' : '') + Math.round(rudder * 100) + '%';
   var lo = Math.min(rudder, rudderTrim);
   var hi = Math.max(rudder, rudderTrim);
   if (Math.abs(rudder - rudderTrim) > 0.01) {
@@ -757,6 +945,7 @@ function renderRudder() {
   } else {
     rTrimTick.style.display = 'none';
   }
+  renderLcRudder();
 }
 renderRudder();
 
@@ -781,28 +970,45 @@ function setTrim(val) {
   if (val === 0) {
     rudderTrim = 0;
   } else {
-    rudderTrim = Math.max(-1, Math.min(1, rudderTrim + (val === -1 ? -0.01 : 0.01)));
+    rudderTrim = Math.max(-1, Math.min(1, rudderTrim + val * 0.01));
   }
   rudder = rudderTrim;
   renderRudder();
   var pct = (rudderTrim * 100).toFixed(0);
   document.getElementById('r-trim-val').textContent = (rudderTrim >= 0 ? '+' : '') + pct + '%';
-  document.getElementById('trim-n1').className = 'trim-btn';
-  document.getElementById('trim-0').className  = 'trim-btn' + (rudderTrim === 0 ? ' sel' : '');
-  document.getElementById('trim-p1').className = 'trim-btn';
+  ['trim-n5','trim-n1','trim-p1','trim-p5'].forEach(function(id) {
+    document.getElementById(id).className = 'trim-btn';
+  });
+  document.getElementById('trim-0').className = 'trim-btn' + (rudderTrim === 0 ? ' sel' : '');
+  var lcTrimVal = document.getElementById('lc-r-trim-val');
+  if (lcTrimVal) lcTrimVal.textContent = (rudderTrim >= 0 ? '+' : '') + pct + '%';
+  var lcTrim0 = document.getElementById('lc-trim-0');
+  if (lcTrim0) lcTrim0.className = 'trim-btn' + (rudderTrim === 0 ? ' sel' : '');
 }
 
 // ── ARM / STOP ────────────────────────────────────────────────────
+function updateCtrlState() {
+  ['t-card','s-card','r-card','lc-t-card','lc-s-card','lc-r-card'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.toggle('ctrl-dis', !armed);
+  });
+}
+
+function syncArmState() {
+  btnArm.textContent = armed ? '⚓ Helm Active' : 'Take Helm';
+  btnArm.className = 'act-btn' + (armed ? ' armed' : '');
+  var lcBtn = document.getElementById('lc-btn-arm');
+  if (lcBtn) { lcBtn.textContent = armed ? '⚓ Helm Active' : 'Take Helm'; lcBtn.className = 'act-btn' + (armed ? ' armed' : ''); }
+}
 var btnArm = document.getElementById('btn-arm');
 btnArm.addEventListener('click', function() {
-  armed = !armed;
-  btnArm.textContent = armed ? '⚓ Armed' : 'Disarmed';
-  btnArm.className = 'act-btn' + (armed ? ' armed' : '');
+  armed = !armed; syncArmState(); updateCtrlState();
 });
 document.getElementById('btn-stop').addEventListener('click', function() {
   armed = false; throttle = 0; renderThrottle();
-  btnArm.textContent = 'Disarmed'; btnArm.className = 'act-btn';
+  syncArmState(); updateCtrlState();
 });
+updateCtrlState();
 
 // ── PUMP ──────────────────────────────────────────────────────────
 function togglePump() {
@@ -810,6 +1016,13 @@ function togglePump() {
   var btn = document.getElementById('pump-btn');
   btn.textContent = 'Pump: ' + (pumpOn ? 'ON' : 'OFF');
   btn.className   = pumpOn ? 'on' : '';
+  var lcBtn = document.getElementById('lc-pump-btn');
+  if (lcBtn) {
+    lcBtn.textContent = 'Pump: ' + (pumpOn ? 'ON' : 'OFF');
+    lcBtn.style.background  = pumpOn ? 'var(--warn-soft)' : '';
+    lcBtn.style.borderColor = pumpOn ? 'var(--warn)' : '';
+    lcBtn.style.color       = pumpOn ? 'var(--warn)' : '';
+  }
   fetch('/pump?on=' + (pumpOn ? 1 : 0)).catch(function(){});
 }
 
@@ -838,7 +1051,20 @@ setInterval(function() {
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────
 var TAB_IDS = ['ctrl','instr','map','dev'];
+function isMobileDevice() {
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
 function switchTab(name) {
+  var isLand = isMobileDevice() && window.matchMedia('(orientation: landscape)').matches;
+  var appEl  = document.getElementById('app');
+  var landEl = document.getElementById('app-land');
+  if (name === 'ctrl' && isLand) {
+    appEl.style.display  = 'none';
+    landEl.style.display = 'flex';
+    return;
+  }
+  appEl.style.display  = '';
+  landEl.style.display = 'none';
   TAB_IDS.forEach(function(id) {
     document.getElementById('page-'+id).style.display = name===id ? 'flex' : 'none';
     document.getElementById('tab-'+id).className = 'tab' + (name===id ? ' active' : '');
@@ -1019,6 +1245,27 @@ setInterval(function() {
     if (vEl) { vEl.textContent = d.v !== undefined ? d.v.toFixed(1)+'V' : '--.-V'; vEl.className='tg-v'+(d.v<11.0?' d':d.v<11.4?' w':''); }
     var aEl = document.getElementById('tl-a');
     if (aEl) aEl.textContent = d.a !== undefined ? d.a.toFixed(1)+'A' : '-.-A';
+    var pctEl = document.getElementById('tl-pct');
+    if (pctEl && d.pct !== undefined) {
+      var battCrit = d.pct < 10, battLow = d.pct < 20;
+      pctEl.textContent = d.pct + '%';
+      pctEl.className = 'tg-v' + (battCrit ? ' d' : battLow ? ' w' : '');
+      var warnDiv = document.getElementById('batt-warn');
+      var warnTxt = document.getElementById('batt-warn-txt');
+      if (warnDiv && warnTxt) {
+        if (battLow) {
+          warnDiv.style.display = 'flex';
+          warnDiv.style.borderColor = battCrit ? 'var(--danger)' : 'var(--warn)';
+          warnDiv.style.background  = battCrit ? 'var(--danger-soft)' : 'var(--warn-soft)';
+          warnTxt.style.color = battCrit ? 'var(--danger)' : 'var(--warn)';
+          warnTxt.textContent = (battCrit ? '⚠ BATTERY CRITICAL' : '⚠ BATTERY LOW')
+                                + ' \xb7 ' + (d.v !== undefined ? d.v.toFixed(1) + ' V \xb7 ' : '')
+                                + d.pct + '%';
+        } else {
+          warnDiv.style.display = 'none';
+        }
+      }
+    }
     var rEl = document.getElementById('tl-r');
     if (rEl) rEl.textContent = d.roll  !== undefined ? 'R'+(d.roll>=0?'+':'')+d.roll.toFixed(1)+'\xb0' : 'R--\xb0';
     var pEl = document.getElementById('tl-p');
@@ -1034,6 +1281,9 @@ setInterval(function() {
     if (inaNote && d.v !== undefined) inaNote.textContent = d.v.toFixed(1)+'V \xb7 '+(d.a||0).toFixed(1)+'A';
     // Live-update instruments page if visible
     if (document.getElementById('page-instr').style.display !== 'none') updateInstruments();
+    updateCompactAtt();
+    updateLcAtt();
+    updateLcTelem(d);
   }).catch(function(){});
 }, 100);
 
@@ -1043,10 +1293,26 @@ setInterval(function() {
     var txt = document.getElementById('bilge-txt');
     if (bar) bar.className = d.wet ? 'wet' : '';
     if (txt) txt.textContent = d.wet ? 'Bilge Wet' : 'Bilge OK';
+    var lcBilge = document.getElementById('lc-bilge');
+    var lcBilgeTxt = document.getElementById('lc-bilge-txt');
+    if (lcBilge) {
+      lcBilge.style.background  = d.wet ? 'var(--danger-soft)' : '';
+      lcBilge.style.borderColor = d.wet ? 'var(--danger)' : '';
+      var lcBdot = lcBilge.querySelector('.bdot');
+      if (lcBdot) { lcBdot.style.background = d.wet ? 'var(--danger)' : ''; lcBdot.style.boxShadow = d.wet ? '0 0 8px var(--danger)' : ''; }
+    }
+    if (lcBilgeTxt) { lcBilgeTxt.textContent = d.wet ? 'Bilge Wet' : 'Bilge OK'; lcBilgeTxt.style.color = d.wet ? 'var(--danger)' : ''; }
     if (d.pump !== pumpOn) {
       pumpOn = d.pump;
       var btn = document.getElementById('pump-btn');
       if (btn) { btn.textContent = 'Pump: '+(pumpOn?'ON':'OFF'); btn.className = pumpOn?'on':''; }
+      var lcPumpBtn = document.getElementById('lc-pump-btn');
+      if (lcPumpBtn) {
+        lcPumpBtn.textContent = 'Pump: '+(pumpOn?'ON':'OFF');
+        lcPumpBtn.style.background  = pumpOn ? 'var(--warn-soft)' : '';
+        lcPumpBtn.style.borderColor = pumpOn ? 'var(--warn)' : '';
+        lcPumpBtn.style.color       = pumpOn ? 'var(--warn)' : '';
+      }
     }
     var bv = document.getElementById('g-bilge-v');
     if (bv) { bv.textContent = d.wet ? 'WET ⚠' : 'DRY'; bv.className = 'g-val'+(d.wet?' d':''); }
@@ -1097,6 +1363,29 @@ function updateInstruments() {
   if (tBar) { tBar.style.width=Math.max(0,Math.min(100,(tmp-20)/80*100))+'%'; tBar.className='g-bar-fill'+(tmp>80?' d':tmp>60?' w':''); }
 }
 
+// ── COMPACT ATTITUDE (control tab) ───────────────────────────────
+function updateCompactAtt() {
+  var roll  = instrData.roll  || 0;
+  var pitch = instrData.pitch || 0;
+  var po = pitch * 1.5;
+  var g = document.getElementById('c-att-g');
+  if (g) g.setAttribute('transform', 'rotate('+roll+')');
+  var sky = document.getElementById('c-att-sky');
+  if (sky) sky.setAttribute('y', (-68+po).toFixed(1));
+  var gnd = document.getElementById('c-att-gnd');
+  if (gnd) gnd.setAttribute('y', po.toFixed(1));
+  var hor = document.getElementById('c-att-hor');
+  if (hor) { hor.setAttribute('y1', po.toFixed(1)); hor.setAttribute('y2', po.toFixed(1)); }
+  var ptr = document.getElementById('c-att-ptr');
+  if (ptr) ptr.setAttribute('transform', 'rotate('+roll+')');
+  var rEl = document.getElementById('c-att-roll');
+  if (rEl) rEl.textContent = (roll>=0?'+':'')+roll.toFixed(1)+'\xb0';
+  var pEl = document.getElementById('c-att-pitch');
+  if (pEl) pEl.textContent = (pitch>=0?'+':'')+pitch.toFixed(1)+'\xb0';
+  var hEl = document.getElementById('c-att-hdg');
+  if (hEl) hEl.textContent = (instrData.yaw||0).toFixed(0)+'\xb0';
+}
+
 // ── DEVICES ───────────────────────────────────────────────────────
 function updateDevices() {
   fetch('/diag.json').then(function(r){return r.json();}).then(function(d) {
@@ -1135,12 +1424,223 @@ function repairDev(id, btn) {
   setTimeout(function() { btn.textContent = orig; btn.disabled = false; updateDevices(); }, 2000);
 }
 
+var restartArmed = false, restartTimer = null;
+function handleRestart() {
+  var btn = document.getElementById('restart-btn');
+  if (!restartArmed) {
+    restartArmed = true;
+    btn.textContent = 'CONFIRM?';
+    btn.style.borderColor = 'var(--danger)';
+    btn.style.color       = 'var(--danger)';
+    btn.style.background  = 'var(--danger-soft)';
+    restartTimer = setTimeout(function() {
+      restartArmed = false;
+      btn.textContent = 'RESTART';
+      btn.style.borderColor = btn.style.color = '';
+      btn.style.background  = '';
+    }, 5000);
+  } else {
+    clearTimeout(restartTimer);
+    restartArmed = false;
+    btn.textContent = 'REBOOTING…';
+    btn.disabled = true;
+    fetch('/restart', { method:'POST' }).catch(function(){});
+  }
+}
+
 function reprobeAll() {
   var btn = document.getElementById('reprobe-all-btn');
   btn.textContent = '⟳ Probing…'; btn.disabled = true;
   fetch('/repair?id=all').catch(function(){});
   setTimeout(function() { btn.textContent = '⟳ Reprobe All'; btn.disabled = false; updateDevices(); }, 2500);
 }
+
+// ── LANDSCAPE RENDER ─────────────────────────────────────────────
+function renderLcThrottle() {
+  var pct = (1 - (throttle + 1) / 2) * 100;
+  var lth = document.getElementById('lc-t-thumb');
+  var lfi = document.getElementById('lc-t-fill');
+  var lva = document.getElementById('lc-t-val');
+  if (lth) lth.style.top = pct + '%';
+  if (lva) lva.textContent = (throttle >= 0 ? '+' : '') + Math.round(throttle * 100) + '%';
+  if (lfi) {
+    if (Math.abs(throttle) > 0.01) {
+      lfi.style.display = 'block';
+      if (throttle > 0) { lfi.style.top = pct + '%'; lfi.style.height = (throttle * 50) + '%'; }
+      else              { lfi.style.top = '50%';     lfi.style.height = (Math.abs(throttle) * 50) + '%'; }
+    } else { lfi.style.display = 'none'; }
+  }
+}
+
+function renderLcSail() {
+  var a  = sail * Math.PI / 2;
+  var px = CX + R * Math.cos(a), py = CY + R * Math.sin(a);
+  var mx = (CX + px) / 2, my = (CY + py) / 2;
+  var cx2 = mx + 20 * Math.sin(a), cy2 = my - 20 * Math.cos(a);
+  var ls = document.getElementById('lc-s-sail');
+  var lb = document.getElementById('lc-s-boom');
+  var lt = document.getElementById('lc-s-thumb');
+  var lv = document.getElementById('lc-s-val');
+  if (ls) ls.setAttribute('d','M '+CX+','+CY+' Q '+cx2.toFixed(1)+','+cy2.toFixed(1)+' '+px.toFixed(1)+','+py.toFixed(1)+' Z');
+  if (lb) { lb.setAttribute('x1',CX); lb.setAttribute('y1',CY); lb.setAttribute('x2',px.toFixed(1)); lb.setAttribute('y2',py.toFixed(1)); }
+  if (lt) { lt.setAttribute('cx',px.toFixed(1)); lt.setAttribute('cy',py.toFixed(1)); }
+  if (lv) lv.textContent = Math.round(sail * 100) + '% trimmed';
+}
+
+function renderLcRudder() {
+  var pct = (0.5 + rudder * 0.42) * 100;
+  var lth = document.getElementById('lc-r-thumb');
+  var lbv = document.getElementById('lc-r-bigval');
+  var lfi = document.getElementById('lc-r-fill');
+  var ltt = document.getElementById('lc-r-trim-tick');
+  if (lth) lth.style.left = pct + '%';
+  if (lbv) lbv.textContent = (rudder >= 0 ? '+' : '') + Math.round(rudder * 100) + '%';
+  var lo = Math.min(rudder, rudderTrim), hi = Math.max(rudder, rudderTrim);
+  if (lfi) {
+    if (Math.abs(rudder - rudderTrim) > 0.01) {
+      lfi.style.display = 'block';
+      lfi.style.left  = ((0.5 + lo * 0.42) * 100) + '%';
+      lfi.style.right = (100 - (0.5 + hi * 0.42) * 100) + '%';
+    } else { lfi.style.display = 'none'; }
+  }
+  if (ltt) {
+    if (Math.abs(rudderTrim) > 0.01) {
+      ltt.style.display = 'block';
+      ltt.style.left = ((0.5 + rudderTrim * 0.42) * 100) + '%';
+    } else { ltt.style.display = 'none'; }
+  }
+}
+
+// ── LANDSCAPE EVENT HANDLERS ─────────────────────────────────────
+function sValFromSvg(e, svgEl) {
+  var rect = svgEl.getBoundingClientRect();
+  var dx = Math.max(0, (e.clientX - rect.left) * (152/rect.width) - CX);
+  var dy = Math.max(0, (e.clientY - rect.top)  * (152/rect.height) - CY);
+  return Math.min(Math.PI/2, Math.atan2(dy, dx)) / (Math.PI/2);
+}
+
+var lcTTrack = document.getElementById('lc-t-track');
+if (lcTTrack) {
+  var lcTDrag = false;
+  lcTTrack.addEventListener('pointerdown', function(e) {
+    lcTDrag = true; lcTTrack.setPointerCapture(e.pointerId);
+    var r = lcTTrack.getBoundingClientRect();
+    throttle = (1 - Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))) * 2 - 1;
+    renderThrottle();
+  });
+  lcTTrack.addEventListener('pointermove', function(e) {
+    if (!lcTDrag) return;
+    var r = lcTTrack.getBoundingClientRect();
+    throttle = (1 - Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))) * 2 - 1;
+    renderThrottle();
+  });
+  lcTTrack.addEventListener('pointerup',     function() { lcTDrag = false; if (!tLocked) { throttle = 0; renderThrottle(); } });
+  lcTTrack.addEventListener('pointercancel', function() { lcTDrag = false; if (!tLocked) { throttle = 0; renderThrottle(); } });
+}
+
+var lcSSvg = document.getElementById('lc-sail-svg');
+if (lcSSvg) {
+  var lcSDrag = false;
+  lcSSvg.addEventListener('pointerdown', function(e) {
+    lcSDrag = true; lcSSvg.setPointerCapture(e.pointerId);
+    sail = sValFromSvg(e, lcSSvg); renderSail();
+  });
+  lcSSvg.addEventListener('pointermove',   function(e) { if (lcSDrag) { sail = sValFromSvg(e, lcSSvg); renderSail(); } });
+  lcSSvg.addEventListener('pointerup',     function() { lcSDrag = false; });
+  lcSSvg.addEventListener('pointercancel', function() { lcSDrag = false; });
+}
+document.getElementById('lc-s-trim').addEventListener('click', function() { sail = Math.min(1, sail + 1/18); renderSail(); });
+document.getElementById('lc-s-ease').addEventListener('click', function() { sail = Math.max(0, sail - 1/18); renderSail(); });
+
+var lcRPad = document.getElementById('lc-r-pad');
+if (lcRPad) {
+  var lcRDrag = false;
+  var lcRBigv = document.getElementById('lc-r-bigval');
+  lcRPad.addEventListener('pointerdown', function(e) {
+    lcRDrag = true; lcRPad.setPointerCapture(e.pointerId);
+    lcRPad.classList.add('active'); if (lcRBigv) lcRBigv.classList.add('active');
+    var r = lcRPad.getBoundingClientRect();
+    rudder = (Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) - 0.5) * 2; renderRudder();
+  });
+  lcRPad.addEventListener('pointermove', function(e) {
+    if (!lcRDrag) return;
+    var r = lcRPad.getBoundingClientRect();
+    rudder = (Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) - 0.5) * 2; renderRudder();
+  });
+  function lcRRelease() {
+    lcRDrag = false; lcRPad.classList.remove('active'); if (lcRBigv) lcRBigv.classList.remove('active');
+    rudder = rudderTrim; renderRudder();
+  }
+  lcRPad.addEventListener('pointerup', lcRRelease);
+  lcRPad.addEventListener('pointercancel', lcRRelease);
+}
+
+var lcBtnArm  = document.getElementById('lc-btn-arm');
+var lcBtnStop = document.getElementById('lc-btn-stop');
+if (lcBtnArm)  lcBtnArm.addEventListener('click',  function() { armed = !armed; syncArmState(); updateCtrlState(); });
+if (lcBtnStop) lcBtnStop.addEventListener('click', function() { armed = false; throttle = 0; renderThrottle(); syncArmState(); updateCtrlState(); });
+
+// ── LANDSCAPE TELEMETRY ───────────────────────────────────────────
+function updateLcAtt() {
+  var roll = instrData.roll || 0, pitch = instrData.pitch || 0, po = pitch * 1.2;
+  var g = document.getElementById('lc-att-g');
+  if (g) g.setAttribute('transform','rotate('+roll+')');
+  var sky = document.getElementById('lc-att-sky');
+  if (sky) sky.setAttribute('y',(-54+po).toFixed(1));
+  var gnd = document.getElementById('lc-att-gnd');
+  if (gnd) gnd.setAttribute('y',po.toFixed(1));
+  var hor = document.getElementById('lc-att-hor');
+  if (hor) { hor.setAttribute('y1',po.toFixed(1)); hor.setAttribute('y2',po.toFixed(1)); }
+  var ptr = document.getElementById('lc-att-ptr');
+  if (ptr) ptr.setAttribute('transform','rotate('+roll+')');
+  var rEl = document.getElementById('lc-att-roll');
+  if (rEl) rEl.textContent = (roll>=0?'+':'')+roll.toFixed(1)+'\xb0';
+  var pEl = document.getElementById('lc-att-pitch');
+  if (pEl) pEl.textContent = (pitch>=0?'+':'')+pitch.toFixed(1)+'\xb0';
+  var hEl = document.getElementById('lc-att-hdg');
+  if (hEl) hEl.textContent = (instrData.yaw||0).toFixed(0)+'\xb0';
+}
+
+function updateLcTelem(d) {
+  var vEl = document.getElementById('lc-tl-v');
+  if (vEl) vEl.textContent = d.v!==undefined ? d.v.toFixed(1)+'V' : '--V';
+  var pctEl = document.getElementById('lc-tl-pct');
+  if (pctEl && d.pct!==undefined) {
+    var bc = d.pct < 10, bl = d.pct < 20;
+    pctEl.textContent = d.pct + '%';
+    pctEl.className = 'tg-v' + (bc ? ' d' : bl ? ' w' : '');
+    var wd = document.getElementById('lc-batt-warn');
+    var wt = document.getElementById('lc-batt-warn-txt');
+    if (wd && wt) {
+      if (bl) {
+        wd.style.display = 'flex';
+        wd.style.borderColor = bc ? 'var(--danger)' : 'var(--warn)';
+        wd.style.background  = bc ? 'var(--danger-soft)' : 'var(--warn-soft)';
+        wt.style.color = bc ? 'var(--danger)' : 'var(--warn)';
+        wt.textContent = (bc ? '⚠ CRIT' : '⚠ LOW') + ' \xb7 ' + (d.v!==undefined?d.v.toFixed(1)+'V \xb7 ':'') + d.pct + '%';
+      } else { wd.style.display = 'none'; }
+    }
+  }
+  var sEl = document.getElementById('lc-tl-s');
+  if (sEl) sEl.textContent = d.sats!==undefined ? d.sats+'sat' : '--sat';
+  var tEl = document.getElementById('lc-tl-t');
+  if (tEl) tEl.textContent = d.temp!==undefined ? d.temp.toFixed(0)+'\xb0C' : '--\xb0C';
+}
+
+// ── ORIENTATION ───────────────────────────────────────────────────
+function applyOrientation() {
+  var isLand = isMobileDevice() && window.matchMedia('(orientation: landscape)').matches;
+  document.getElementById('app').style.display      = isLand ? 'none' : '';
+  document.getElementById('app-land').style.display = isLand ? 'flex' : 'none';
+  if (isLand) {
+    renderThrottle(); renderSail(); renderRudder();
+    syncArmState(); updateCtrlState(); updateLcAtt();
+  } else {
+    switchTab('ctrl');
+  }
+}
+window.matchMedia('(orientation: landscape)').addEventListener('change', applyOrientation);
+applyOrientation();
 </script>
 </body>
 </html>
@@ -1532,6 +2032,14 @@ static void handle_repair()
     s_srv.send(200, "application/json", buf);
 }
 
+static void handle_restart()
+{
+    s_srv.send(200, "text/plain", "Rebooting...");
+    s_srv.client().flush();
+    delay(100);
+    ESP.restart();
+}
+
 static void handle_root()
 {
     s_srv.send_P(200, "text/html; charset=utf-8", HTML_PAGE);
@@ -1716,7 +2224,8 @@ static void start_ap()
     s_srv.on("/track",     handle_track);
     s_srv.on("/diag",      HTTP_GET, handle_diag_page);
     s_srv.on("/diag.json", HTTP_GET, handle_diag_json);
-    s_srv.on("/repair",    HTTP_GET, handle_repair);
+    s_srv.on("/repair",    HTTP_GET,  handle_repair);
+    s_srv.on("/restart",   HTTP_POST, handle_restart);
     // OTA: GET serves the upload page; POST receives the binary + flashes + reboots.
     s_srv.on("/update", HTTP_GET,  handle_ota_get);
     s_srv.on("/update", HTTP_POST, handle_ota_post, handle_ota_upload);
@@ -1751,8 +2260,14 @@ static void stop_ap()
 // ── Public API ────────────────────────────────────────────────────────────────
 void wifi_ctrl_init()
 {
+#ifdef FORCE_ELRS_MODE
+    // Skip AP startup — boot directly in ELRS mode for bench testing.
+    s_mode = CtrlMode::ELRS;
+    Serial.println("wifi_ctrl: FORCE_ELRS_MODE — AP skipped, starting in ELRS mode");
+#else
     start_ap();
     s_mode = CtrlMode::WIFI;
+#endif
 }
 
 void wifi_ctrl_update()

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mistral — RC Sail Control</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;background:#1a1a1a;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;}
+  #root{width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
+  #scaler{transform-origin:center center;}
+  .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.08);position:relative;flex-shrink:0;}
+  .screen{width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;}
+  .body{flex:1;overflow-y:auto;overflow-x:hidden;}
+  ::-webkit-scrollbar{width:3px;background:transparent;}
+  ::-webkit-scrollbar-thumb{background:rgba(100,120,150,0.3);border-radius:99px;}
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="app/ds2.jsx"></script>
+<script type="text/babel" src="app/ctrl2.jsx"></script>
+<script type="text/babel" src="app/instr2.jsx"></script>
+<script type="text/babel" src="app/map2.jsx"></script>
+<script type="text/babel" src="app/dev2.jsx"></script>
+<script type="text/babel" src="app/con2.jsx"></script>
+<script type="text/babel" src="app/landscape2.jsx"></script>
+<script type="text/babel">
+const TABS = [
+  { id:'control',  label:'Control' },
+  { id:'instr',    label:'Instr' },
+  { id:'map',      label:'Map' },
+  { id:'devices',  label:'Devices' },
+  { id:'console',  label:'Console' },
+];
+
+function StatusBar({ T, theme, setTheme, orient, setOrient }) {
+  return (
+    <div style={{ height:30, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 22px', background:T.surface, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+      <span style={{ fontFamily:_MONO, fontWeight:700, fontSize:13, color:T.text }}>10:24</span>
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <div onClick={() => setOrient(o => o==='portrait'?'landscape':'portrait')}
+          style={{ fontFamily:_MONO, fontSize:9, fontWeight:700, letterSpacing:'0.08em', color:T.faint, padding:'3px 8px', borderRadius:6, background:T.inset, cursor:'pointer' }}>
+          {orient === 'portrait' ? '⇄ LANDSCAPE' : '⇅ PORTRAIT'}
+        </div>
+        <div onClick={() => setTheme(t => t==='day'?'dusk':'day')}
+          style={{ fontFamily:_MONO, fontSize:9, fontWeight:700, letterSpacing:'0.08em', color:T.faint, padding:'3px 8px', borderRadius:6, background:T.inset, cursor:'pointer' }}>
+          {theme === 'day' ? '☀ DAY' : '☾ DUSK'}
+        </div>
+        <svg width="17" height="11" viewBox="0 0 17 11" fill={T.text}><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.5" y="5" width="3" height="6" rx="1"/><rect x="9" y="2.5" width="3" height="8.5" rx="1"/><rect x="13.5" y="0" width="3" height="11" rx="1"/></svg>
+        <div style={{ width:23, height:11, borderRadius:3, border:`1px solid ${T.text}`, opacity:0.5, position:'relative' }}>
+          <div style={{ position:'absolute', top:1.5, bottom:1.5, left:1.5, width:'72%', borderRadius:1.5, background:T.text }}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Masthead({ T, inControl, linked }) {
+  return (
+    <div style={{ display:'flex', alignItems:'stretch', background:T.surface, borderBottom:`2px solid ${T.accent}`, flexShrink:0 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 16px', flex:1 }}>
+{/* Seagull logo + Mistral wordmark */}
+        <svg viewBox="0 0 1446 332" height="26" style={{ display:'block', flexShrink:0 }} fill="none">
+          <g transform="translate(-1127 -1319)">
+            <path d="M2092.02 1471.14C2091.93 1475.36 2211.1 1511.7 2208.14 1529.07 2205.18 1546.43 2131.11 1561.05 2074.25 1575.36 2017.39 1589.67 1931.56 1606.24 1866.96 1614.93 1802.36 1623.61 1742.65 1651.47 1686.66 1627.47 1891.87 1484.34 1704.44 1481.14 1535.61 1443.47 1366.78 1405.81 1146.87 1447.39 1141.1 1428.98 1135.34 1410.56 1369.82 1333.4 1501.03 1333 1632.24 1332.6 1805.65 1419.92 1928.36 1426.56 2051.07 1433.2 2132.43 1381.09 2237.3 1372.82 2342.17 1364.56 2579.57 1407.98 2557.57 1376.99"
+              stroke={T.accent} strokeWidth="27.5" strokeMiterlimit="8" strokeLinecap="round"/>
+          </g>
+        </svg>
+        <span style={{ fontSize:18, fontWeight:700, letterSpacing:'-0.01em', color:T.accent }}>Mistral</span>
+        <span style={{ fontFamily:_MONO, fontSize:9, fontWeight:600, letterSpacing:'0.12em', color:T.faint, textTransform:'uppercase' }}>Pi · ELRS</span>
+      </div>
+      <div style={{ display:'flex', alignItems:'center', gap:7, padding:'0 16px', background:linked ? T.safeSoft : T.dangerSoft, borderLeft:`1px solid ${T.border}` }}>
+        <span style={{ width:7, height:7, borderRadius:99, background:linked ? T.safe : T.danger, boxShadow:`0 0 0 3px ${linked ? T.safeSoft : T.dangerSoft}` }}/>
+        <span style={{ fontFamily:_MONO, fontSize:10, fontWeight:700, letterSpacing:'0.09em', color:linked ? T.safe : T.danger }}>
+          {linked ? 'LINKED' : 'NO LINK'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function TabBar({ T, tab, setTab }) {
+  return (
+    <div style={{ display:'flex', background:T.surface, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+      {TABS.map(({id,label}) => {
+        const on = id === tab;
+        return (
+          <div key={id} onClick={() => setTab(id)}
+            style={{ flex:1, textAlign:'center', padding:'9px 4px', fontFamily:_MONO, fontSize:10, fontWeight:700, letterSpacing:'0.05em', color: on ? T.accent : T.faint, borderBottom: on ? `2.5px solid ${T.accent}` : '2.5px solid transparent', cursor:'pointer', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+            {label}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HelmBanner({ T, inControl, onTake }) {
+  if (inControl) {
+    return (
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 16px', background:T.accent, color:'#fff', flexShrink:0 }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="#fff"><path d="M12 2a3 3 0 0 1 3 3v1.6a6 6 0 0 1 3 5.2V18l2 2v1H4v-1l2-2v-5.2a6 6 0 0 1 3-5.2V5a3 3 0 0 1 3-3z"/></svg>
+        <span style={{ fontFamily:_MONO, fontSize:11.5, fontWeight:700, letterSpacing:'0.09em' }}>HELM ACTIVE</span>
+        <span style={{ flex:1 }}/>
+        <span style={{ fontFamily:_MONO, fontSize:9, color:'rgba(255,255,255,0.72)', letterSpacing:'0.04em' }}>STOP CUTS POWER</span>
+      </div>
+    );
+  }
+  return (
+    <div onClick={onTake} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 16px', background:T.inset, borderBottom:`1px solid ${T.border}`, cursor:'pointer', flexShrink:0 }}>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill={T.dim}><path d="M12 2a3 3 0 0 1 3 3v1.6a6 6 0 0 1 3 5.2V18l2 2v1H4v-1l2-2v-5.2a6 6 0 0 1 3-5.2V5a3 3 0 0 1 3-3z"/></svg>
+      <span style={{ fontFamily:_MONO, fontSize:11.5, fontWeight:700, letterSpacing:'0.09em', color:T.dim }}>TAP TO TAKE HELM</span>
+    </div>
+  );
+}
+
+function TelemetryBar({ T }) {
+  const d = TELE;
+  const items = [['BATT', d.volts.toFixed(1)+'V'], ['CHG', d.chg+'%'], ['LQ', d.lq+'%'], ['SATS', d.sats], ['SPD', d.spd.toFixed(1)]];
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', background:T.surface, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+      {items.map(([k,v],i) => (
+        <div key={k} style={{ padding:'9px 6px', display:'flex', flexDirection:'column', alignItems:'center', gap:3, borderLeft: i ? `1px solid ${T.border}` : 'none' }}>
+          <span style={{ fontFamily:_MONO, fontSize:7.5, fontWeight:600, letterSpacing:'0.10em', textTransform:'uppercase', color:T.faint }}>{k}</span>
+          <span style={{ fontFamily:_MONO, fontWeight:700, fontSize:11.5, color:T.text, fontFeatureSettings:'"tnum","zero"' }}>{v}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function fitDevice(orient) {
+  const el = document.getElementById('scaler');
+  if (!el) return;
+  const W = orient === 'landscape' ? 844 : 390;
+  const H = orient === 'landscape' ? 390 : 844;
+  const scale = Math.min(window.innerWidth / W, window.innerHeight / H, 1);
+  el.style.width = W + 'px';
+  el.style.height = H + 'px';
+  el.style.transform = `scale(${scale})`;
+}
+
+function App() {
+  const [theme, setTheme] = React.useState('day');
+  const [orient, setOrient] = React.useState('portrait');
+  const [tab, setTab] = React.useState('control');
+  const [inControl, setInControl] = React.useState(false);
+  const [motorMode, setMotorMode] = React.useState('off');
+  const T = THEMES2[theme];
+
+  React.useEffect(() => {
+    fitDevice(orient);
+    const onResize = () => fitDevice(orient);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [orient]);
+
+  const isLandscape = orient === 'landscape';
+
+  return (
+    <div id="scaler" style={{ borderRadius: isLandscape ? 28 : 44, overflow:'hidden', boxShadow:'0 40px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.08)', transformOrigin:'center center', flexShrink:0 }}>
+      <div style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column', overflow:'hidden', background:T.bg }}>
+        {isLandscape ? (
+          <Landscape2 T={T} tab={tab} setTab={setTab} motorMode={motorMode} setMotorMode={setMotorMode} inControl={inControl} setInControl={setInControl} setOrient={setOrient} theme={theme} setTheme={setTheme}/>
+        ) : (
+          <React.Fragment>
+            <StatusBar T={T} theme={theme} setTheme={setTheme} orient={orient} setOrient={setOrient}/>
+            <Masthead T={T} inControl={inControl} linked={true}/>
+            <TabBar T={T} tab={tab} setTab={setTab}/>
+            {tab === 'control' && <HelmBanner T={T} inControl={inControl} onTake={() => setInControl(true)}/>}
+            {tab !== 'control' && <TelemetryBar T={T}/>}
+            <div className="body">
+              {tab === 'control' && <Ctrl2 T={T} inControl={inControl} onTakeControl={() => setInControl(true)} onRelease={() => setInControl(false)} onStop={() => setInControl(false)} motorMode={motorMode} setMotorMode={setMotorMode}/>}
+              {tab === 'instr'   && <Instr2 T={T}/>}
+              {tab === 'map'     && <Map2 T={T}/>}
+              {tab === 'devices' && <Dev2 T={T}/>}
+              {tab === 'console' && <Con2 T={T}/>}
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

@@ -25,6 +25,7 @@
 #include "telemetry.h"
 #include "protocol.h"
 #include "elrs.h"
+#include <crsf_protocol.h>  // CRSF_FRAMETYPE_GPS, CRSF_FRAMETYPE_BATTERY_SENSOR, CRSF_FRAMETYPE_ATTITUDE
 #include "imu.h"
 #include "power.h"
 #include "servos.h"
@@ -106,7 +107,7 @@ static void send_battery() {
     p[7] = (uint8_t)remaining_pct;
 
     uint8_t frame[16];
-    size_t  len = crsf_build(frame, CRSF_FRAMETYPE_BATTERY, p, sizeof(p));
+    size_t  len = crsf_build(frame, CRSF_FRAMETYPE_BATTERY_SENSOR, p, sizeof(p));
     elrs_send_frame(frame, len);
 }
 

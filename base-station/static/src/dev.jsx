@@ -8,6 +8,7 @@
 
 const Dev = ({ T, d, stale, deviceStatus }) => {
   const ds = deviceStatus || {};
+  const [restartState, setRestartState] = React.useState('idle'); // idle | busy | ok | err
 
   const lbl = (x) => ({ fontFamily:_MONO, fontSize:8.5, fontWeight:600,
     letterSpacing:'0.13em', textTransform:'uppercase', color:T.dim, ...(x||{}) });
@@ -28,14 +29,6 @@ const Dev = ({ T, d, stale, deviceStatus }) => {
       background:levelColor(level),
       boxShadow:level==='ok'?`0 0 0 3px ${T.safeSoft}`:'none' }}/>
   );
-
-  // Overall health: any error → danger, any warn → warn, else ok
-  const levels = Object.values(ds);
-  const summaryLevel = levels.includes('error') ? 'error'
-    : levels.includes('warn') ? 'warn' : 'ok';
-  const summaryText = summaryLevel==='error' ? 'FAULT DETECTED'
-    : summaryLevel==='warn' ? 'WARNING' : 'ALL SYSTEMS NOMINAL';
-  const onlineCount = levels.filter(l => l==='ok'||l==='warn').length;
 
   // ── Device definitions ─────────────────────────────────────────────────────
   // Each entry has a fixed id, name, subtitle, and default stats.
@@ -118,6 +111,19 @@ const Dev = ({ T, d, stale, deviceStatus }) => {
     },
   ];
 
+  // Overall health: derived from actual per-device levels, not just ds map.
+  // 'absent' is not nominal — if any device is absent, we're not fully online.
+  const allLevels = devices.map(dev => dev.level);
+  const summaryLevel = allLevels.includes('error') ? 'error'
+    : allLevels.includes('warn')   ? 'warn'
+    : allLevels.includes('absent') ? 'absent'
+    : 'ok';
+  const summaryText = summaryLevel==='error'  ? 'FAULT DETECTED'
+    : summaryLevel==='warn'   ? 'WARNING'
+    : summaryLevel==='absent' ? 'SYSTEMS OFFLINE'
+    : 'ALL SYSTEMS NOMINAL';
+  const onlineCount = allLevels.filter(l => l==='ok'||l==='warn').length;
+
   return (
     <div style={{ display:'flex', flexDirection:'column' }}>
 
@@ -177,6 +183,41 @@ const Dev = ({ T, d, stale, deviceStatus }) => {
               <span style={val(11,T.dim)}>{v}</span>
             </div>
           ))}
+        </div>
+        <div style={{ marginTop:12, paddingTop:10, borderTop:`1px solid ${T.border}`,
+          display:'flex', alignItems:'center', gap:10 }}>
+          <button
+            disabled={restartState === 'busy'}
+            onClick={() => {
+              setRestartState('busy');
+              fetch('/api/esp32-restart', { method:'POST' })
+                .then(r => r.json())
+                .then(d => {
+                  setRestartState(d.ok ? 'ok' : 'err');
+                  setTimeout(() => setRestartState('idle'), 4000);
+                })
+                .catch(() => {
+                  setRestartState('err');
+                  setTimeout(() => setRestartState('idle'), 4000);
+                });
+            }}
+            style={{
+              fontFamily:_MONO, fontSize:10, fontWeight:700, letterSpacing:'0.08em',
+              padding:'5px 10px', borderRadius:6, cursor:'pointer',
+              background: restartState==='ok'  ? T.safeSoft
+                        : restartState==='err' ? T.dangerSoft
+                        : T.inset,
+              border:`1px solid ${restartState==='ok' ? T.safe : restartState==='err' ? T.danger : T.border}`,
+              color: restartState==='ok'  ? T.safe
+                   : restartState==='err' ? T.danger
+                   : T.dim,
+              opacity: restartState==='busy' ? 0.5 : 1,
+            }}>
+            {restartState==='busy' ? 'REBOOTING…' : restartState==='ok' ? '✓ REBOOTED' : restartState==='err' ? '✗ UNREACHABLE' : 'RESTART ESP32'}
+          </button>
+          <span style={{ fontFamily:_MONO, fontSize:9, color:T.faint }}>
+            {restartState==='idle' || restartState==='busy' ? '192.168.4.1' : ''}
+          </span>
         </div>
       </Card>
 

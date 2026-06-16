@@ -23,8 +23,8 @@ Run with:
     uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Environment variables:
-    ELRS_PORT      — serial device for ELRS TX module   (default /dev/ttyUSB0)
-    ELRS_BAUD      — baud rate                          (default 420000)
+    ELRS_PORT      — serial device for XIAO CRSF bridge (default /dev/ttyACM0)
+    ELRS_BAUD      — baud rate                          (default 400000)
     ESP32_DBG_PORT — serial device for ESP32 USB debug  (default: unset = disabled)
     RCSB_TOKEN     — shared passphrase for WS auth      (default: unset = disabled)
 """
@@ -39,7 +39,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -291,9 +291,18 @@ app.mount("/static", StaticFiles(directory=_STATIC), name="static")
 app.mount("/tiles",  StaticFiles(directory=_TILES),  name="tiles")
 
 
+@app.middleware("http")
+async def no_store_for_src(request: Request, call_next):
+    """JSX source files must never be cached — Babel compiles them at load time."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/src/") or request.url.path == "/":
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.get("/")
 async def root() -> FileResponse:
-    return FileResponse(_STATIC / "index.html", headers={"Cache-Control": "no-store"})
+    return FileResponse(_STATIC / "index.html")
 
 
 _ESP32_HOST = os.environ.get("ESP32_HOST", "192.168.4.1")
@@ -313,6 +322,18 @@ async def esp32_diag(host: str | None = None) -> JSONResponse:
             {"ok": False, "host": target, "error": f"HTTP {exc.response.status_code}"},
             status_code=502,
         )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "host": target, "error": str(exc)}, status_code=503)
+
+
+@app.post("/api/esp32-restart")
+async def esp32_restart(host: str | None = None) -> JSONResponse:
+    """Tell the ESP32 WiFi AP to reboot."""
+    target = host or _ESP32_HOST
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(f"http://{target}/restart")
+        return JSONResponse({"ok": True, "host": target})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "host": target, "error": str(exc)}, status_code=503)
 

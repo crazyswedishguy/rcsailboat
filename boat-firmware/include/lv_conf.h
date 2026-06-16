@@ -35,7 +35,7 @@
  *=========================*/
 
 #define LV_MEM_CUSTOM 0
-#define LV_MEM_SIZE   (48U * 1024U)   /* bytes for LVGL internal heap */
+#define LV_MEM_SIZE   (80U * 1024U)   /* bytes for LVGL internal heap */
 #define LV_MEM_ADR    0
 
 #define LV_MEM_BUF_MAX_NUM    16
@@ -98,7 +98,7 @@
 
 /* sprintf */
 #define LV_SPRINTF_CUSTOM       0
-#define LV_SPRINTF_USE_FLOAT    0
+#define LV_SPRINTF_USE_FLOAT    1
 
 #define LV_USE_USER_DATA 1
 #define LV_ENABLE_GC     0

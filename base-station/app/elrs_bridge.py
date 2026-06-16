@@ -1,6 +1,10 @@
 """
 ELRS bridge — bidirectional CRSF over serial between the Pi and the ELRS TX module.
 
+The Pi talks to a XIAO ESP32-S3 over USB-CDC; the XIAO's hardware UART carries
+CRSF to the Ranger Micro TX module's signal pin. See docs/elrs-link.md for why
+(the Pi 5's RP1 GPIO UART can't reliably do CRSF timing).
+
 TX path (Pi → boat, 50 Hz):
     Pack DesiredState into a CRSF RC Channels Packed frame (type 0x16) and write
     it to the TX module.  The TX module encodes it into ELRS and sends it over RF.
@@ -14,27 +18,31 @@ RX path (boat → Pi, variable rate):
         0x80  Sailboat      (5 Hz, custom)
 
 Configuration (environment variables):
-    ELRS_PORT    Serial device path   (default /dev/ttyUSB0)
-    ELRS_BAUD    Baud rate            (default 420000)
+    ELRS_PORT    Serial device path   (default /dev/ttyACM0)
+    ELRS_BAUD    Baud rate            (default 400000; nominal for USB-CDC —
+                                        the real CRSF rate is fixed in the
+                                        XIAO bridge firmware)
 """
 
 import asyncio
 import logging
 import math
 import os
+import queue as stdlib_queue
 import struct
+import threading
 import time
 from collections.abc import Callable
 
-import serial_asyncio
+import serial
 
 from .state import DesiredState, GpsPosition, TelemetryState
 
 logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-ELRS_PORT    = os.environ.get("ELRS_PORT", "/dev/ttyUSB0")
-ELRS_BAUD    = int(os.environ.get("ELRS_BAUD", "420000"))
+ELRS_PORT    = os.environ.get("ELRS_PORT", "/dev/ttyACM0")
+ELRS_BAUD    = int(os.environ.get("ELRS_BAUD", "400000"))
 TRANSMIT_HZ  = 50
 RETRY_DELAY  = 5.0   # seconds between reconnect attempts
 
@@ -266,6 +274,51 @@ def _parse_frames(
 
 # ── Main bridge coroutine ─────────────────────────────────────────────────────
 
+def _serial_rx_thread(
+    port: serial.Serial,
+    rx_callback: Callable[[bytes | None], None],
+    stop_event: threading.Event,
+) -> None:
+    """Blocking read loop, run on its own thread.
+
+    The transport is a USB-CDC adapter (XIAO ESP32-S3 bridge), where the
+    normal usb-serial driver and blocking reads work correctly — no need for
+    the select()/poll() workarounds the Pi 5 RP1 GPIO UART required.
+
+    Calls rx_callback(None) once if the fd errors out while still connected,
+    so the asyncio side can tell "no telemetry right now" (brief, expected)
+    apart from "the port actually died" (needs a reconnect).
+    """
+    fd = port.fd
+    while not stop_event.is_set():
+        try:
+            data = os.read(fd, 256)
+        except OSError:
+            if not stop_event.is_set():
+                rx_callback(None)
+            break
+        if data:
+            rx_callback(data)
+
+
+def _serial_tx_thread(
+    port: serial.Serial,
+    tx_queue: stdlib_queue.Queue,
+    stop_event: threading.Event,
+) -> None:
+    """Blocking write loop, run on its own thread."""
+    fd = port.fd
+    while not stop_event.is_set():
+        try:
+            frame = tx_queue.get(timeout=0.5)
+        except stdlib_queue.Empty:
+            continue
+        try:
+            os.write(fd, frame)
+        except OSError:
+            break  # fd closed during teardown
+
+
 async def elrs_bridge_task(
     state: DesiredState,
     gps: GpsPosition,
@@ -281,47 +334,81 @@ async def elrs_bridge_task(
     """
     logger.info("ELRS bridge starting — port=%s baud=%d", ELRS_PORT, ELRS_BAUD)
     interval = 1.0 / TRANSMIT_HZ
+    loop = asyncio.get_running_loop()
 
     while True:
+        port: serial.Serial | None = None
         try:
-            reader, writer = await serial_asyncio.open_serial_connection(
-                url=ELRS_PORT, baudrate=ELRS_BAUD
-            )
+            # timeout=None keeps the fd blocking, so _serial_rx_thread's os.read()
+            # blocks until data arrives instead of busy-looping or raising
+            # BlockingIOError (an OSError subclass we'd otherwise misread as a
+            # dead port).
+            port = serial.Serial(ELRS_PORT, baudrate=ELRS_BAUD, timeout=None)
             telem.bridge_connected = True
             logger.info("ELRS bridge connected to %s", ELRS_PORT)
 
+            tx_queue: stdlib_queue.Queue = stdlib_queue.Queue()
+            rx_chunks: asyncio.Queue = asyncio.Queue()
+            stop_event = threading.Event()
+
+            def _rx_cb(data: bytes | None) -> None:
+                loop.call_soon_threadsafe(rx_chunks.put_nowait, data)
+
+            rx_thread = threading.Thread(
+                target=_serial_rx_thread,
+                args=(port, _rx_cb, stop_event),
+                daemon=True,
+                name="elrs-serial-rx",
+            )
+            tx_thread = threading.Thread(
+                target=_serial_tx_thread,
+                args=(port, tx_queue, stop_event),
+                daemon=True,
+                name="elrs-serial-tx",
+            )
+            rx_thread.start()
+            tx_thread.start()
+
             buf: bytearray = bytearray()
-            tx_task = asyncio.create_task(_tx_loop(writer, state, interval))
+            tx_task = asyncio.create_task(_tx_loop(tx_queue, state, interval))
 
             try:
                 while True:
-                    chunk = await asyncio.wait_for(reader.read(256), timeout=2.0)
-                    if not chunk:
+                    try:
+                        chunk = await asyncio.wait_for(rx_chunks.get(), timeout=10.0)
+                    except asyncio.TimeoutError:
+                        logger.warning("ELRS serial RX timeout — no data for 10 s")
+                        continue
+                    if chunk is None:
+                        logger.warning("ELRS serial RX thread exited — reconnecting")
                         break
+                    logger.debug("RX %d bytes: %s", len(chunk), chunk.hex())
                     buf.extend(chunk)
                     _parse_frames(buf, gps, telem, on_update)
-            except asyncio.TimeoutError:
-                logger.warning("ELRS serial RX timeout — no data for 2 s")
             finally:
+                stop_event.set()
                 tx_task.cancel()
                 try:
                     await tx_task
                 except asyncio.CancelledError:
                     pass
-                writer.close()
+                rx_thread.join(timeout=1.0)
+                tx_thread.join(timeout=1.0)
 
-        except (OSError, serial_asyncio.serial.SerialException) as exc:
+        except (OSError, serial.SerialException) as exc:
             logger.warning("ELRS serial error: %s — retrying in %.0fs", exc, RETRY_DELAY)
         finally:
             telem.bridge_connected = False
+            if port and port.is_open:
+                port.close()
 
         await asyncio.sleep(RETRY_DELAY)
 
 
-async def _tx_loop(writer: asyncio.StreamWriter, state: DesiredState, interval: float) -> None:
-    """Send RC frames at TRANSMIT_HZ until cancelled."""
+async def _tx_loop(
+    tx_queue: stdlib_queue.Queue, state: DesiredState, interval: float
+) -> None:
+    """Enqueue RC frames at TRANSMIT_HZ until cancelled."""
     while True:
-        frame = _build_rc_frame(state)
-        writer.write(frame)
-        await writer.drain()
+        tx_queue.put(_build_rc_frame(state))
         await asyncio.sleep(interval)

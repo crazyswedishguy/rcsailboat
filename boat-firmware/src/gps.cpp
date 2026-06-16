@@ -39,6 +39,7 @@ void gps_update()
 {
     while (s_serial.available())
         s_gps.encode(s_serial.read());
+
 }
 
 bool    gps_has_fix()     { return s_gps.location.isValid() && s_gps.location.age() < 2000; }

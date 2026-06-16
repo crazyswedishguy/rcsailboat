@@ -63,9 +63,15 @@ static const sh8601_lcd_init_cmd_t s_init_cmds[] = {
 };
 
 // ── Module state ──────────────────────────────────────────────────────────────
-static SemaphoreHandle_t s_mux      = nullptr;
-static lv_disp_drv_t     s_drv;
-static bool              s_ready   = false;
+static SemaphoreHandle_t       s_mux              = nullptr;
+static lv_disp_drv_t           s_drv;
+static bool                    s_ready            = false;
+static esp_lcd_panel_handle_t  s_panel            = nullptr;
+static bool                    s_screen_on        = true;
+static unsigned long           s_last_activity_ms = 0;
+
+// Turn off after 2 minutes of no WiFi command, no ELRS link, and no touch.
+static constexpr unsigned long SCREEN_TIMEOUT_MS = 2UL * 60UL * 1000UL;
 
 // Tileview reference + edge-tile pointers for wrap-around gesture handling
 static lv_obj_t *s_tileview  = nullptr;
@@ -729,6 +735,7 @@ void display_init()
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
+    s_panel = panel;
 
     lv_init();
 
@@ -786,10 +793,20 @@ void display_init()
 
     build_screens();
 
+    {
+        lv_mem_monitor_t mon;
+        lv_mem_monitor(&mon);
+        ESP_LOGI(TAG, "LVGL heap after build: total=%u used=%u free_max=%u frag=%u%%",
+                 mon.total_size,
+                 (uint32_t)(mon.total_size - mon.free_size),
+                 mon.free_biggest_size, mon.frag_pct);
+    }
+
     xTaskCreate(lvgl_task, "lvgl", LVGL_TASK_STACK, nullptr,
                 LVGL_TASK_PRIORITY, nullptr);
 
     s_ready = true;
+    s_last_activity_ms = millis();   // don't time out immediately at boot
     ESP_LOGI(TAG, "display ready — 280x456 AMOLED, 5 screens");
 }
 
@@ -862,6 +879,10 @@ void display_poll_touch()
         s_touch_pt.x  = (int16_t)(((xh & 0x0F) << 8) | xl);
         s_touch_pt.y  = (int16_t)(((yh & 0x0F) << 8) | yl);
         s_touch_state = LV_INDEV_STATE_PR;
+        // Reset inactivity timer. display_update() turns the screen back on within
+        // 200 ms — avoids calling esp_lcd_panel_disp_on_off() here, which can
+        // collide with an in-flight DMA pixel transfer from the LVGL task.
+        s_last_activity_ms = millis();
     } else {
         s_touch_state = LV_INDEV_STATE_REL;
     }
@@ -895,9 +916,19 @@ void display_update()
     lv_color_t temp_c  = color_temp(temp);
     int        pct     = batt_pct(v);
 
-    float rud = servos_get_commanded(pwm_ch::RUDDER);
-    float sai = servos_get_commanded(pwm_ch::SAIL_WINCH);
-    float thr = servos_get_commanded(pwm_ch::MOTOR_ESC);
+    // In WiFi mode read the raw browser-commanded values so the display reflects
+    // what the user is doing even when disarmed (servos_get_commanded() returns
+    // failsafe positions when not armed, which hides all slider activity).
+    float rud, sai, thr;
+    if (wifi_ctrl_mode() == CtrlMode::WIFI) {
+        rud = wifi_ctrl_rudder();
+        sai = wifi_ctrl_sail();
+        thr = wifi_ctrl_throttle();
+    } else {
+        rud = servos_get_commanded(pwm_ch::RUDDER);
+        sai = servos_get_commanded(pwm_ch::SAIL_WINCH);
+        thr = servos_get_commanded(pwm_ch::MOTOR_ESC);
+    }
     float rol = imu_roll_deg();
     float pit = imu_pitch_deg();
 #ifdef GPS_ENABLED
@@ -1010,7 +1041,7 @@ void display_update()
     lv_obj_set_style_text_color(s5_lbl_pitch, color_angle(pit), LV_PART_MAIN);
 
 #ifdef COMPASS_ENABLED
-    {
+    if (s5_lbl_heading) {
         float hdg = compass_heading_deg();
         const char *card = hdg < 22.5f || hdg >= 337.5f ? "N"  :
                            hdg < 67.5f                  ? "NE" :
@@ -1023,8 +1054,10 @@ void display_update()
     }
 #endif
 #ifdef GPS_ENABLED
-    lv_label_set_text_fmt(s5_lbl_speed, "%.1f km/h", spd_kmh);
-    lv_obj_set_style_text_color(s5_lbl_speed, spd_c, LV_PART_MAIN);
+    if (s5_lbl_speed) {
+        lv_label_set_text_fmt(s5_lbl_speed, "%.1f km/h", spd_kmh);
+        lv_obj_set_style_text_color(s5_lbl_speed, spd_c, LV_PART_MAIN);
+    }
 #endif
 
     // ── Screen 6: devices ─────────────────────────────────────────────────────
@@ -1041,4 +1074,27 @@ void display_update()
     }
 
     lvgl_unlock();
+
+    // ── Screen timeout (burn-in protection) ───────────────────────────────────
+    // Bump the activity timestamp whenever a live connection is present so the
+    // 2-minute countdown only runs when the boat is truly idle/unattended.
+    if (wifi_ctrl_mode() == CtrlMode::WIFI) {
+        if (millis() - wifi_ctrl_last_cmd_ms() < 1000)
+            s_last_activity_ms = millis();
+    } else {
+        if (elrs_link_ok())
+            s_last_activity_ms = millis();
+    }
+    if (s_panel) {
+        bool idle = (millis() - s_last_activity_ms >= SCREEN_TIMEOUT_MS);
+        if (idle && s_screen_on) {
+            esp_lcd_panel_disp_on_off(s_panel, false);
+            s_screen_on = false;
+            ESP_LOGI(TAG, "screen off — idle for 2 min");
+        } else if (!idle && !s_screen_on) {
+            esp_lcd_panel_disp_on_off(s_panel, true);
+            s_screen_on = true;
+            ESP_LOGI(TAG, "screen on — connection resumed");
+        }
+    }
 }

@@ -22,7 +22,7 @@
 
 const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
                 rudderTrim, setRudderTrim, throttle, setThrottle,
-                motorMode, setMotorMode, onStop }) => {
+                motorMode, setMotorMode, onStop, inControl }) => {
 
   const { useRef, useState } = React;
 
@@ -133,6 +133,10 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
           </span>
         </div>
       )}
+
+      {/* ── Sail / rudder / motor: disabled when observer ─────────────────── */}
+      <div style={{ opacity:inControl?1:0.38, pointerEvents:inControl?'auto':'none',
+                    transition:'opacity 0.15s' }}>
 
       {/* ── Sail trim card ─────────────────────────────────────────────────── */}
       <Card T={T} style={{ display:'flex' }}>
@@ -337,6 +341,7 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
           </div>
         )}
       </Card>
+      </div>{/* end control-disabled wrapper */}
 
       {/* ── Stop row ───────────────────────────────────────────────────────── */}
       <div style={{ padding:'14px 16px 20px', background:T.bg }}>

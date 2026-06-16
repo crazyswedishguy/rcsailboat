@@ -79,7 +79,7 @@ else
 # Use setup-udev.sh to create stable /dev/elrs-tx and /dev/esp32-debug symlinks.
 
 ELRS_PORT=/dev/elrs-tx
-ELRS_BAUD=420000
+ELRS_BAUD=400000
 
 # Remove or comment out ESP32_DBG_PORT to disable the USB console tab.
 ESP32_DBG_PORT=/dev/esp32-debug

@@ -1,104 +1,124 @@
 // map.jsx — Map tab (portrait).
-// SVG chart showing boat position, home marker, track trail, and range rings.
-// Home position is stored in the parent App and updated via setHomePos.
+// Leaflet map with offline OSM tiles served by the Pi at /tiles/{z}/{x}/{y}.png.
+// Falls back to a "tiles not ready" message if Leaflet hasn't been loaded.
+// Run `scripts/download_tiles.py --fetch-leaflet` once to pre-fetch tiles + Leaflet.
 
 // Props: { T, d, stale, homePos, setHomePos }
 
 const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
-  const { useState } = React;
-  const [flash, setFlash] = useState(''); // brief confirmation label
+  const { useRef, useEffect, useState } = React;
+  const containerRef = useRef(null);
+  const lfRef       = useRef(null);   // { map, boat, track, home, boatIcon, homeIcon }
+  const trackPtsRef = useRef([]);
+  const [flash, setFlash] = useState('');
 
-  function flashMsg(msg) {
-    setFlash(msg);
-    setTimeout(() => setFlash(''), 1500);
+  function flashMsg(m) { setFlash(m); setTimeout(() => setFlash(''), 1500); }
+
+  function makeBoatIcon(L, hdg) {
+    return L.divIcon({
+      html: `<svg width="22" height="22" viewBox="0 0 22 22" style="overflow:visible">
+        <circle cx="11" cy="11" r="8" fill="${T.surface}" stroke="${T.accent}" stroke-width="2"/>
+        <polygon points="11,3 14.5,15 11,13 7.5,15" fill="${T.accent}"
+          transform="rotate(${hdg || 0},11,11)"/>
+      </svg>`,
+      iconSize: [22, 22], iconAnchor: [11, 11], className: '',
+    });
   }
+
+  function makeHomeIcon(L) {
+    return L.divIcon({
+      html: `<svg width="20" height="20" viewBox="0 0 20 20">
+        <circle cx="10" cy="10" r="9" fill="${T.safe}" opacity="0.9"
+          stroke="#fff" stroke-width="1.5"/>
+        <text x="10" y="14" text-anchor="middle" font-size="10" font-weight="700"
+          fill="#fff" font-family="monospace">H</text>
+      </svg>`,
+      iconSize: [20, 20], iconAnchor: [10, 10], className: '',
+    });
+  }
+
+  // ── Initialise Leaflet map once on mount ──────────────────────────────────
+  useEffect(() => {
+    const L = window.L;
+    if (!L || lfRef.current) return;
+
+    const defaultCenter = [40.934, -73.071]; // Port Jefferson Harbor
+    const initCenter = homePos ? [homePos.lat, homePos.lng]
+                     : (d.lat  ? [d.lat, d.lon] : defaultCenter);
+
+    const map = L.map(containerRef.current, {
+      center: initCenter,
+      zoom: 14,
+      zoomControl: true,
+    });
+
+    L.tileLayer('/tiles/{z}/{x}/{y}.png', {
+      maxZoom: 17,
+      minZoom: 8,
+      attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors',
+      // Transparent 1×1 PNG for tiles that haven't been downloaded yet
+      errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+    }).addTo(map);
+
+    L.control.scale({ maxWidth: 100, imperial: true }).addTo(map);
+
+    const boatIcon = makeBoatIcon(L, d.hdg);
+    const homeIcon = makeHomeIcon(L);
+
+    const initPos = (d.lat && d.lon) ? [d.lat, d.lon] : initCenter;
+    const boat  = L.marker(initPos, { icon: boatIcon, zIndexOffset: 100 }).addTo(map);
+    const track = L.polyline([], { color: T.accent, weight: 2, opacity: 0.75 }).addTo(map);
+    const home  = homePos
+      ? L.marker([homePos.lat, homePos.lng], { icon: homeIcon }).addTo(map)
+      : null;
+
+    lfRef.current = { map, boat, track, home, homeIcon };
+
+    return () => { map.remove(); lfRef.current = null; };
+  }, []);
+
+  // ── Update boat position + heading on each telemetry tick ─────────────────
+  useEffect(() => {
+    const L = window.L;
+    const lf = lfRef.current;
+    if (!L || !lf || !d.lat || !d.lon || stale.gps) return;
+
+    const pos = [d.lat, d.lon];
+    lf.boat.setLatLng(pos);
+    lf.boat.setIcon(makeBoatIcon(L, d.hdg));
+
+    trackPtsRef.current.push(pos);
+    if (trackPtsRef.current.length > 500) trackPtsRef.current.shift();
+    lf.track.setLatLngs(trackPtsRef.current);
+  }, [d.lat, d.lon, d.hdg]);
+
+  // ── Update home marker ────────────────────────────────────────────────────
+  useEffect(() => {
+    const L = window.L;
+    const lf = lfRef.current;
+    if (!L || !lf) return;
+
+    if (!homePos) {
+      if (lf.home) { lf.home.remove(); lf.home = null; }
+      return;
+    }
+    const p = [homePos.lat, homePos.lng];
+    if (lf.home) {
+      lf.home.setLatLng(p);
+    } else {
+      lf.home = L.marker(p, { icon: lf.homeIcon }).addTo(lf.map);
+    }
+  }, [homePos]);
+
   const lbl = (x) => ({ fontFamily:_MONO, fontSize:8.5, fontWeight:600,
     letterSpacing:'0.13em', textTransform:'uppercase', color:T.dim, ...(x||{}) });
   const val = (s,c) => ({ fontFamily:_MONO, fontWeight:700, fontSize:s||14,
     color:c||T.text, fontFeatureSettings:'"tnum","zero"', lineHeight:1 });
 
-  // ── SVG chart ───────────────────────────────────────────────────────────────
-  const MapSVG = ({ width, height }) => {
-    const W=width, H=height;
-    // Fixed positions for boat and home on the SVG canvas.
-    // In a real implementation these would be computed from GPS coordinates.
-    const bx=W*0.60, by=H*0.55;
-    const hx=W*0.38, hy=H*0.42;
-
-    // Stylised land polygon (upper-left blob) — represents shoreline
-    const shore = `M0,0 L${W*.52},0 L${W*.55},${H*.08} L${W*.48},${H*.18} `+
-      `L${W*.44},${H*.28} L${W*.36},${H*.34} L${W*.28},${H*.38} `+
-      `L${W*.18},${H*.36} L${W*.10},${H*.32} L0,${H*.28} Z`;
-
-    // Recent track trail — last few positions ending at boat
-    const pts = [
-      [bx-W*.18,by+H*.12],[bx-W*.14,by+H*.07],
-      [bx-W*.09,by+H*.03],[bx-W*.04,by-H*.01],[bx,by],
-    ];
-    const track = pts.map(([x,y],i) => `${i===0?'M':'L'}${x},${y}`).join(' ');
-
-    const isDusk    = T.id==='dusk';
-    const water     = isDusk ? '#0e1f36' : '#d4e4f0';
-    const land      = isDusk ? '#1a2e1a' : '#c8d8b8';
-    const shoreStr  = isDusk ? '#2a4a2a' : '#a0b890';
-    const ringCol   = isDusk ? 'rgba(90,143,230,0.18)' : 'rgba(28,78,160,0.12)';
-    const gridCol   = isDusk ? 'rgba(255,255,255,0.05)' : 'rgba(28,52,86,0.06)';
-
-    return (
-      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display:'block' }}>
-        {/* Water background */}
-        <rect width={W} height={H} fill={water}/>
-        {/* Light grid lines */}
-        {[...Array(8)].map((_,i) => (
-          <line key={`v${i}`} x1={W/8*i} y1={0} x2={W/8*i} y2={H} stroke={gridCol} strokeWidth="1"/>
-        ))}
-        {[...Array(6)].map((_,i) => (
-          <line key={`h${i}`} x1={0} y1={H/6*i} x2={W} y2={H/6*i} stroke={gridCol} strokeWidth="1"/>
-        ))}
-        {/* Land */}
-        <path d={shore} fill={land} stroke={shoreStr} strokeWidth="1.5"/>
-        {/* Range rings from home — spaced at roughly 40/80/130 m */}
-        {[40,80,130].map(r => (
-          <circle key={r} cx={hx} cy={hy} r={r} fill="none"
-            stroke={ringCol} strokeWidth="1" strokeDasharray="4 5"/>
-        ))}
-        {/* Dashed bearing line boat→home */}
-        <line x1={bx} y1={by} x2={hx} y2={hy}
-          stroke={T.accent} strokeWidth="1" strokeDasharray="5 4" opacity="0.5"/>
-        {/* Track trail */}
-        <path d={track} fill="none" stroke={T.accent} strokeWidth="2"
-          strokeLinecap="round" strokeLinejoin="round" opacity="0.7"/>
-        {/* Home marker */}
-        <circle cx={hx} cy={hy} r="6" fill={T.safe} opacity="0.9"/>
-        <text x={hx} y={hy+1} textAnchor="middle" dominantBaseline="middle"
-          fontSize="7" fontWeight="700" fill="#fff">H</text>
-        <rect x={hx+10} y={hy-9} width={42} height={16} rx="4"
-          fill={T.surface} opacity="0.9"/>
-        <text x={hx+31} y={hy+1} textAnchor="middle" dominantBaseline="middle"
-          fontSize="8" fontWeight="700" fontFamily={_MONO} fill={T.text}>HOME</text>
-        {/* Boat marker — arrow rotates with heading */}
-        <circle cx={bx} cy={by} r="10" fill={T.surface} stroke={T.accent} strokeWidth="2"/>
-        <polygon
-          points={`${bx},${by-7} ${bx+4.5},${by+4} ${bx},${by+2} ${bx-4.5},${by+4}`}
-          fill={T.accent} transform={`rotate(${d.hdg-180},${bx},${by})`}/>
-        {/* Distance badge */}
-        <rect x={bx+14} y={by-11} width={52} height={20} rx="5" fill={T.accent}/>
-        <text x={bx+40} y={by} textAnchor="middle" dominantBaseline="middle"
-          fontSize="9" fontWeight="700" fontFamily={_MONO} fill="#fff">
-          {d.homeDist}m {String(d.homeBrg).padStart(3,'0')}°
-        </text>
-        {/* North indicator */}
-        <text x={W-14} y={16} textAnchor="middle" fontSize="11" fontWeight="800"
-          fontFamily={_MONO} fill={T.text}>N</text>
-        <polygon points={`${W-14},22 ${W-17},30 ${W-14},28 ${W-11},30`} fill={T.accent}/>
-      </svg>
-    );
-  };
-
   return (
     <div style={{ display:'flex', flexDirection:'column' }}>
 
-      {/* ── Nav chips: 6 key position values ─────────────────────────────── */}
+      {/* ── Position readouts ─────────────────────────────────────────────── */}
       <Card T={T} style={{ padding:'10px 16px' }}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:7 }}>
           {[
@@ -117,12 +137,30 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
         </div>
       </Card>
 
-      {/* ── Chart ────────────────────────────────────────────────────────── */}
-      <div style={{ borderBottom:`1px solid ${T.border}` }}>
-        <MapSVG width={390} height={340}/>
-      </div>
+      {/* ── Leaflet map (or not-ready message) ───────────────────────────── */}
+      {!window.L ? (
+        <div style={{ height:340, display:'flex', flexDirection:'column',
+          alignItems:'center', justifyContent:'center', gap:10,
+          background:T.inset, borderTop:`1px solid ${T.border}`,
+          borderBottom:`1px solid ${T.border}` }}>
+          <span style={{ fontFamily:_MONO, fontSize:11, fontWeight:700, color:T.warn }}>
+            Map not ready
+          </span>
+          <span style={{ fontFamily:_MONO, fontSize:9, color:T.faint, textAlign:'center',
+            maxWidth:260, lineHeight:1.6 }}>
+            Run <span style={{ color:T.accent }}>scripts/download_tiles.py --fetch-leaflet</span> on
+            the Pi, then restart the server.
+          </span>
+        </div>
+      ) : (
+        <div ref={containerRef}
+          style={{ height:340,
+            background: T.id==='dusk' ? '#0e1f36' : '#d4e4f0',
+            borderTop:`1px solid ${T.border}`,
+            borderBottom:`1px solid ${T.border}` }}/>
+      )}
 
-      {/* ── Action buttons ───────────────────────────────────────────────── */}
+      {/* ── Actions ──────────────────────────────────────────────────────── */}
       <Card T={T} style={{ padding:'11px 16px', display:'flex', flexDirection:'column', gap:8 }}>
         {flash && (
           <div style={{ textAlign:'center', fontFamily:_MONO, fontSize:10,
@@ -131,7 +169,10 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
           </div>
         )}
         <div style={{ display:'flex', gap:9 }}>
-          <div onClick={() => { setHomePos({ lat:d.lat, lng:d.lon }); flashMsg(d.lat ? 'Home set' : 'Home set (no GPS fix yet)'); }}
+          <div onClick={() => {
+              setHomePos({ lat:d.lat, lng:d.lon });
+              flashMsg(d.lat ? 'Home set' : 'Home set (no GPS fix yet)');
+            }}
             style={{ flex:1, padding:'11px 8px', borderRadius:8,
               background:T.safe, color:'#fff', textAlign:'center',
               fontFamily:_MONO, fontSize:11, fontWeight:800,
@@ -146,12 +187,18 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
               letterSpacing:'0.06em', cursor:'pointer' }}>
             RESET HOME
           </div>
-          <div style={{ flex:1, padding:'11px 8px', borderRadius:8,
-            background:T.inset, border:`1px solid ${T.border}`,
-            color:T.faint, textAlign:'center',
-            fontFamily:_MONO, fontSize:11, fontWeight:700,
-            letterSpacing:'0.06em' }}>
-            EXPORT GPX
+          <div onClick={() => {
+              const lf = lfRef.current;
+              if (!lf) return;
+              const c = (d.lat && d.lon) ? [d.lat, d.lon] : [40.934, -73.071];
+              lf.map.setView(c, 15);
+            }}
+            style={{ flex:1, padding:'11px 8px', borderRadius:8,
+              background:T.inset, border:`1px solid ${T.border}`,
+              color:T.text, textAlign:'center',
+              fontFamily:_MONO, fontSize:11, fontWeight:700,
+              letterSpacing:'0.06em', cursor:'pointer' }}>
+            CENTRE MAP
           </div>
         </div>
       </Card>

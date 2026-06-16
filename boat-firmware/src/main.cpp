@@ -79,8 +79,8 @@ void setup()
     power_init();       // INA228 current/voltage sensor
     sdlog_init();       // TF card CSV logger (SPI3; safe no-op if no card)
     wifi_ctrl_init();   // WiFi AP + web control server (default control mode)
-    elrs_init();        // CRSF hardware init (inactive until mode switched to ELRS)
-    failsafe_init();    // failsafe state machine (stubbed — implemented in Phase 3)
+    elrs_init();        // CRSF UART1 + AlfredoCRSF (Phase 3)
+    failsafe_init();    // BOOT/DISARMED/ARMED/FAILSAFE state machine (Phase 3)
     telemetry_init();   // CRSF telemetry emitter
     display_init();     // SH8601 AMOLED via QSPI + LVGL (starts FreeRTOS render task)
 

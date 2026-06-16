@@ -21,14 +21,12 @@ Software is written (`servos.cpp` + `power.cpp`). Pending bench test — nothing
 
 ## Phase 3 — Boat firmware: ELRS receive path
 
-`elrs.cpp` is a stub — CRSF parsing not yet implemented.
+Software complete. Hardware wiring still pending.
 
 - [ ] Wire ELRS receiver to UART1 (GPIO16 RX, GPIO17 TX)
-- [ ] Implement `elrs_init()`: `Serial1.begin(420000, SERIAL_8N1, CRSF_RX, CRSF_TX)`
-- [ ] Implement `elrs_update()`: parse incoming CRSF frames, extract RC channels
-- [ ] Parse `LINK_STATISTICS` (0x14) to update RSSI and link quality
-- [ ] Confirm channel values print to serial console at 10 Hz
-- [ ] Map channels per `docs/protocol.md` — arm channel must be high before throttle works
+- [ ] Power on, confirm `elrs: UART1 @ 420000 baud` log line at boot
+- [ ] Confirm channel values print to serial console at 10 Hz when transmitter paired
+- [ ] Move sticks → confirm servos respond; disarm → confirm motor stops
 
 **Acceptance**: pairing a transmitter (sticks, not the Pi yet), moving sticks drives servos; disarming stops motor.
 
@@ -36,11 +34,14 @@ Software is written (`servos.cpp` + `power.cpp`). Pending bench test — nothing
 
 ## Phase 4 — Base station: ELRS transmit path
 
-Software is complete (`base-station/app/elrs_bridge.py`). Pending hardware connection.
+Software is complete (`base-station/app/elrs_bridge.py`). The Pi's own GPIO UART can't
+reliably do CRSF (Pi 5 RP1 driver bugs) — see `docs/elrs-link.md`. Bridging via a XIAO
+ESP32-S3 instead; `crsf-bridge/` firmware is written, pending hardware to test on.
 
-- [ ] Connect ELRS TX module to Pi via USB-Serial
-- [ ] Confirm `ELRS_PORT` env var points to the right device (check `dmesg` or `ls /dev/ttyUSB*`)
-- [ ] Start base station and confirm 50 Hz RC frames flow to TX module (check ELRS Lua script on transmitter)
+- [ ] Build/flash `crsf-bridge/` to the XIAO ESP32-S3, loopback-test UART1 TX↔RX
+- [ ] Wire XIAO UART1 → Ranger Micro JR-bay CRSF pin (series resistor on TX), power Ranger Micro from JR-bay 5V
+- [ ] Connect XIAO to Pi via USB-C, confirm `ELRS_PORT` (default `/dev/ttyACM0`, or `/dev/elrs-tx` after `setup-udev.sh`)
+- [ ] Start base station and confirm 50 Hz RC frames flow through the bridge to the TX module — Ranger Micro LED should leave "slow orange / no handset"
 - [ ] Move a browser slider → confirm the corresponding servo moves
 
 **Acceptance**: browser slider → servo moves within ~100 ms.
@@ -86,6 +87,10 @@ Only begin after Phase 5 failsafe acceptance test passes.
 
 ## Ideas / someday / maybe
 
+- **Map waypoints** — tap or long-press on the Leaflet map to drop a waypoint pin; display as list; send to boat over CRSF/WebSocket
+- **Motor autopilot to waypoint** — hold a compass/GPS bearing toward the next waypoint; PI loop drives rudder; requires HMC5883L (already on I²C) or GPS COG at speed ≥ 1 kn
+- **Motor autopilot return-to-home** — same heading controller, target is `homePos`; triggered by RTH button or low-battery cutoff
+- **Sail auto-trim** — given true wind direction (anemometer), compute optimal sail angle; suggest or apply automatically
 - Wind sensor (direction + speed) — would need a custom CRSF telemetry frame
 - Water temperature sensor
 - Auto-trim: given wind direction, suggest optimal sail position

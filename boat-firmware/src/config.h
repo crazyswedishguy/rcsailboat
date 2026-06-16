@@ -87,7 +87,7 @@ constexpr uint8_t BILGE_PUMP   = 3;   // GPIO3 — N-MOSFET gate driving the bil
 // =============================================================================
 // WiFi Direct mode
 // =============================================================================
-#define WIFI_AP_SSID "darkandstormy"
+#define WIFI_AP_SSID "Mistral"
 #define WIFI_AP_PASS "readyabout"
 
 // =============================================================================

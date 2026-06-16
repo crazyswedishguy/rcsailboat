@@ -119,7 +119,7 @@ Mode is switched via the display touchscreen UI on the boat.
 
 - Python 3.11+
 - `pip install -r base-station/requirements.txt` (in a venv)
-- ELRS TX module connected via USB-Serial (default `/dev/ttyUSB0`)
+- ELRS TX module connected via a XIAO ESP32-S3 USB-CDC bridge (default `/dev/ttyACM0`) — see `docs/elrs-link.md`
 
 ### Run
 
@@ -134,8 +134,8 @@ Then open `http://<pi-ip>:8000` on any browser on the same Wi-Fi network.
 
 | Environment variable | Default | Description |
 |---|---|---|
-| `ELRS_PORT` | `/dev/ttyUSB0` | Serial device for the ELRS TX module |
-| `ELRS_BAUD` | `420000` | Baud rate (must match ELRS module setting) |
+| `ELRS_PORT` | `/dev/ttyACM0` | Serial device for the XIAO ESP32-S3 CRSF bridge (use `/dev/elrs-tx` after running `setup-udev.sh`) |
+| `ELRS_BAUD` | `400000` | Nominal USB-CDC baud — the real CRSF rate to the Ranger Micro is fixed in the bridge firmware (`crsf-bridge/`) |
 
 ### What the base station does
 

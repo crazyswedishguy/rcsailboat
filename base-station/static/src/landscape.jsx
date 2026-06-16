@@ -12,40 +12,82 @@
 //   theme, setTheme, setOrient
 //   onRequestControl, onReleaseControl, onAcceptHandoff, onDismissRequest, onStop
 
-// ── Mini map SVG ──────────────────────────────────────────────────────────────
-const LandMap = ({ T, d }) => {
-  const W=340, H=140;
-  const bx=W*0.60, by=H*0.55, hx=W*0.30, hy=H*0.40;
-  const isDusk = T.id==='dusk';
-  const water   = isDusk ? '#0e1f36' : '#d4e4f0';
-  const land    = isDusk ? '#1a2e1a' : '#c8d8b8';
-  const shoreS  = isDusk ? '#2a4a2a' : '#a0b890';
-  const grid    = isDusk ? 'rgba(255,255,255,0.04)' : 'rgba(28,52,86,0.05)';
-  const ring    = isDusk ? 'rgba(90,143,230,0.15)'  : 'rgba(28,78,160,0.10)';
-  const shore = `M0,0 L${Math.round(W*.44)},0 L${Math.round(W*.47)},${Math.round(H*.14)}`+
-    ` L${Math.round(W*.40)},${Math.round(H*.32)} L${Math.round(W*.30)},${Math.round(H*.42)}`+
-    ` L${Math.round(W*.18)},${Math.round(H*.44)} L${Math.round(W*.08)},${Math.round(H*.38)}`+
-    ` L0,${Math.round(H*.30)} Z`;
-  const pts = [[bx-W*.17,by+H*.16],[bx-W*.12,by+H*.08],[bx-W*.06,by+H*.02],[bx,by]];
-  const track = pts.map((p,i) => `${i===0?'M':'L'}${Math.round(p[0])},${Math.round(p[1])}`).join(' ');
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}
-      style={{ display:'block', width:'100%', height:'100%' }}>
-      <rect width={W} height={H} fill={water}/>
-      {[0,1,2,3,4,5,6].map(i=><line key={`v${i}`} x1={Math.round(W/7*i)} y1={0} x2={Math.round(W/7*i)} y2={H} stroke={grid} strokeWidth="1"/>)}
-      {[0,1,2,3,4].map(i=><line key={`h${i}`} x1={0} y1={Math.round(H/5*i)} x2={W} y2={Math.round(H/5*i)} stroke={grid} strokeWidth="1"/>)}
-      <path d={shore} fill={land} stroke={shoreS} strokeWidth="1.5"/>
-      {[35,70,115].map(r=><circle key={r} cx={Math.round(hx)} cy={Math.round(hy)} r={r} fill="none" stroke={ring} strokeWidth="1" strokeDasharray="4 5"/>)}
-      <line x1={Math.round(bx)} y1={Math.round(by)} x2={Math.round(hx)} y2={Math.round(hy)} stroke={T.accent} strokeWidth="1" strokeDasharray="4 4" opacity="0.45"/>
-      <path d={track} fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.75"/>
-      <circle cx={Math.round(hx)} cy={Math.round(hy)} r="6" fill={T.safe}/>
-      <text x={Math.round(hx)} y={Math.round(hy)+1} textAnchor="middle" dominantBaseline="middle" fontSize="7" fontWeight="800" fill="#fff">H</text>
-      <circle cx={Math.round(bx)} cy={Math.round(by)} r="9" fill={T.surface} stroke={T.accent} strokeWidth="2"/>
-      <polygon points={`${Math.round(bx)},${Math.round(by)-6} ${Math.round(bx)+4},${Math.round(by)+4} ${Math.round(bx)},${Math.round(by)+2} ${Math.round(bx)-4},${Math.round(by)+4}`} fill={T.accent}/>
-      <text x={W-12} y={14} textAnchor="middle" fontSize="10" fontWeight="800" fontFamily={_MONO} fill={T.text}>N</text>
-      <polygon points={`${W-12},18 ${W-15},26 ${W-12},24 ${W-9},26`} fill={T.accent}/>
-    </svg>
-  );
+// ── Leaflet mini-map for landscape control view ───────────────────────────────
+const LandMap = ({ T, d, stale, homePos }) => {
+  const { useRef, useEffect } = React;
+  const containerRef = useRef(null);
+  const lfRef        = useRef(null);
+
+  function makeBoatIcon(L, hdg) {
+    return L.divIcon({
+      html: `<svg width="18" height="18" viewBox="0 0 22 22" style="overflow:visible">
+        <circle cx="11" cy="11" r="8" fill="${T.surface}" stroke="${T.accent}" stroke-width="2"/>
+        <polygon points="11,3 14.5,15 11,13 7.5,15" fill="${T.accent}"
+          transform="rotate(${hdg||0},11,11)"/>
+      </svg>`,
+      iconSize: [18, 18], iconAnchor: [9, 9], className: '',
+    });
+  }
+
+  function makeHomeIcon(L) {
+    return L.divIcon({
+      html: `<svg width="16" height="16" viewBox="0 0 20 20">
+        <circle cx="10" cy="10" r="9" fill="${T.safe}" opacity="0.9"
+          stroke="#fff" stroke-width="1.5"/>
+        <text x="10" y="14" text-anchor="middle" font-size="10" font-weight="700"
+          fill="#fff" font-family="monospace">H</text>
+      </svg>`,
+      iconSize: [16, 16], iconAnchor: [8, 8], className: '',
+    });
+  }
+
+  useEffect(() => {
+    const L = window.L;
+    if (!L || !containerRef.current || lfRef.current) return;
+    const center = homePos ? [homePos.lat, homePos.lng]
+                 : (d.lat  ? [d.lat, d.lon] : [40.934, -73.071]);
+    const map = L.map(containerRef.current, {
+      center, zoom: 14, zoomControl: false, attributionControl: false,
+    });
+    L.tileLayer('/tiles/{z}/{x}/{y}.png', {
+      maxZoom: 17, minZoom: 8,
+      errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+    }).addTo(map);
+    const initPos = (d.lat && d.lon) ? [d.lat, d.lon] : center;
+    const boat = L.marker(initPos, { icon: makeBoatIcon(L, d.hdg), zIndexOffset: 100 }).addTo(map);
+    const home = homePos ? L.marker([homePos.lat, homePos.lng], { icon: makeHomeIcon(L) }).addTo(map) : null;
+    lfRef.current = { map, boat, home };
+    return () => { map.remove(); lfRef.current = null; };
+  }, []);
+
+  useEffect(() => {
+    const L = window.L;
+    const lf = lfRef.current;
+    if (!L || !lf || !d.lat || !d.lon || stale.gps) return;
+    lf.boat.setLatLng([d.lat, d.lon]);
+    lf.boat.setIcon(makeBoatIcon(L, d.hdg));
+  }, [d.lat, d.lon, d.hdg]);
+
+  useEffect(() => {
+    const L = window.L;
+    const lf = lfRef.current;
+    if (!L || !lf) return;
+    if (!homePos) { if (lf.home) { lf.home.remove(); lf.home = null; } return; }
+    const p = [homePos.lat, homePos.lng];
+    if (lf.home) { lf.home.setLatLng(p); }
+    else { lf.home = L.marker(p, { icon: makeHomeIcon(L) }).addTo(lf.map); }
+  }, [homePos]);
+
+  if (!window.L) {
+    return (
+      <div style={{ width:'100%', height:'100%', display:'flex',
+        alignItems:'center', justifyContent:'center', background:T.inset }}>
+        <span style={{ fontFamily:_MONO, fontSize:9, color:T.faint }}>Map not ready</span>
+      </div>
+    );
+  }
+  return <div ref={containerRef} style={{ width:'100%', height:'100%',
+    background: T.id==='dusk' ? '#0e1f36' : '#d4e4f0' }}/>;
 };
 
 // ── Compact throttle control ──────────────────────────────────────────────────
@@ -269,7 +311,9 @@ const Landscape = ({
 
           {/* LEFT — Sail trim (SailArc widget + step buttons) */}
           <div style={{ ...card, width:136, padding:12, display:'flex',
-            flexDirection:'column', alignItems:'center', gap:8 }}>
+            flexDirection:'column', alignItems:'center', gap:8,
+            opacity:inControl?1:0.38, pointerEvents:inControl?'auto':'none',
+            transition:'opacity 0.15s' }}>
             <div style={{ display:'flex', alignItems:'baseline',
               justifyContent:'space-between', width:'100%' }}>
               <span style={lbl()}>Sail</span>
@@ -296,7 +340,7 @@ const Landscape = ({
           <div style={{ flex:1, display:'flex', flexDirection:'column', gap:10, minWidth:0 }}>
             {/* Mini map */}
             <div style={{ ...card, flex:1, overflow:'hidden', position:'relative', minHeight:0 }}>
-              <LandMap T={T} d={d}/>
+              <LandMap T={T} d={d} stale={stale} homePos={homePos}/>
               {/* Distance badge */}
               <div style={{ position:'absolute',top:8,right:10,
                 display:'flex',alignItems:'center',gap:6,padding:'4px 9px',
@@ -321,7 +365,9 @@ const Landscape = ({
             <div style={{ display:'flex', gap:10, flexShrink:0 }}>
               <div style={{ ...card, flex:1, padding:'8px 12px',
                 display:'flex',flexDirection:'column',gap:7,
-                border:engaged?`1.5px solid ${T.warn}`:`1px solid ${T.border}` }}>
+                border:engaged?`1.5px solid ${T.warn}`:`1px solid ${T.border}`,
+                opacity:inControl?1:0.38, pointerEvents:inControl?'auto':'none',
+                transition:'opacity 0.15s' }}>
                 <div style={{ display:'flex',alignItems:'center',gap:8 }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke={engaged?T.warn:T.dim} strokeWidth="2"
@@ -370,7 +416,9 @@ const Landscape = ({
             </div>
             {/* Rudder card */}
             <div style={{ ...card,flex:1,padding:'11px 12px',display:'flex',
-              flexDirection:'column',gap:8,minHeight:0 }}>
+              flexDirection:'column',gap:8,minHeight:0,
+              opacity:inControl?1:0.38, pointerEvents:inControl?'auto':'none',
+              transition:'opacity 0.15s' }}>
               <div style={{ display:'flex',alignItems:'baseline',justifyContent:'space-between' }}>
                 <span style={lbl()}>Rudder</span>
                 <div style={{ display:'flex',gap:9,alignItems:'baseline' }}>
