@@ -32,6 +32,7 @@
 #include "config.h"
 #include "diag.h"
 #include "bilge.h"
+#include "failsafe.h"
 #include "sdlog.h"
 #include <Arduino.h>
 #include <math.h>
@@ -132,18 +133,27 @@ static void send_attitude() {
 }
 
 // SAILBOAT custom frame (0x80) — 8-byte payload, emit at 5 Hz
-// Payload: rudder(-10000..10000), sail(0..10000), ESC(-10000..10000), temp(°C*10)
+// Payload: rudder(-10000..10000), sail(0..10000), ESC(-10000..10000),
+//          temp(°C*10), status byte (see protocol.h SB_STATUS_* bits).
 static void send_sailboat() {
     int16_t rudder = (int16_t)(servos_get_commanded(pwm_ch::RUDDER)     * 10000.0f);
     int16_t sail   = (int16_t)(servos_get_commanded(pwm_ch::SAIL_WINCH) * 10000.0f);
     int16_t esc    = (int16_t)(servos_get_commanded(pwm_ch::MOTOR_ESC)  * 10000.0f);
     int16_t temp   = (int16_t)(temperatureRead()                      * 10.0f);
 
-    uint8_t p[8];
+    uint8_t status = 0;
+    if (imu_is_capsized())      status |= (1 << SB_STATUS_CAPSIZED);
+    if (bilge_water_detected()) status |= (1 << SB_STATUS_BILGE_WET);
+    if (bilge_pump_active())    status |= (1 << SB_STATUS_PUMP);
+    if (failsafe_armed())       status |= (1 << SB_STATUS_ARMED);
+    if (failsafe_active())      status |= (1 << SB_STATUS_FAILSAFE);
+
+    uint8_t p[9];
     put_i16be(p + 0, rudder);
     put_i16be(p + 2, sail);
     put_i16be(p + 4, esc);
     put_i16be(p + 6, temp);
+    p[8] = status;
 
     uint8_t frame[16];
     size_t  len = crsf_build(frame, CRSF_FRAMETYPE_SAILBOAT, p, sizeof(p));
@@ -210,25 +220,38 @@ static void send_devices() {
 
 static unsigned long s_last_battery_ms  = 0;
 static unsigned long s_last_attitude_ms = 0;
+static unsigned long s_last_sailboat_ms = 0;
 static unsigned long s_last_devices_ms  = 0;
+
+// ATTITUDE runs fast (24 Hz) for smooth heel/pitch gauges; the link is sized
+// for it (250 Hz / 1:4 telemetry ratio — see docs/protocol.md). SAILBOAT and
+// DEVICES stay slow on their own timers so attitude can run independently.
+#define ATTITUDE_PERIOD_MS  42   // ~24 Hz
+#define SAILBOAT_PERIOD_MS  200  // 5 Hz
+#define BATTERY_PERIOD_MS   500  // 2 Hz
+#define DEVICES_PERIOD_MS   5000 // 0.2 Hz
 
 void telemetry_init() {}
 
 void telemetry_update() {
     unsigned long now = millis();
 
-    if (now - s_last_battery_ms >= 500) {
+    if (now - s_last_battery_ms >= BATTERY_PERIOD_MS) {
         s_last_battery_ms = now;
         send_battery();
     }
 
-    if (now - s_last_attitude_ms >= 200) {
+    if (now - s_last_attitude_ms >= ATTITUDE_PERIOD_MS) {
         s_last_attitude_ms = now;
         send_attitude();
+    }
+
+    if (now - s_last_sailboat_ms >= SAILBOAT_PERIOD_MS) {
+        s_last_sailboat_ms = now;
         send_sailboat();
     }
 
-    if (now - s_last_devices_ms >= 5000) {
+    if (now - s_last_devices_ms >= DEVICES_PERIOD_MS) {
         s_last_devices_ms = now;
         send_devices();
     }

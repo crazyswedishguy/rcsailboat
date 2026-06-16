@@ -60,12 +60,18 @@ CRSF_CH_MIN    = 172
 CRSF_CH_CENTER = 992
 CRSF_CH_MAX    = 1811
 
-# Channel indices (from shared/protocol.h)
+# Channel indices — 0-based, matching boat-firmware/src/protocol.h (see shared/protocol.py
+# for the 1-based convention used in docs/protocol.md; subtract 1 to convert).
 CH_RUDDER   = 0
 CH_SAIL     = 1
 CH_THROTTLE = 2
 CH_ARM      = 3
 CH_MODE     = 4
+CH_RESTART  = 5
+CH_PUMP     = 6  # bilge pump override — not arm-gated (protocol v2, channel 7 in docs)
+
+# Custom CRSF frame type for Pi liveness heartbeat (XIAO bridge uses this to detect Pi)
+CRSF_TYPE_HEARTBEAT = 0x7E
 
 
 # ── CRC-8 (polynomial 0xD5, same as firmware's crsf_crc8) ─────────────────────
@@ -101,6 +107,8 @@ def _build_rc_frame(state: DesiredState) -> bytes:
     channels[CH_THROTTLE] = _ch_centered(state.throttle if state.armed else 0.0)
     channels[CH_ARM]      = CRSF_CH_MAX if state.armed else CRSF_CH_MIN
     channels[CH_MODE]     = CRSF_CH_CENTER  # manual mode
+    channels[CH_RESTART]  = CRSF_CH_MIN     # idle (held high ≥2 s while disarmed → restart)
+    channels[CH_PUMP]     = CRSF_CH_MAX if state.pump else CRSF_CH_MIN  # not arm-gated
 
     # Pack 16 × 11-bit channels into 22 bytes, LSB-first
     bits = 0
@@ -206,14 +214,28 @@ def _decode_devices(payload: bytes, telem: TelemetryState) -> bool:
 
 
 def _decode_sailboat(payload: bytes, telem: TelemetryState) -> bool:
-    """Custom sailboat frame (0x80) — 8-byte big-endian payload."""
-    if len(payload) < 8:
+    """Custom sailboat frame (0x80) — 9-byte big-endian payload (protocol v2).
+
+    Byte layout:
+      0–1  rudder commanded  int16 ×10000
+      2–3  sail commanded    int16 ×10000
+      4–5  ESC commanded     int16 ×10000
+      6–7  MCU temperature   int16 °C ×10
+      8    status bitfield   (SB_STATUS_* bits from shared/protocol.py)
+    """
+    if len(payload) < 9:
         return False
     rudder_raw, sail_raw, esc_raw, temp_raw = struct.unpack_from(">hhhh", payload)
-    telem.rudder    = rudder_raw / 10000.0
-    telem.sail      = sail_raw   / 10000.0
-    telem.throttle  = esc_raw    / 10000.0
-    telem.mcu_temp_c = temp_raw  / 10.0
+    telem.rudder      = rudder_raw / 10000.0
+    telem.sail        = sail_raw   / 10000.0
+    telem.throttle    = esc_raw    / 10000.0
+    telem.mcu_temp_c  = temp_raw   / 10.0
+    st = payload[8]
+    telem.capsized      = bool(st & (1 << 0))
+    telem.bilge_wet     = bool(st & (1 << 1))
+    telem.pump_active   = bool(st & (1 << 2))
+    telem.boat_armed    = bool(st & (1 << 3))
+    telem.boat_failsafe = bool(st & (1 << 4))
     return True
 
 
@@ -405,10 +427,35 @@ async def elrs_bridge_task(
         await asyncio.sleep(RETRY_DELAY)
 
 
+def _build_heartbeat_frame() -> bytes:
+    """Build a 4-byte CRSF heartbeat frame (type 0x7E, 0-byte payload).
+
+    The XIAO bridge firmware watches for this frame type on its USB serial input.
+    When seen, it switches from standalone AP mode (Mode 2) to transparent bridge
+    mode (Mode 3). The frame is stripped before forwarding to the Ranger Micro.
+
+    Frame: [0xC8][0x02][0x7E][CRC8]
+    length field = 2 = type(1) + CRC(1), no payload bytes.
+    """
+    frame = bytes([CRSF_SYNC, 0x02, CRSF_TYPE_HEARTBEAT])
+    return frame + bytes([_crc8(frame[2:])])   # CRC over just the type byte
+
+
 async def _tx_loop(
     tx_queue: stdlib_queue.Queue, state: DesiredState, interval: float
 ) -> None:
-    """Enqueue RC frames at TRANSMIT_HZ until cancelled."""
+    """Enqueue RC frames at TRANSMIT_HZ until cancelled.
+
+    Also emits a periodic heartbeat frame (type 0x7E) every ~500 ms.  The XIAO
+    bridge firmware detects this and switches from standalone AP mode to bridge
+    mode within one heartbeat period.
+    """
+    HB_INTERVAL = 0.5   # heartbeat every 500 ms
+    hb_accum    = 0.0   # accumulated time since last heartbeat
     while True:
         tx_queue.put(_build_rc_frame(state))
+        hb_accum += interval
+        if hb_accum >= HB_INTERVAL:
+            tx_queue.put(_build_heartbeat_frame())
+            hb_accum = 0.0
         await asyncio.sleep(interval)

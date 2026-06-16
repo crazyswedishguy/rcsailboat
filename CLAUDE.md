@@ -4,7 +4,13 @@ This file gives Claude Code persistent context about the project. Read this firs
 
 ## Project summary
 
-A remote-controlled sailboat. A Raspberry Pi 5 base station hosts a web UI that any browser-capable device (phone, tablet, laptop) can connect to. User inputs from the browser are forwarded by the Pi to the boat over a 2.4 GHz ExpressLRS (ELRS) radio link. The boat is driven by an ESP32-S3 that reads ELRS channels and drives servos + an ESC, and sends telemetry back over ELRS.
+A remote-controlled sailboat with three control modes:
+
+- **Mode 1** — Phone connects to the **boat ESP32-S3** WiFi AP (`Mistral` / `192.168.4.1`). The boat serves the embedded control page directly.
+- **Mode 2** — Phone connects to the **XIAO ESP32-S3** WiFi AP (`Mistral-2` / `192.168.5.1`). The XIAO serves the same control page and generates CRSF frames autonomously over its UART1 → Ranger Micro → RF → boat.
+- **Mode 3** — Browser connects to the **Raspberry Pi** React UI. The Pi builds CRSF over USB-CDC → XIAO (byte-pump) → Ranger Micro → RF → boat.
+
+The XIAO (`crsf-bridge/`) auto-switches between Mode 2 (standalone AP) and Mode 3 (byte-pump bridge) based on whether the Pi's heartbeat frame (CRSF type `0x7E`) is seen on its USB serial — see `docs/elrs-link.md`.
 
 ## Key architectural decisions (don't revisit without asking)
 
@@ -18,13 +24,19 @@ A remote-controlled sailboat. A Raspberry Pi 5 base station hosts a web UI that 
 ## Repo layout
 
 ```
-base-station/      # Python / FastAPI app on the Pi
-boat-firmware/     # PlatformIO project for ESP32-S3
-shared/            # protocol constants (channel map, telemetry schema)
+base-station/      # Python / FastAPI app on the Pi (Mode 3 host)
+boat-firmware/     # PlatformIO project for ESP32-S3 (Mode 1 host, boat controller)
+crsf-bridge/       # PlatformIO project for XIAO ESP32-S3 (Mode 2 standalone AP + Mode 3 byte-pump)
+shared/
+  ├── protocol.py           # CRSF channel/frame constants (Python)
+  └── web/
+      ├── control_page.h    # HTML_PAGE[] PROGMEM — served by boat (Mode 1) and XIAO (Mode 2)
+      └── map_page.h        # MAP_HTML[] PROGMEM — same sharing
 docs/
   ├── pinmap.md         # canonical pin assignments — keep in sync with config.h
   ├── failsafe.md       # failsafe behavior — read before changing motor/throttle code
-  ├── protocol.md       # ELRS channel mapping, telemetry packet schema
+  ├── protocol.md       # ELRS channel mapping, telemetry packet schema (PROTOCOL_VERSION=2)
+  ├── elrs-link.md      # bridge wiring, Mode 2/3 switching, heartbeat, link config
   ├── datasheets/       # CO5300, FT3168, QMI8658, ESP32-S3 TRM
   └── Waveshare Demo/   # vendor reference Arduino code (READ-ONLY reference)
 ```
@@ -71,14 +83,31 @@ Canonical sources: **`docs/pinmap.md`** and **`boat-firmware/src/config.h`**. Re
 - Dependencies pinned in `requirements.txt`; use a venv.
 - Logging via `logging` module, not `print`, except in tiny scripts.
 
-### C++ (boat firmware)
+### C++ (boat firmware and XIAO bridge)
 - PlatformIO, Arduino framework for ESP32-S3.
-- Use the AlfredoCRSF or CRSFforArduino library for ELRS CRSF parsing — do **not** write a CRSF parser from scratch unless asked.
+- **Boat firmware** (`boat-firmware/`): use AlfredoCRSF or CRSFforArduino library for ELRS CRSF parsing — do **not** write a CRSF parser from scratch unless asked.
+- **XIAO bridge** (`crsf-bridge/`): the CRSF codec is hand-written (ported from the validated Python implementation) because AlfredoCRSF models the flight-controller role (decode RC, send telemetry), which is the inverse of what the XIAO needs as a handset. See `crsf-bridge/src/main.cpp`.
 - Use Adafruit_PWMServoDriver for the PCA9685.
 - One module per concern: `elrs.{h,cpp}`, `servos.{h,cpp}`, `telemetry.{h,cpp}`, `failsafe.{h,cpp}`, `main.cpp`.
 - Avoid blocking calls in `loop()`. No `delay()` longer than a few ms.
 - All GPIO pin numbers live in `config.h` — nowhere else.
+- The shared control page HTML lives in `shared/web/control_page.h` and `shared/web/map_page.h` (PROGMEM). Both `boat-firmware` and `crsf-bridge` include via `-I"${PROJECT_DIR}/../shared"` in `platformio.ini`.
 - For chip-level work on CO5300 / FT3168 / QMI8658: start from `docs/Waveshare Demo/`, don't write drivers from scratch. Register details for these chips are sparse online and easy to get wrong.
+
+### ELRS channel quick-reference (PROTOCOL_VERSION = 2)
+
+| Index (0-based) | Name | Range | Notes |
+|---|---|---|---|
+| 0 | CH_RUDDER | −1 … +1 | centered; −1 = full port |
+| 1 | CH_SAIL | 0 … +1 | unipolar; 0 = fully eased |
+| 2 | CH_THROTTLE | 0 … +1 | unipolar; 0 = neutral/stop |
+| 3 | CH_ARM | 0 or 1 | ≥ 0.5 = armed |
+| 4 | CH_MODE | — | reserved |
+| 5 | CH_RESTART | 0 or 1 | ≥ 0.5 = restart signal |
+| 6 | CH_PUMP | 0 or 1 | ≥ 0.5 = bilge pump on |
+| 7–15 | — | — | reserved |
+
+Canonical definitions: `boat-firmware/src/protocol.h` (C++), `shared/protocol.py` (Python).
 
 ### Build / flash / monitor
 - `pio run` — build

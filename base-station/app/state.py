@@ -40,6 +40,7 @@ class DesiredState:
     # armed is set by main.py based on whether an active controller is connected,
     # not by browser messages.  The ELRS bridge reads it to drive CH_ARM.
     armed: bool = False
+    pump: bool = False      # bilge pump override — not arm-gated; set by pump WS message
 
     def apply(self, rudder: float, sail: float, throttle: float) -> None:
         """Update control values with range-clamped inputs. NaN and Inf map to 0."""
@@ -98,11 +99,17 @@ class TelemetryState:
     roll_deg: float = 0.0      # heel angle in degrees (positive = starboard)
     yaw_deg: float = 0.0       # heading in degrees (from compass if fitted, else 0)
 
-    # Sailboat custom frame (CRSF 0x80) — 5 Hz from boat
+    # Sailboat custom frame (CRSF 0x80) — 9-byte payload (protocol v2), 5 Hz from boat
     rudder: float = 0.0        # commanded rudder position –1.0..+1.0
     sail: float = 0.0          # commanded sail trim 0.0..+1.0
     throttle: float = 0.0      # commanded throttle –1.0..+1.0
     mcu_temp_c: float = 0.0    # ESP32 internal die temperature in °C
+    # Status byte (byte 8 of SAILBOAT payload, bit positions match protocol.py SB_STATUS_*)
+    capsized: bool = False      # IMU reports hull inverted
+    bilge_wet: bool = False     # bilge float switch triggered
+    pump_active: bool = False   # bilge pump currently running
+    boat_armed: bool = False    # arm channel high / motor live
+    boat_failsafe: bool = False # firmware in FAILSAFE state
 
     # Link statistics (CRSF 0x14) — sent by the ELRS TX module itself, variable rate
     rssi_uplink: int = 0        # uplink RSSI in dBm (negative, e.g. -85); 0 = unknown

@@ -22,7 +22,7 @@
 
 const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
                 rudderTrim, setRudderTrim, throttle, setThrottle,
-                motorMode, setMotorMode, onStop, inControl }) => {
+                motorMode, setMotorMode, onPump, onStop, inControl }) => {
 
   const { useRef, useState } = React;
 
@@ -107,7 +107,7 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
         </div>
       </Card>
 
-      {/* ── Bilge + battery row ──────────────────────────────────────────────*/}
+      {/* ── Bilge + pump + battery row ───────────────────────────────────────*/}
       <Inset T={T} style={{ display:'flex', alignItems:'center',
         padding:'8px 16px', borderBottom:`1px solid ${T.border}` }}>
         <span style={{ width:7, height:7, borderRadius:99, flexShrink:0,
@@ -115,6 +115,22 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
         <span style={lbl({ color:T.text, marginLeft:9 })}>
           {d.bilgeWet ? 'WATER IN BILGE' : 'BILGE DRY'}
         </span>
+        {d.capsized && (
+          <span style={{ marginLeft:10, fontFamily:_MONO, fontSize:9, fontWeight:700,
+            color:T.danger }}>⚠ CAPSIZED</span>
+        )}
+        {/* Pump toggle — visible to controller only */}
+        {inControl && (
+          <button
+            onClick={() => onPump && onPump(!d.pumpActive)}
+            style={{ marginLeft:10, padding:'2px 9px', fontSize:9, fontWeight:700,
+              border:`1px solid ${d.pumpActive ? T.warn : T.border}`,
+              background: d.pumpActive ? T.warnSoft : 'transparent',
+              color: d.pumpActive ? T.warn : T.dim,
+              borderRadius:4, cursor:'pointer', letterSpacing:'0.04em' }}>
+            PUMP {d.pumpActive ? 'ON' : 'OFF'}
+          </button>
+        )}
         <span style={{ flex:1 }}/>
         <span style={{ width:1, height:14, background:T.border, flexShrink:0, margin:'0 14px' }}/>
         <span style={lbl({ fontSize:7.5 })}>BATT</span>

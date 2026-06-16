@@ -1,6 +1,6 @@
 #pragma once
 
-#define PROTOCOL_VERSION 1
+#define PROTOCOL_VERSION 2
 
 // CRSF channel indices (0-based for array access).
 // The 1-based channel numbers in docs/protocol.md map to these by subtracting 1.
@@ -10,6 +10,14 @@
 #define CH_ARM      3  // 0.0 = disarmed, 1.0 = armed
 #define CH_MODE     4  // 0.0 = manual; others reserved
 #define CH_RESTART  5  // hold at +1.0 for ≥2 s while disarmed → ESP.restart()
+#define CH_PUMP     6  // 0.0 = off, 1.0 = on — manual bilge pump override (not arm-gated)
+
+// SAILBOAT (0x80) status byte bit positions (see docs/protocol.md).
+#define SB_STATUS_CAPSIZED  0
+#define SB_STATUS_BILGE_WET 1
+#define SB_STATUS_PUMP      2
+#define SB_STATUS_ARMED     3
+#define SB_STATUS_FAILSAFE  4
 
 // Standard CRSF frame types used by telemetry.cpp.
 // Names and values must match the crsf_frame_type_e enum in AlfredoCRSF's

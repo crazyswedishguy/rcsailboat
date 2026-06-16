@@ -32,19 +32,36 @@ Software complete. Hardware wiring still pending.
 
 ---
 
-## Phase 4 — Base station: ELRS transmit path
+## Phase 4 — Base station: ELRS transmit path + XIAO dual-mode
 
-Software is complete (`base-station/app/elrs_bridge.py`). The Pi's own GPIO UART can't
-reliably do CRSF (Pi 5 RP1 driver bugs) — see `docs/elrs-link.md`. Bridging via a XIAO
-ESP32-S3 instead; `crsf-bridge/` firmware is written, pending hardware to test on.
+Software complete (all phases of the Mode 2/3 plan implemented in code).
+Hardware wiring + flash still pending.
 
+Sub-tasks:
+
+**4a — Mode 3 (Pi → XIAO bridge → boat):**
 - [ ] Build/flash `crsf-bridge/` to the XIAO ESP32-S3, loopback-test UART1 TX↔RX
 - [ ] Wire XIAO UART1 → Ranger Micro JR-bay CRSF pin (series resistor on TX), power Ranger Micro from JR-bay 5V
 - [ ] Connect XIAO to Pi via USB-C, confirm `ELRS_PORT` (default `/dev/ttyACM0`, or `/dev/elrs-tx` after `setup-udev.sh`)
-- [ ] Start base station and confirm 50 Hz RC frames flow through the bridge to the TX module — Ranger Micro LED should leave "slow orange / no handset"
+- [ ] Start base station and confirm 50 Hz RC frames flow through — Ranger Micro LED leaves "slow orange"
 - [ ] Move a browser slider → confirm the corresponding servo moves
+- [ ] Pump button in Pi UI toggles bilge pump; capsized/bilge-wet indicators track telemetry
 
-**Acceptance**: browser slider → servo moves within ~100 ms.
+**4b — ELRS link config (manual, one-time):**
+- [ ] Set Ranger Micro TX to 250 Hz packet rate / 1:4 telemetry ratio (see `docs/elrs-link.md`)
+- [ ] Rebind RP3; confirm ≥ 24 attitude updates/s in Pi log
+
+**4c — Mode 2 (XIAO standalone → boat):**
+- [ ] Boot XIAO without Pi connected; confirm SSID `Mistral-2` visible
+- [ ] Phone joins `Mistral-2`/`readyabout`; control page loads at `http://192.168.5.1/`
+- [ ] Sliders move boat servos; pump button works; telemetry (attitude, battery, GPS) renders
+
+**4d — Dynamic Mode 2 ↔ Mode 3 hot-plug:**
+- [ ] Start Pi base station while XIAO in Mode 2 → XIAO switches to bridge within ~500 ms
+- [ ] Stop Pi app → XIAO reverts to AP within 2 s
+- [ ] Both directions transition without leaving stale throttle commands
+
+**Acceptance**: all four sub-tasks pass. Browser slider → servo moves ≤ 100 ms in both modes.
 
 ---
 
@@ -167,3 +184,31 @@ Tile server on `/tiles/{z}/{x}/{y}.png` from SD card. Mode switch (WiFi ↔ ELRS
 `display.h/cpp` written: 6-screen swipeable tileview (LVGL 8.3) on CO5300 AMOLED 280×456
 via QSPI. Screens: status, attitude, GPS, bilge/power, SD log, compass. FT3168 touch drives
 LVGL pointer events. Swipe gesture fix applied: gesture events registered on edge tiles, not tileview.
+
+### Protocol v2 + XIAO dual-mode firmware + Pi parity (Phases 1–6 of Mode-2 plan)
+
+**Protocol v2:**
+- CH_PUMP (ch 7, index 6) added for bilge pump control over RF.
+- SAILBOAT frame (0x80) extended to 9-byte payload with a status bitfield (capsized/bilge-wet/pump-active/armed/failsafe).
+- ATTITUDE decoupled from SAILBOAT timer: now runs at 24 Hz (42 ms) independently.
+- `PROTOCOL_VERSION` bumped to 2 in `protocol.h` and `shared/protocol.py`.
+- `docs/protocol.md` and `CLAUDE.md` updated; channel quick-reference added to CLAUDE.md.
+
+**Shared web UI (Phase 3):**
+- `HTML_PAGE[]` and `MAP_HTML[]` PROGMEM extracted from `wifi_ctrl.cpp` into `shared/web/control_page.h` + `shared/web/map_page.h`.
+- Both `boat-firmware` and `crsf-bridge` include via `-I"${PROJECT_DIR}/../shared"` in `platformio.ini`.
+- Boat firmware byte-identical post-refactor (confirmed by clean re-build).
+
+**XIAO dual-mode firmware (Phases 4–5):**
+- `crsf-bridge/src/main.cpp` fully rewritten: hand-ported CRSF codec (RC frame builder at 50 Hz, telemetry decoders), WiFi AP (`Mistral-2`/`readyabout`/`192.168.5.1`), HTTP server serving shared control page.
+- Pi emits CRSF 0x7E heartbeat every 500 ms. XIAO detects it → Mode 3 (bridge); 2 s timeout → Mode 2 (AP). State reset to neutral/disarmed on every transition.
+- Build clean: RAM 14.4%, Flash 31.0%.
+
+**Pi parity (Phase 6):**
+- `elrs_bridge.py`: CH_PUMP added to RC frame, 9-byte SAILBOAT decode, heartbeat emitter in `_tx_loop()`.
+- `state.py`: `pump` field in `DesiredState`; `capsized/bilge_wet/pump_active/boat_armed/boat_failsafe` in `TelemetryState`.
+- `main.py`: pump WebSocket handler; `status` sub-dict in telemetry payload.
+- `index.html`, `ctrl.jsx`, `landscape.jsx`: pump toggle button, capsized indicator, bilge-wet dot.
+- `docs/elrs-link.md`: Mode 2/3 switching section, heartbeat frame format, ELRS link config (250 Hz/1:4).
+
+**Hardware test pending** — see Phase 4 above.

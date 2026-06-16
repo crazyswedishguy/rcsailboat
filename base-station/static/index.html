@@ -378,7 +378,7 @@ function App() {
     sats:0, speed:0, lat:0, lng:0, alt:0, hdg:0,
     roll:0, pitch:0,
     lq:0, rssi:0,
-    temp:0, bilge:false,
+    temp:0, bilge:false, capsized:false, pumpActive:false,
   });
   const [deviceStatus, setDeviceStatus] = useState({});
 
@@ -525,8 +525,11 @@ function App() {
         pitch:  msg.attitude?.pitch_deg  ?? 0,
         lq:     msg.link?.lq_uplink      ?? 0,
         rssi:   msg.link?.rssi_uplink    ?? 0,
-        temp:   msg.sailboat?.mcu_temp_c ?? 0,
-        bilge:  ds.bilge === 'warn',
+        temp:       msg.sailboat?.mcu_temp_c  ?? 0,
+        // Status byte (SAILBOAT 0x80) is authoritative at 5 Hz; fall back to DEVICES bitmap
+        bilge:      msg.status?.bilge_wet   ?? (ds.bilge === 'warn'),
+        capsized:   msg.status?.capsized    ?? false,
+        pumpActive: msg.status?.pump_active ?? false,
       });
     };
 
@@ -572,6 +575,8 @@ function App() {
   function onAcceptHandoff()   { sendWs({ type:'accept_handoff' }); }
   function onDismissRequest()  { sendWs({ type:'dismiss_request' }); }
 
+  function onPump(on) { sendWs({ type:'pump', on }); }
+
   function onStop() {
     setThrottle(0);
     setRudder(rudderTrim); // return rudder to trim position
@@ -596,6 +601,8 @@ function App() {
       roll:  telem.roll, pitch: telem.pitch,
       lq:    telem.lq,   rssi: telem.rssi,
       temp:  telem.temp, bilgeWet: telem.bilge,
+      capsized:   telem.capsized,
+      pumpActive: telem.pumpActive,
       // Control positions: normalised → display units
       sail: Math.round(sail * 100),       // 0–100 %
       rud:  Math.round(rudder * 100),      // ±100 %
@@ -627,7 +634,7 @@ function App() {
           wsRef={wsRef} theme={theme} setTheme={setTheme} setOrient={setOrient}
           onRequestControl={onRequestControl} onReleaseControl={onReleaseControl}
           onAcceptHandoff={onAcceptHandoff} onDismissRequest={onDismissRequest}
-          onStop={onStop}
+          onPump={onPump} onStop={onStop}
         />
         {settingsOpen && (
           <SettingsModal T={T} tweaks={tweaks} setTweak={setTweak}
@@ -672,7 +679,7 @@ function App() {
             rudderTrim={rudderTrim} setRudderTrim={setRudderTrim}
             throttle={throttle} setThrottle={setThrottle}
             motorMode={motorMode} setMotorMode={setMotorMode}
-            onStop={onStop}
+            onPump={onPump} onStop={onStop}
             inControl={inControl}/>
         )}
         {tab==='instr'   && <Instr   T={T} d={d} stale={stale}/>}

@@ -122,6 +122,15 @@ void loop()
             servos_set(pwm_ch::RUDDER,     elrs_get_channel(CH_RUDDER));
             servos_set(pwm_ch::SAIL_WINCH, elrs_get_channel(CH_SAIL));
             servos_set(pwm_ch::MOTOR_ESC,  elrs_get_channel(CH_THROTTLE));
+
+            // Bilge pump from CH_PUMP (manual override; not arm-gated). Only
+            // touch it when the commanded state changes, to avoid log spam.
+            // On failsafe (handled above) the pump is deliberately left in its
+            // last state — a flooding hull may need it to keep running.
+            bool pump_cmd = elrs_get_channel(CH_PUMP) > 0.5f;
+            if (pump_cmd != bilge_pump_active()) {
+                bilge_pump_set(pump_cmd);
+            }
         }
     } else {
         // WiFi mode: apply web UI commands; failsafe positions if not armed or timed out.

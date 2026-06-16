@@ -154,6 +154,13 @@ def _telemetry_payload() -> dict:
             "throttle":   _telem.throttle,
             "mcu_temp_c": _telem.mcu_temp_c,
         },
+        "status": {
+            "capsized":    _telem.capsized,
+            "bilge_wet":   _telem.bilge_wet,
+            "pump_active": _telem.pump_active,
+            "boat_armed":  _telem.boat_armed,
+            "failsafe":    _telem.boat_failsafe,
+        },
         "link": {
             "rssi_uplink":   _telem.rssi_uplink,
             "lq_uplink":     _telem.lq_uplink,
@@ -422,6 +429,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             elif t == "dismiss_request":
                 if ws is _controller and _pending:
                     await _dismiss_request()
+
+            elif t == "pump":
+                # Bilge pump override — not arm-gated; any connected client can toggle
+                if ws is _controller:
+                    _state.pump = bool(msg.get("on", False))
 
             elif t == "stop":
                 if ws is _controller:

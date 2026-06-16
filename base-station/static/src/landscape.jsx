@@ -154,7 +154,7 @@ const Landscape = ({
   homePos, setHomePos, deviceStatus, consoleLines, consoleEnabled,
   controlRole, controllerLabel, pendingLabel, pendingExpiresIn, wsRef,
   theme, setTheme, setOrient,
-  onRequestControl, onReleaseControl, onAcceptHandoff, onDismissRequest, onStop,
+  onRequestControl, onReleaseControl, onAcceptHandoff, onDismissRequest, onPump, onStop,
 }) => {
   const { useRef, useState } = React;
   const inControl = controlRole === 'controller';
@@ -228,6 +228,27 @@ const Landscape = ({
             <span style={val(11.5, c||T.text)}>{v}</span>
           </div>
         ))}
+        {/* Bilge status + pump toggle */}
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ width:6, height:6, borderRadius:99, flexShrink:0,
+            background: d.bilgeWet ? T.danger : T.safe }}/>
+          {d.capsized && (
+            <span style={{ fontFamily:_MONO, fontSize:8, fontWeight:700, color:T.danger }}>
+              CAPSIZED
+            </span>
+          )}
+          {inControl && (
+            <div onClick={() => onPump && onPump(!d.pumpActive)}
+              style={{ fontFamily:_MONO, fontSize:8, fontWeight:700,
+                color: d.pumpActive ? T.warn : T.dim,
+                padding:'3px 7px', borderRadius:5,
+                background: d.pumpActive ? T.warnSoft : T.inset,
+                border:`1px solid ${d.pumpActive ? T.warn : T.border}`,
+                cursor:'pointer' }}>
+              PUMP {d.pumpActive ? 'ON' : 'OFF'}
+            </div>
+          )}
+        </div>
         {/* Theme toggle */}
         <div onClick={()=>setTheme(t=>t==='day'?'dusk':'day')}
           style={{ fontFamily:_MONO,fontSize:9,fontWeight:700,color:T.faint,
