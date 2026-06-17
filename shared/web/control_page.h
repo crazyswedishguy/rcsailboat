@@ -52,7 +52,7 @@ static const char HTML_PAGE[] PROGMEM = R"html(
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
-      height: 100%;
+      min-height: 100%;
       background: var(--bg); color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       overscroll-behavior: none;
@@ -1015,7 +1015,16 @@ function switchTab(name) {
   });
   if (name==='map')   { resizeCanvases(); loadTrack(); }
   if (name==='instr') { updateInstruments(); }
-  if (name==='dev')   { updateDevices(); }
+  if (name==='dev')   {
+    if (!devTabVisited) {
+      devTabVisited = true;
+      // Reprobe all devices on first visit so stale boot-time state is refreshed
+      fetch('/repair?id=all').catch(function(){});
+      setTimeout(updateDevices, 2600);
+    } else {
+      updateDevices();
+    }
+  }
 }
 
 
@@ -1368,6 +1377,7 @@ function repairDev(id, btn) {
   setTimeout(function() { btn.textContent = orig; btn.disabled = false; updateDevices(); }, 2000);
 }
 
+var devTabVisited = false;
 var restartArmed = false, restartTimer = null;
 function handleRestart() {
   var btn = document.getElementById('restart-btn');
@@ -1386,10 +1396,27 @@ function handleRestart() {
   } else {
     clearTimeout(restartTimer);
     restartArmed = false;
-    btn.textContent = 'REBOOTING…';
     btn.disabled = true;
-    fetch('/restart', { method:'POST' }).catch(function(){});
+    var count = 3;
+    btn.textContent = 'REBOOT IN ' + count + '…';
+    var cd = setInterval(function() {
+      count--;
+      if (count > 0) {
+        btn.textContent = 'REBOOT IN ' + count + '…';
+      } else {
+        clearInterval(cd);
+        btn.textContent = 'REBOOTING…';
+        fetch('/restart', { method:'POST' }).catch(function(){});
+        setTimeout(pollReconnect, 4000);
+      }
+    }, 1000);
   }
+}
+function pollReconnect() {
+  fetch('/', { cache:'no-store' }).then(function(r) {
+    if (r.ok) { window.location.reload(); }
+    else { setTimeout(pollReconnect, 1000); }
+  }).catch(function() { setTimeout(pollReconnect, 1000); });
 }
 
 function reprobeAll() {

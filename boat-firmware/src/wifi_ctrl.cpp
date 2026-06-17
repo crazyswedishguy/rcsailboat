@@ -248,6 +248,11 @@ static unsigned long s_last_cmd = 0;
 static volatile bool      s_switch_pending = false;
 static volatile CtrlMode  s_switch_target  = CtrlMode::WIFI;
 
+// Deferred restart — set by handle_restart(), executed in wifi_ctrl_update()
+// so the HTTP response is sent and the TCP connection drains before reboot.
+static bool          s_restart_pending = false;
+static unsigned long s_restart_ms      = 0;
+
 // ── HTTP handlers ─────────────────────────────────────────────────────────────
 
 static void handle_diag_page()
@@ -387,9 +392,10 @@ static void handle_repair()
 static void handle_restart()
 {
     s_srv.send(200, "text/plain", "Rebooting...");
-    s_srv.client().flush();
-    delay(100);
-    ESP.restart();
+    // Don't call ESP.restart() here — we're still inside the HTTP handler.
+    // Set a flag and let wifi_ctrl_update() restart after the response drains.
+    s_restart_pending = true;
+    s_restart_ms      = millis();
 }
 
 static void handle_root()
@@ -641,6 +647,13 @@ void wifi_ctrl_update()
     if (!s_ap_up) return;
 
     s_srv.handleClient();
+
+    // Deferred restart: give TCP 400 ms to drain after the response was sent
+    if (s_restart_pending && (millis() - s_restart_ms) >= 400) {
+        Serial.println("wifi_ctrl: restarting now");
+        ESP.restart();
+    }
+
     s_clients = (uint8_t)WiFi.softAPgetStationNum();
 
 #ifdef GPS_ENABLED
