@@ -178,6 +178,14 @@ struct TelState {
     // Link stats (CRSF 0x14)
     int    rssi_up      = 0;
     int    lq_up        = 0;
+    // GPS (CRSF 0x02) — 1 Hz when fix
+    double gps_lat      = 0.0;
+    double gps_lng      = 0.0;
+    float  gps_alt_m    = 0.0f;
+    float  gps_spd_kn   = 0.0f;
+    float  gps_hdg_deg  = 0.0f;
+    int    gps_sats     = 0;
+    bool   gps_fix      = false;
 };
 static TelState s_tel;
 
@@ -225,6 +233,23 @@ static void decode_link_stats(const uint8_t *p, size_t len) {
     s_tel.lq_up   = p[2];
 }
 
+static void decode_gps(const uint8_t *p, size_t len) {
+    if (len < 15) return;
+    // int32 lat/lng × 1e7; uint16 speed km/h×10, heading °×100, altitude m+1000; uint8 sats
+    int32_t  lat_raw = ((int32_t)p[0]<<24)|((int32_t)p[1]<<16)|((int32_t)p[2]<<8)|p[3];
+    int32_t  lng_raw = ((int32_t)p[4]<<24)|((int32_t)p[5]<<16)|((int32_t)p[6]<<8)|p[7];
+    uint16_t spd_raw = ((uint16_t)p[8] <<8)|p[9];
+    uint16_t hdg_raw = ((uint16_t)p[10]<<8)|p[11];
+    uint16_t alt_raw = ((uint16_t)p[12]<<8)|p[13];
+    s_tel.gps_lat    = lat_raw / 1e7;
+    s_tel.gps_lng    = lng_raw / 1e7;
+    s_tel.gps_spd_kn = spd_raw / 10.0f / 1.852f;  // CRSF GPS frame uses km/h × 10
+    s_tel.gps_hdg_deg= hdg_raw / 100.0f;
+    s_tel.gps_alt_m  = (float)alt_raw - 1000.0f;
+    s_tel.gps_sats   = p[14];
+    s_tel.gps_fix    = (p[14] >= 3);
+}
+
 // ── Streaming CRSF buffers ─────────────────────────────────────────────────────
 // Two separate byte buffers — one per serial direction.
 
@@ -255,6 +280,7 @@ static void parse_radio_stream() {
         const uint8_t *payload = s_radio_buf + 3;
         size_t         plen    = (size_t)(frame_len - 2);
         switch (type) {
+            case CRSF_TYPE_GPS:        decode_gps(payload, plen);        break;
             case CRSF_TYPE_BATTERY:    decode_battery(payload, plen);    break;
             case CRSF_TYPE_ATTITUDE:   decode_attitude(payload, plen);   break;
             case CRSF_TYPE_SAILBOAT:   decode_sailboat(payload, plen);   break;
@@ -285,12 +311,32 @@ static bool scan_pi_for_heartbeat() {
     return saw_hb;
 }
 
+// ── GPS track buffer (Mode 2) ─────────────────────────────────────────────────
+struct GpsPt { float lat, lng; };
+static GpsPt         s_track[200];
+static int           s_track_len     = 0;
+static unsigned long s_track_last_ms = 0;
+
 // ── Web server (Mode 2 only) ───────────────────────────────────────────────────
 static WebServer s_srv(80);
 
 static void handle_root()  { s_srv.send_P(200, "text/html; charset=utf-8", HTML_PAGE); }
 static void handle_map()   { s_srv.send_P(200, "text/html; charset=utf-8", MAP_HTML); }
-static void handle_track() { s_srv.send(200, "application/json", "[]"); }
+
+static void handle_track() {
+    if (s_track_len == 0) { s_srv.send(200, "application/json", "[]"); return; }
+    String json;
+    json.reserve(s_track_len * 22 + 4);
+    json = "[";
+    for (int i = 0; i < s_track_len; i++) {
+        char pt[24];
+        snprintf(pt, sizeof(pt), "[%.6f,%.6f]", s_track[i].lat, s_track[i].lng);
+        if (i) json += ",";
+        json += pt;
+    }
+    json += "]";
+    s_srv.send(200, "application/json", json);
+}
 
 static void handle_control() {
     float r  = s_srv.arg("r").toFloat() / 100.0f;
@@ -307,11 +353,20 @@ static void handle_control() {
 }
 
 static void handle_telemetry() {
-    char buf[160];
-    snprintf(buf, sizeof(buf),
-        "{\"v\":%.2f,\"a\":%.2f,\"mah\":%.0f,\"roll\":%.1f,\"pitch\":%.1f,\"bat\":%d}",
-        s_tel.voltage_v, s_tel.current_a, s_tel.mah_used,
-        s_tel.roll_deg,  s_tel.pitch_deg, s_tel.battery_pct);
+    char buf[320];
+    int n = snprintf(buf, sizeof(buf),
+        "{\"v\":%.2f,\"a\":%.2f,\"mah\":%.0f,\"pct\":%d"
+        ",\"temp\":%.0f,\"roll\":%.1f,\"pitch\":%.1f,\"yaw\":%.0f",
+        s_tel.voltage_v, s_tel.current_a, s_tel.mah_used, s_tel.battery_pct,
+        s_tel.mcu_temp_c, s_tel.roll_deg, s_tel.pitch_deg, s_tel.yaw_deg);
+    n += snprintf(buf + n, sizeof(buf) - n, ",\"sats\":%d,\"fix\":%s",
+                  s_tel.gps_sats, s_tel.gps_fix ? "true" : "false");
+    if (s_tel.gps_fix)
+        n += snprintf(buf + n, sizeof(buf) - n,
+            ",\"lat\":%.6f,\"lng\":%.6f,\"alt\":%.0f,\"speed\":%.1f,\"hdg\":%.0f",
+            s_tel.gps_lat, s_tel.gps_lng, s_tel.gps_alt_m,
+            s_tel.gps_spd_kn, s_tel.gps_hdg_deg);
+    snprintf(buf + n, sizeof(buf) - n, "}");
     s_srv.send(200, "application/json", buf);
 }
 
@@ -370,8 +425,10 @@ static void stop_ap() {
 
 static void enter_ap_mode() {
     reset_commanded_state();
-    s_radio_len = 0;
-    s_pi_len    = 0;
+    s_radio_len   = 0;
+    s_pi_len      = 0;
+    s_track_len   = 0;
+    s_track_last_ms = 0;
     start_ap();
     s_mode = XiaoMode::AP;
     Serial.println("bridge: → Mode 2 (standalone AP)");
@@ -460,6 +517,13 @@ void loop() {
         while (Serial1.available() && s_radio_len < sizeof(s_radio_buf))
             s_radio_buf[s_radio_len++] = (uint8_t)Serial1.read();
         parse_radio_stream();
+
+        // ── Record a GPS track point every 5 s when fix ───────────────────
+        if (s_tel.gps_fix && (now - s_track_last_ms) >= 5000) {
+            s_track_last_ms = now;
+            if (s_track_len < 200)
+                s_track[s_track_len++] = { (float)s_tel.gps_lat, (float)s_tel.gps_lng };
+        }
 
         // ── Check Pi USB serial for heartbeat ─────────────────────────────
         while (Serial.available() && s_pi_len < sizeof(s_pi_buf))
