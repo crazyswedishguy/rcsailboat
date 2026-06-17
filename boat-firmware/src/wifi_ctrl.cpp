@@ -292,11 +292,21 @@ static void handle_diag_json()
 
     // ── SD Card ────────────────────────────────────────────────────────────
     {
-        bool ok = sdlog_is_ready();
+        bool ok     = sdlog_is_ready();
+        bool failed = sdlog_mount_failed();
+        char sd_stat[32];
+        if (ok) {
+            uint64_t mb = sdlog_card_mb();
+            snprintf(sd_stat, sizeof(sd_stat), "%llu GB", mb / 1024ULL);
+        } else if (failed) {
+            snprintf(sd_stat, sizeof(sd_stat), "Mount failed");
+        } else {
+            snprintf(sd_stat, sizeof(sd_stat), "No card");
+        }
         n += snprintf(buf + n, sizeof(buf) - n,
-            ",{\"id\":\"sd\",\"name\":\"SD Card\",\"role\":\"Log storage\","
+            ",{\"id\":\"sd\",\"name\":\"SD Card\",\"role\":\"Map tiles / log\","
             "\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
-            ok ? "ok" : "absent", ok ? "Ready" : "No card");
+            ok ? "ok" : (failed ? "warn" : "absent"), sd_stat);
     }
 
     // ── Bilge Sensor ───────────────────────────────────────────────────────

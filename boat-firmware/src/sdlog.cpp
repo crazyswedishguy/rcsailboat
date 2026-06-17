@@ -33,9 +33,11 @@
 #endif
 
 // SPI3 (HSPI) — independent from the display which owns SPI2 (FSPI).
-static SPIClass s_spi(HSPI);
-static File     s_file;
-static bool     s_ready = false;
+static SPIClass  s_spi(HSPI);
+static File      s_file;
+static bool      s_ready  = false;
+static bool      s_failed = false;   // card present but mount failed
+static uint64_t  s_card_mb = 0;
 
 static const char *CSV_HEADER =
     "millis_ms,gps_fix,lat,lng,speed_kn,heading_deg,altitude_m,satellites,"
@@ -81,16 +83,19 @@ void sdlog_init()
         s_spi.begin(pins::SD_SCLK, pins::SD_MISO, pins::SD_MOSI);
     }
     if (!mounted) {
-        Serial.println("sdlog: no SD card after 4 attempts — logging disabled");
+        s_failed = true;
+        Serial.println("sdlog: SD mount failed after 4 attempts (exFAT? try FAT32) — logging disabled");
         return;
     }
-    Serial.printf("sdlog: card mounted, %llu MB\n",
-                  SD.totalBytes() / (1024ULL * 1024ULL));
+    s_card_mb = SD.totalBytes() / (1024ULL * 1024ULL);
+    Serial.printf("sdlog: card mounted, %llu MB\n", s_card_mb);
     if (!open_log_file()) return;
     s_ready = true;
 }
 
-bool sdlog_is_ready() { return s_ready; }
+bool     sdlog_is_ready()     { return s_ready; }
+bool     sdlog_mount_failed() { return s_failed; }
+uint64_t sdlog_card_mb()      { return s_card_mb; }
 
 void sdlog_update()
 {
