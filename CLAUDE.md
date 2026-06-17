@@ -142,15 +142,15 @@ Check `TODO.md` for the current phase. Don't jump ahead — later phases often a
 
 Update this section as hardware gets wired up. Claude Code should treat anything not listed here as "not yet connected — stub it."
 
-- [ ] Raspberry Pi 5 powered and on network
+- [x] Raspberry Pi 5 powered and on network (192.168.4.32)
 - [ ] ELRS transmitter module connected to Pi
-- [ ] ESP32-S3 dev board powered
-- [ ] PCA9685 wired to ESP32-S3 (I²C)
+- [x] ESP32-S3 dev board powered (protocol v2 firmware flashed 2026-06-16)
+- [ ] PCA9685 wired to ESP32-S3 (I²C) — absent at boot, servo driver disabled
 - [ ] ELRS receiver wired to ESP32-S3 (UART, CRSF)
 - [ ] Rudder servo on PCA9685
 - [ ] Sail winch servo on PCA9685
 - [ ] Motor ESC on PCA9685
-- [ ] INA228 current sensor wired
+- [ ] INA228 current sensor wired — absent at boot, power monitor disabled
 
 ## Safety first
 
