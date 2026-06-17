@@ -444,13 +444,14 @@ const Landscape = ({
           {/* RIGHT — Attitude + Rudder */}
           <div style={{ width:210,display:'flex',flexDirection:'column',gap:10,minHeight:0 }}>
             {/* Attitude card */}
-            <div style={{ ...card,padding:'10px 12px',display:'flex',alignItems:'center',gap:12,flexShrink:0 }}>
-              <AttHorizon roll={d.roll} pitch={d.pitch} size={68} T={T}/>
-              <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 10px' }}>
-                {[['Heel',`${d.roll.toFixed(1)}°`],['Pitch',`${d.pitch.toFixed(1)}°`]].map(([k,v])=>(
-                  <div key={k} style={{ display:'flex',flexDirection:'column',gap:2 }}>
-                    <span style={lbl({fontSize:8})}>{k}</span>
-                    <span style={val(14)}>{v}</span>
+            <div style={{ ...card,padding:'10px 12px',display:'flex',alignItems:'center',gap:10,flexShrink:0 }}>
+              <AttHorizon roll={d.roll} pitch={d.pitch} size={64} T={T}/>
+              <CompassRose hdg={d.hdg} size={52} T={T}/>
+              <div style={{ display:'flex',flexDirection:'column',gap:6 }}>
+                {[['Hdg',`${d.hdg}°`],['Heel',`${d.roll.toFixed(1)}°`],['Pitch',`${d.pitch.toFixed(1)}°`]].map(([k,v])=>(
+                  <div key={k} style={{ display:'flex',flexDirection:'column',gap:1 }}>
+                    <span style={lbl({fontSize:7.5})}>{k}</span>
+                    <span style={val(13)}>{v}</span>
                   </div>
                 ))}
               </div>

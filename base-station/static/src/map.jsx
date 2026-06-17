@@ -1,7 +1,41 @@
-// map.jsx — Map tab (portrait).
-// Leaflet map with offline OSM tiles served by the Pi at /tiles/{z}/{x}/{y}.png.
-// Falls back to a "tiles not ready" message if Leaflet hasn't been loaded.
-// Run `scripts/download_tiles.py --fetch-leaflet` once to pre-fetch tiles + Leaflet.
+// map.jsx — Map tab (portrait) + shared CompassRose component.
+
+// CompassRose — rotating SVG compass showing GPS course-over-ground.
+// Props: { hdg (degrees), size (px, default 52), T (theme), style }
+const CompassRose = ({ hdg = 0, size = 52, T, style }) => {
+  const r = size / 2;
+  const bg = T.id === 'dusk'
+    ? 'rgba(14,31,54,0.82)'
+    : 'rgba(255,255,255,0.82)';
+  return (
+    <svg viewBox={`${-r} ${-r} ${size} ${size}`} width={size} height={size}
+      style={{ borderRadius:'50%', background:bg, ...style }}>
+      {/* Ring */}
+      <circle r={r*0.96} fill="none" stroke={T.border} strokeWidth="1"/>
+      {/* Cardinal ticks */}
+      {[0,45,90,135,180,225,270,315].map(a => {
+        const rad = a * Math.PI / 180, len = a%90===0 ? r*0.18 : r*0.1;
+        const x1 = Math.sin(rad)*(r*0.96-len), y1 = -Math.cos(rad)*(r*0.96-len);
+        const x2 = Math.sin(rad)*r*0.96, y2 = -Math.cos(rad)*r*0.96;
+        return <line key={a} x1={x1} y1={y1} x2={x2} y2={y2} stroke={T.dim} strokeWidth="1"/>;
+      })}
+      {/* NSEW labels */}
+      {[['N',0,T.danger||'#c0392b'],['S',180,T.dim],['E',90,T.dim],['W',270,T.dim]].map(([lbl,a,clr]) => {
+        const rad = a*Math.PI/180, d = r*0.66;
+        return <text key={lbl} x={Math.sin(rad)*d} y={-Math.cos(rad)*d+2.5}
+          textAnchor="middle" fontSize={r*0.26} fontWeight="700" fill={clr}
+          fontFamily="monospace">{lbl}</text>;
+      })}
+      {/* Needle, rotated to heading */}
+      <g transform={`rotate(${hdg})`}>
+        <polygon points={`0,${-r*0.78} ${-r*0.14},0 ${r*0.14},0`} fill={T.danger||'#c0392b'} opacity="0.95"/>
+        <polygon points={`0,${r*0.78}  ${-r*0.14},0 ${r*0.14},0`} fill={T.dim} opacity="0.7"/>
+      </g>
+      {/* Centre dot */}
+      <circle r={r*0.08} fill={T.text}/>
+    </svg>
+  );
+};
 
 // Props: { T, d, stale, homePos, setHomePos }
 
@@ -178,6 +212,7 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
               </div>
             </div>
           )}
+          <CompassRose hdg={d.hdg} style={{ position:'absolute', bottom:18, left:12, zIndex:1000, pointerEvents:'none' }} size={52} T={T} />
         </div>
       )}
 

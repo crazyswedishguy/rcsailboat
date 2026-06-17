@@ -76,8 +76,10 @@ const Ctrl = ({ T, d, stale, sail, setSail, rudder, setRudder,
 
       {/* ── Attitude + nav 2×2 grid ─────────────────────────────────────────── */}
       <Card T={T} style={{ display:'flex' }}>
-        <div style={{ padding:'13px 14px', borderRight:`1px solid ${T.border}`, flexShrink:0 }}>
-          <AttHorizon roll={d.roll} pitch={d.pitch} size={100} T={T}/>
+        <div style={{ padding:'13px 14px', borderRight:`1px solid ${T.border}`, flexShrink:0,
+          display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+          <AttHorizon roll={d.roll} pitch={d.pitch} size={88} T={T}/>
+          <CompassRose hdg={d.hdg} size={52} T={T}/>
         </div>
         <div style={{ flex:1, display:'grid', gridTemplateRows:'1fr 1fr',
           gridTemplateColumns:'1fr 1fr' }}>

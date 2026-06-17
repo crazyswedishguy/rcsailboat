@@ -426,11 +426,30 @@ static void handle_control()
 
 static void handle_telemetry()
 {
-    char buf[128];
-    snprintf(buf, sizeof(buf),
-             "{\"v\":%.2f,\"a\":%.2f,\"mah\":%.0f,\"roll\":%.1f,\"pitch\":%.1f}",
-             power_voltage_v(), power_current_a(), power_mah_used(),
-             imu_roll_deg(), imu_pitch_deg());
+    float v   = power_voltage_v();
+    float a   = power_current_a();
+    float mah = power_mah_used();
+    // Crude 3S LiPo SoC from voltage — no coulomb counter in WiFi mode
+    int   pct = (int)constrain((v - 10.5f) / (12.6f - 10.5f) * 100.0f, 0.0f, 100.0f);
+    float tmp = temperatureRead();   // ESP32-S3 internal sensor (°C)
+
+    char buf[320];
+    int n = snprintf(buf, sizeof(buf),
+        "{\"v\":%.2f,\"a\":%.2f,\"mah\":%.0f,\"pct\":%d,\"temp\":%.0f"
+        ",\"roll\":%.1f,\"pitch\":%.1f",
+        v, a, mah, pct, tmp, imu_roll_deg(), imu_pitch_deg());
+
+#ifdef GPS_ENABLED
+    n += snprintf(buf + n, sizeof(buf) - n,
+        ",\"lat\":%.6f,\"lng\":%.6f,\"alt\":%.0f"
+        ",\"hdg\":%.0f,\"speed\":%.1f,\"sats\":%d,\"fix\":%s",
+        gps_lat(), gps_lng(), gps_altitude_m(),
+        gps_heading_deg(), gps_speed_kmh(),
+        (int)gps_satellites(),
+        gps_has_fix() ? "true" : "false");
+#endif
+
+    snprintf(buf + n, sizeof(buf) - n, "}");
     s_srv.send(200, "application/json", buf);
 }
 

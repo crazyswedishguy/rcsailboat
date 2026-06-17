@@ -465,14 +465,21 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       </div>
     </div>
     <!-- Track canvas -->
-    <div class="card" style="padding:0;overflow:hidden;position:relative">
-      <canvas id="track-cv" style="display:block;width:100%;background:var(--surf2)"></canvas>
+    <div class="card" style="padding:0;overflow:hidden;position:relative;touch-action:none">
+      <canvas id="track-cv" style="display:block;width:100%;background:var(--surf2);touch-action:none"></canvas>
       <div id="map-overlay" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
         font-size:12px;color:var(--dim);text-align:center;pointer-events:none">No GPS fix</div>
       <canvas id="tile-cv" style="position:absolute;inset:0;width:100%;pointer-events:none"></canvas>
+      <!-- Zoom buttons overlay -->
+      <div style="position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:4px;z-index:10">
+        <button onclick="mapZoomBy(1)"  style="width:30px;height:30px;border-radius:6px;border:1px solid var(--bdr);background:var(--surf);color:var(--text);font-size:16px;font-weight:700;cursor:pointer;line-height:1">+</button>
+        <button onclick="mapZoomBy(-1)" style="width:30px;height:30px;border-radius:6px;border:1px solid var(--bdr);background:var(--surf);color:var(--text);font-size:16px;font-weight:700;cursor:pointer;line-height:1">&#8722;</button>
+      </div>
     </div>
     <div style="display:flex;gap:8px">
       <button class="act-btn" style="background:var(--surf2);color:var(--dim);border:1px solid var(--bdr);font-size:11px;padding:10px" onclick="loadTrack()">&#8635; Refresh</button>
+      <button class="act-btn" style="background:var(--surf2);color:var(--dim);border:1px solid var(--bdr);font-size:11px;padding:10px" onclick="mapRecentre()">&#9678; Boat</button>
+      <button class="act-btn" style="background:var(--surf2);color:var(--dim);border:1px solid var(--bdr);font-size:11px;padding:10px" id="loc-btn" onclick="toggleUserLoc()">&#9654; Me</button>
       <button class="act-btn" style="background:var(--surf2);color:var(--dim);border:1px solid var(--bdr);font-size:11px;padding:10px" id="clear-btn" onclick="clearTrack()">&#10005; Clear</button>
     </div>
   </div><!-- /page-map -->
@@ -531,6 +538,30 @@ static const char HTML_PAGE[] PROGMEM = R"html(
         <div class="g-lbl">Bilge</div>
         <div class="g-val" id="g-bilge-v" style="font-size:15px">DRY</div>
         <div class="g-sub" id="g-pump-v">Pump off</div>
+      </div>
+      <div class="card gauge" id="g-compass" style="align-items:center;justify-content:center">
+        <div class="g-lbl" style="align-self:flex-start">Heading (CoG)</div>
+        <svg id="compass-svg" viewBox="-32 -32 64 64" width="72" height="72">
+          <circle r="30" fill="none" stroke="var(--bdr)" stroke-width="1.5"/>
+          <line x1="0" y1="-30" x2="0" y2="-22" stroke="var(--danger)" stroke-width="2"/>
+          <line x1="0" y1="30"  x2="0" y2="22"  stroke="var(--dim)"    stroke-width="1.5"/>
+          <line x1="-30" y1="0" x2="-22" y2="0" stroke="var(--dim)"    stroke-width="1.5"/>
+          <line x1="30"  y1="0" x2="22"  y2="0" stroke="var(--dim)"    stroke-width="1.5"/>
+          <text x="0" y="-17" text-anchor="middle" font-size="7" font-weight="700" fill="var(--danger)" font-family="monospace">N</text>
+          <text x="0" y="22"  text-anchor="middle" font-size="6" fill="var(--dim)" font-family="monospace">S</text>
+          <text x="22"  y="2.5" text-anchor="middle" font-size="6" fill="var(--dim)" font-family="monospace">E</text>
+          <text x="-22" y="2.5" text-anchor="middle" font-size="6" fill="var(--dim)" font-family="monospace">W</text>
+          <g id="compass-needle">
+            <polygon points="0,-24 -3.5,-4 3.5,-4" fill="var(--danger)" opacity="0.95"/>
+            <polygon points="0,24 -3.5,4 3.5,4"   fill="var(--dim)"    opacity="0.7"/>
+          </g>
+        </svg>
+        <div class="g-sub" id="compass-hdg-val">--&#176;</div>
+      </div>
+      <div class="card gauge" id="g-gps">
+        <div class="g-lbl">GPS</div>
+        <div class="g-val" id="g-gps-sats" style="font-size:15px">--sat</div>
+        <div class="g-sub" id="g-gps-spd">-- km/h</div>
       </div>
     </div>
   </div><!-- /page-instr -->
@@ -670,7 +701,7 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       <span id="lc-batt-warn-txt" style="font-family:'Courier New',monospace;font-size:9px;font-weight:700;color:var(--warn)"></span>
     </div>
     <div class="lc-card" id="lc-s-card" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 8px">
-      <svg id="lc-sail-svg" viewBox="0 0 152 152" width="88" height="88" style="touch-action:none;display:block">
+      <svg id="lc-sail-svg" viewBox="0 0 152 152" width="112" height="112" style="touch-action:none;display:block">
         <path style="fill:var(--acc-dim)" d="M 18,18 L 138,18 A 120,120 0 0,1 18,138 Z"/>
         <path fill="none" style="stroke:var(--bdr-s)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="8 5" d="M 138,18 A 120,120 0 0,1 18,138"/>
         <path id="lc-s-sail" style="stroke:var(--acc);fill:var(--acc-dim)" stroke-width="1.8"/>
@@ -1016,13 +1047,12 @@ function switchTab(name) {
   if (name==='map')   { resizeCanvases(); loadTrack(); }
   if (name==='instr') { updateInstruments(); }
   if (name==='dev')   {
+    updateDevices();  // show current state immediately
     if (!devTabVisited) {
       devTabVisited = true;
-      // Reprobe all devices on first visit so stale boot-time state is refreshed
+      // Silent background reprobe on first visit; refresh after it settles
       fetch('/repair?id=all').catch(function(){});
-      setTimeout(updateDevices, 2600);
-    } else {
-      updateDevices();
+      setTimeout(updateDevices, 1200);
     }
   }
 }
@@ -1142,6 +1172,40 @@ function drawTrackOnCanvas() {
   tCtx.fillStyle=warn; tCtx.beginPath(); tCtx.arc(lp.x,lp.y,6,0,2*Math.PI); tCtx.fill();
   tCtx.fillStyle=acc; tCtx.font='16px sans-serif'; tCtx.textAlign='center';
   tCtx.fillText('⛵', lp.x, lp.y-10);
+  // Draw user location dot (blue) if available
+  if (userLoc) {
+    var up = latLngToCanvas(userLoc.lat, userLoc.lng);
+    tCtx.fillStyle='rgba(52,130,246,0.85)';
+    tCtx.beginPath(); tCtx.arc(up.x, up.y, 7, 0, 2*Math.PI); tCtx.fill();
+    tCtx.strokeStyle='#fff'; tCtx.lineWidth=2;
+    tCtx.beginPath(); tCtx.arc(up.x, up.y, 7, 0, 2*Math.PI); tCtx.stroke();
+  }
+  // Draw compass rose in bottom-left corner
+  drawCompassRose(tCtx, 28, trackCv.height - 28, 22);
+}
+
+function drawCompassRose(ctx, cx, cy, r) {
+  var hdg = instrData.yaw || 0;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 2*Math.PI); ctx.stroke();
+  // Cardinal ticks
+  for (var a=0; a<360; a+=45) {
+    var rad=a*Math.PI/180, len = a%90===0 ? 5 : 3;
+    ctx.beginPath(); ctx.moveTo(Math.sin(rad)*(r-len), -Math.cos(rad)*(r-len));
+    ctx.lineTo(Math.sin(rad)*r, -Math.cos(rad)*r); ctx.stroke();
+  }
+  // N label
+  ctx.fillStyle='rgba(220,60,60,0.9)'; ctx.font='bold 7px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('N', Math.sin(hdg*Math.PI/180)*(r-9), -Math.cos(hdg*Math.PI/180)*(r-9));
+  // Needle
+  ctx.rotate(hdg * Math.PI / 180);
+  ctx.fillStyle='rgba(220,60,60,0.9)';
+  ctx.beginPath(); ctx.moveTo(0,-(r-5)); ctx.lineTo(-3,0); ctx.lineTo(3,0); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='rgba(140,140,160,0.8)';
+  ctx.beginPath(); ctx.moveTo(0,r-5); ctx.lineTo(-3,0); ctx.lineTo(3,0); ctx.closePath(); ctx.fill();
+  ctx.restore();
 }
 
 function loadTrack() {
@@ -1172,6 +1236,85 @@ function clearTrack() {
   tileCtx.clearRect(0, 0, tileCv.width, tileCv.height);
   overlay.textContent = 'No GPS fix';
   overlay.style.display = 'block';
+  userLoc = null;
+}
+
+// ── MAP PAN / ZOOM ────────────────────────────────────────────────
+var mapPanStart = null, mapPanCenter = null;
+var mapPinchDist = null;
+
+function mapZoomBy(delta) {
+  mapZoom = Math.max(8, Math.min(17, mapZoom + delta));
+  drawTiles(); drawTrackOnCanvas();
+}
+function mapRecentre() {
+  if (trackPts.length > 0) {
+    var last = trackPts[trackPts.length-1];
+    mapCenter = { lat: last[0], lng: last[1] };
+    drawTiles(); drawTrackOnCanvas();
+  }
+}
+
+(function() {
+  var pointers = {};
+  function dist(a, b) { var dx=a.clientX-b.clientX, dy=a.clientY-b.clientY; return Math.sqrt(dx*dx+dy*dy); }
+  trackCv.addEventListener('pointerdown', function(e) {
+    e.preventDefault();
+    pointers[e.pointerId] = e;
+    var pts = Object.values(pointers);
+    if (pts.length === 1) {
+      mapPanStart  = { x: e.clientX, y: e.clientY };
+      mapPanCenter = mapCenter ? { lat: mapCenter.lat, lng: mapCenter.lng } : null;
+    } else if (pts.length === 2) {
+      mapPinchDist = dist(pts[0], pts[1]);
+    }
+  });
+  trackCv.addEventListener('pointermove', function(e) {
+    e.preventDefault();
+    pointers[e.pointerId] = e;
+    var pts = Object.values(pointers);
+    if (pts.length === 1 && mapPanStart && mapPanCenter) {
+      var tileSize = 256;
+      var scale = Math.pow(2, mapZoom) * tileSize;
+      var dxPx = e.clientX - mapPanStart.x;
+      var dyPx = e.clientY - mapPanStart.y;
+      var dLng = -dxPx / scale * 360;
+      var latR  = mapPanCenter.lat * Math.PI / 180;
+      var mercY = Math.log(Math.tan(Math.PI/4 + latR/2));
+      var newMercY = mercY + dyPx / scale * 2 * Math.PI;
+      var newLat = (2 * Math.atan(Math.exp(newMercY)) - Math.PI/2) * 180 / Math.PI;
+      mapCenter = { lat: newLat, lng: mapPanCenter.lng + dLng };
+      drawTiles(); drawTrackOnCanvas();
+    } else if (pts.length === 2 && mapPinchDist !== null) {
+      var d2 = dist(pts[0], pts[1]);
+      if (Math.abs(d2 - mapPinchDist) > 15) {
+        mapZoomBy(d2 > mapPinchDist ? 1 : -1);
+        mapPinchDist = d2;
+      }
+    }
+  });
+  function onUp(e) { delete pointers[e.pointerId]; mapPinchDist = null; }
+  trackCv.addEventListener('pointerup',     onUp);
+  trackCv.addEventListener('pointercancel', onUp);
+  trackCv.setPointerCapture && trackCv.addEventListener('pointerdown', function(e) { trackCv.setPointerCapture(e.pointerId); });
+})();
+
+// ── USER LOCATION ─────────────────────────────────────────────────
+var userLoc = null, userLocWatch = null;
+function toggleUserLoc() {
+  var btn = document.getElementById('loc-btn');
+  if (userLocWatch !== null) {
+    navigator.geolocation && navigator.geolocation.clearWatch(userLocWatch);
+    userLocWatch = null; userLoc = null;
+    btn.style.color = ''; btn.style.borderColor = '';
+    drawTrackOnCanvas(); return;
+  }
+  if (!navigator.geolocation) { alert('Geolocation not available (needs HTTPS on iOS)'); return; }
+  btn.style.color = 'var(--acc)'; btn.style.borderColor = 'var(--acc)';
+  userLocWatch = navigator.geolocation.watchPosition(function(pos) {
+    userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    drawTrackOnCanvas();
+  }, function() { userLoc = null; }, { enableHighAccuracy: true, maximumAge: 3000 });
 }
 
 setInterval(function() {
@@ -1191,8 +1334,19 @@ setInterval(function() {
     if (d.roll  !== undefined) instrData.roll  = d.roll;
     if (d.pitch !== undefined) instrData.pitch = d.pitch;
     if (d.yaw   !== undefined) instrData.yaw   = d.yaw;
+    if (d.hdg   !== undefined) instrData.yaw   = d.hdg;  // GPS CoG as heading
     if (d.sats  !== undefined) instrData.sats  = d.sats;
     if (d.speed !== undefined) instrData.speed = d.speed;
+    // Compass rose SVG rotation
+    var needle = document.getElementById('compass-needle');
+    if (needle) needle.setAttribute('transform', 'rotate('+(instrData.yaw||0)+')');
+    var hdgVal = document.getElementById('compass-hdg-val');
+    if (hdgVal) hdgVal.textContent = (instrData.yaw||0).toFixed(0)+'\xb0';
+    // GPS gauge on instruments page
+    var gpsSats = document.getElementById('g-gps-sats');
+    if (gpsSats) gpsSats.textContent = d.sats !== undefined ? d.sats+'sat' : '--sat';
+    var gpsSpd = document.getElementById('g-gps-spd');
+    if (gpsSpd) gpsSpd.textContent = d.speed !== undefined ? d.speed.toFixed(1)+' km/h' : '-- km/h';
     // Update control telem strip
     var vEl = document.getElementById('tl-v');
     if (vEl) { vEl.textContent = d.v !== undefined ? d.v.toFixed(1)+'V' : '--.-V'; vEl.className='tg-v'+(d.v<11.0?' d':d.v<11.4?' w':''); }
