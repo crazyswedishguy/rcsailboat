@@ -351,7 +351,7 @@ const Landscape = ({
         <div style={{ flex:1, display:'flex', gap:10, padding:11, minHeight:0 }}>
 
           {/* LEFT — Sail trim (SailArc widget + step buttons) */}
-          <div style={{ ...card, width:136, padding:12, display:'flex',
+          <div style={{ ...card, width:196, padding:12, display:'flex',
             flexDirection:'column', alignItems:'center', gap:8,
             opacity:inControl?1:0.38, pointerEvents:inControl?'auto':'none',
             transition:'opacity 0.15s' }}>
@@ -360,8 +360,11 @@ const Landscape = ({
               <span style={lbl()}>Sail</span>
               <span style={val(14,T.accent)}>{d.sail}%</span>
             </div>
-            {/* SailArc widget — draggable, same as portrait */}
-            <SailArc value={sail} size={108} T={T} onChange={setSail}/>
+            {/* SailArc + compass rose side by side */}
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <SailArc value={sail} size={104} T={T} onChange={setSail}/>
+              <CompassRose hdg={d.hdg} size={52} T={T}/>
+            </div>
             {/* Step buttons for fine adjustment */}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, width:'100%' }}>
               {[['◀ IN', () => setSail(s=>Math.max(0,s-0.05))],
@@ -446,7 +449,6 @@ const Landscape = ({
             {/* Attitude card */}
             <div style={{ ...card,padding:'10px 12px',display:'flex',alignItems:'center',gap:10,flexShrink:0 }}>
               <AttHorizon roll={d.roll} pitch={d.pitch} size={64} T={T}/>
-              <CompassRose hdg={d.hdg} size={52} T={T}/>
               <div style={{ display:'flex',flexDirection:'column',gap:6 }}>
                 {[['Hdg',`${d.hdg}°`],['Heel',`${d.roll.toFixed(1)}°`],['Pitch',`${d.pitch.toFixed(1)}°`]].map(([k,v])=>(
                   <div key={k} style={{ display:'flex',flexDirection:'column',gap:1 }}>
