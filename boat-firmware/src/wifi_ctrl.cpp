@@ -45,6 +45,9 @@
 #ifdef GPS_ENABLED
 #include "gps.h"
 #endif
+#ifdef COMPASS_ENABLED
+#include "compass.h"
+#endif
 
 // ── Control frame timeout ─────────────────────────────────────────────────────
 #define CTRL_TIMEOUT_MS 500
@@ -357,6 +360,22 @@ static void handle_diag_json()
         "\"level\":\"absent\",\"stat\":\"Not compiled in\",\"repairable\":false}");
 #endif
 
+    // ── Compass (I²C 0x1E, handled outside diag table — BN-880 external module) ──
+#ifdef COMPASS_ENABLED
+    {
+        bool ok = compass_ok();
+        n += snprintf(buf + n, sizeof(buf) - n,
+            ",{\"id\":\"compass\",\"name\":\"Compass\",\"role\":\"Magnetic heading\","
+            "\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
+            ok ? "ok" : "warn",
+            ok ? "Ready" : "Not found");
+    }
+#else
+    n += snprintf(buf + n, sizeof(buf) - n,
+        ",{\"id\":\"compass\",\"name\":\"Compass\",\"role\":\"Magnetic heading\","
+        "\"level\":\"absent\",\"stat\":\"Not compiled in\",\"repairable\":false}");
+#endif
+
     // ── ELRS RX (UART — not I²C, not repairable) ──────────────────────────────
 #ifdef FORCE_ELRS_MODE
     n += snprintf(buf + n, sizeof(buf) - n,
@@ -439,12 +458,19 @@ static void handle_telemetry()
         ",\"roll\":%.1f,\"pitch\":%.1f",
         v, a, mah, pct, tmp, imu_roll_deg(), imu_pitch_deg());
 
+    // Heading: compass takes priority (accurate at rest); GPS CoG as fallback.
+#if defined(COMPASS_ENABLED)
+    n += snprintf(buf + n, sizeof(buf) - n, ",\"hdg\":%.0f", compass_heading_deg());
+#elif defined(GPS_ENABLED)
+    n += snprintf(buf + n, sizeof(buf) - n, ",\"hdg\":%.0f", gps_heading_deg());
+#endif
+
 #ifdef GPS_ENABLED
     n += snprintf(buf + n, sizeof(buf) - n,
         ",\"lat\":%.6f,\"lng\":%.6f,\"alt\":%.0f"
-        ",\"hdg\":%.0f,\"speed\":%.1f,\"sats\":%d,\"fix\":%s",
+        ",\"speed\":%.1f,\"sats\":%d,\"fix\":%s",
         gps_lat(), gps_lng(), gps_altitude_m(),
-        gps_heading_deg(), gps_speed_kmh(),
+        gps_speed_kmh(),
         (int)gps_satellites(),
         gps_has_fix() ? "true" : "false");
 #endif

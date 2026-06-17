@@ -144,7 +144,7 @@ Update this section as hardware gets wired up. Claude Code should treat anything
 
 - [x] Raspberry Pi 5 powered and on network (192.168.4.32)
 - [ ] ELRS transmitter module connected to Pi
-- [x] ESP32-S3 dev board powered (esp32-s3-gps firmware flashed 2026-06-16; GPS on UART2)
+- [x] ESP32-S3 dev board powered (esp32-s3-full firmware flashed 2026-06-16; GPS on UART2, HMC5883L compass on I²C 0x1E)
 - [ ] PCA9685 wired to ESP32-S3 (I²C) — absent at boot, servo driver disabled
 - [ ] ELRS receiver wired to ESP32-S3 (UART, CRSF)
 - [ ] Rudder servo on PCA9685
