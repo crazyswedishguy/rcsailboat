@@ -259,7 +259,7 @@ static void handle_diag_json()
 {
     // String IDs match HTML card element IDs. numId is the numeric DEV_* index
     // for the repair endpoint (/repair?id=numId). Non-I2C devices omit numId.
-    char buf[1500];
+    char buf[2048];
     int  n = 0;
 
     static const char *DEV_IDS[] = {"ft", "qmi", "pca", "ina"};
@@ -332,6 +332,32 @@ static void handle_diag_json()
             ACT_IDS[i], ACT_NAMES[i], ACT_ROLES[i],
             drv ? "ok" : "absent", stat);
     }
+
+    // ── GPS (UART — not I²C, not repairable) ──────────────────────────────────
+#ifdef GPS_ENABLED
+    {
+        bool  fix  = gps_has_fix();
+        uint8_t sv = gps_satellites();
+        char   sv_stat[24];
+        if (fix) snprintf(sv_stat, sizeof(sv_stat), "%u sats", (unsigned)sv);
+        else     snprintf(sv_stat, sizeof(sv_stat), "No fix");
+        n += snprintf(buf + n, sizeof(buf) - n,
+            ",{\"id\":\"gps\",\"name\":\"GPS\",\"role\":\"Navigation\","
+            "\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
+            fix ? "ok" : "warn", sv_stat);
+    }
+#else
+    n += snprintf(buf + n, sizeof(buf) - n,
+        ",{\"id\":\"gps\",\"name\":\"GPS\",\"role\":\"Navigation\","
+        "\"level\":\"absent\",\"stat\":\"Not compiled in\",\"repairable\":false}");
+#endif
+
+    // ── ELRS RX (UART — not I²C, not repairable) ──────────────────────────────
+#ifdef FORCE_ELRS_MODE
+    n += snprintf(buf + n, sizeof(buf) - n,
+        ",{\"id\":\"elrs\",\"name\":\"ELRS RX\",\"role\":\"RC control\","
+        "\"level\":\"ok\",\"stat\":\"Active\",\"repairable\":false}");
+#endif
 
     n += snprintf(buf + n, sizeof(buf) - n, "]");
     s_srv.send(200, "application/json", buf);

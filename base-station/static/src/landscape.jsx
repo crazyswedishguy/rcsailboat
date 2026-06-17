@@ -47,7 +47,7 @@ const LandMap = ({ T, d, stale, homePos }) => {
     const L = window.L;
     if (!L || !containerRef.current || lfRef.current) return;
     const center = homePos ? [homePos.lat, homePos.lng]
-                 : (d.lat  ? [d.lat, d.lon] : [40.934, -73.071]);
+                 : (d.lat  ? [d.lat, d.lon] : [41.158, -73.769]); // Chappaqua, NY
     const map = L.map(containerRef.current, {
       center, zoom: 14, zoomControl: false, attributionControl: false,
     });

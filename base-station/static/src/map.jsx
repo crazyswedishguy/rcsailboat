@@ -44,7 +44,7 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
     const L = window.L;
     if (!L || lfRef.current) return;
 
-    const defaultCenter = [40.934, -73.071]; // Port Jefferson Harbor
+    const defaultCenter = [41.158, -73.769]; // Chappaqua, NY
     const initCenter = homePos ? [homePos.lat, homePos.lng]
                      : (d.lat  ? [d.lat, d.lon] : defaultCenter);
 
@@ -211,7 +211,7 @@ const MapTab = ({ T, d, stale, homePos, setHomePos }) => {
           <div onClick={() => {
               const lf = lfRef.current;
               if (!lf) return;
-              const c = (d.lat && d.lon) ? [d.lat, d.lon] : [40.934, -73.071];
+              const c = (d.lat && d.lon) ? [d.lat, d.lon] : [41.158, -73.769];
               lf.map.setView(c, 15);
             }}
             style={{ flex:1, padding:'11px 8px', borderRadius:8,
