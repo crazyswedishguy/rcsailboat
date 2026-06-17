@@ -374,7 +374,12 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       <circle r="1.8" style="fill:var(--acc)"/>
       <polygon id="c-att-ptr" points="0,-28 -2,-23 2,-23" style="fill:var(--acc)"/>
     </svg>
-    <svg id="c-compass-svg" viewBox="-26 -26 52 52" width="50" height="50" style="flex-shrink:0">
+    <div style="display:flex;gap:18px;flex:1">
+      <div class="tg"><div class="tg-l">Heel</div><div class="tg-v" id="c-att-roll" style="font-size:13px">--&#176;</div></div>
+      <div class="tg"><div class="tg-l">Pitch</div><div class="tg-v" id="c-att-pitch" style="font-size:13px">--&#176;</div></div>
+      <div class="tg"><div class="tg-l">Heading</div><div class="tg-v" id="c-att-hdg" style="font-size:13px">--&#176;</div></div>
+    </div>
+    <svg id="c-compass-svg" viewBox="-26 -26 52 52" width="62" height="62" style="flex-shrink:0">
       <circle r="24" fill="none" stroke="var(--bdr)" stroke-width="1.5"/>
       <line x1="0" y1="-24" x2="0" y2="-17" stroke="var(--danger)" stroke-width="2"/>
       <line x1="0" y1="24"  x2="0" y2="17"  stroke="var(--dim)"    stroke-width="1.5"/>
@@ -389,11 +394,6 @@ static const char HTML_PAGE[] PROGMEM = R"html(
         <polygon points="0,19 -2.8,3 2.8,3"    fill="var(--dim)"    opacity="0.7"/>
       </g>
     </svg>
-    <div style="display:flex;gap:18px;flex:1">
-      <div class="tg"><div class="tg-l">Heel</div><div class="tg-v" id="c-att-roll" style="font-size:13px">--&#176;</div></div>
-      <div class="tg"><div class="tg-l">Pitch</div><div class="tg-v" id="c-att-pitch" style="font-size:13px">--&#176;</div></div>
-      <div class="tg"><div class="tg-l">Heading</div><div class="tg-v" id="c-att-hdg" style="font-size:13px">--&#176;</div></div>
-    </div>
   </div>
 
   <!-- Controls row -->
