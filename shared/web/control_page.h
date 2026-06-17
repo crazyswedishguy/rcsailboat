@@ -374,6 +374,21 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       <circle r="1.8" style="fill:var(--acc)"/>
       <polygon id="c-att-ptr" points="0,-28 -2,-23 2,-23" style="fill:var(--acc)"/>
     </svg>
+    <svg id="c-compass-svg" viewBox="-26 -26 52 52" width="50" height="50" style="flex-shrink:0">
+      <circle r="24" fill="none" stroke="var(--bdr)" stroke-width="1.5"/>
+      <line x1="0" y1="-24" x2="0" y2="-17" stroke="var(--danger)" stroke-width="2"/>
+      <line x1="0" y1="24"  x2="0" y2="17"  stroke="var(--dim)"    stroke-width="1.5"/>
+      <line x1="-24" y1="0" x2="-17" y2="0" stroke="var(--dim)"    stroke-width="1.5"/>
+      <line x1="24"  y1="0" x2="17"  y2="0" stroke="var(--dim)"    stroke-width="1.5"/>
+      <text x="0" y="-12" text-anchor="middle" font-size="6" font-weight="700" fill="var(--danger)" font-family="monospace">N</text>
+      <text x="0"   y="18" text-anchor="middle" font-size="5" fill="var(--dim)" font-family="monospace">S</text>
+      <text x="18"  y="2"  text-anchor="middle" font-size="5" fill="var(--dim)" font-family="monospace">E</text>
+      <text x="-18" y="2"  text-anchor="middle" font-size="5" fill="var(--dim)" font-family="monospace">W</text>
+      <g id="c-compass-needle">
+        <polygon points="0,-19 -2.8,-3 2.8,-3" fill="var(--danger)" opacity="0.95"/>
+        <polygon points="0,19 -2.8,3 2.8,3"    fill="var(--dim)"    opacity="0.7"/>
+      </g>
+    </svg>
     <div style="display:flex;gap:18px;flex:1">
       <div class="tg"><div class="tg-l">Heel</div><div class="tg-v" id="c-att-roll" style="font-size:13px">--&#176;</div></div>
       <div class="tg"><div class="tg-l">Pitch</div><div class="tg-v" id="c-att-pitch" style="font-size:13px">--&#176;</div></div>
@@ -701,14 +716,31 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       <span id="lc-batt-warn-txt" style="font-family:'Courier New',monospace;font-size:9px;font-weight:700;color:var(--warn)"></span>
     </div>
     <div class="lc-card" id="lc-s-card" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 8px">
-      <svg id="lc-sail-svg" viewBox="0 0 152 152" width="112" height="112" style="touch-action:none;display:block">
-        <path style="fill:var(--acc-dim)" d="M 18,18 L 138,18 A 120,120 0 0,1 18,138 Z"/>
-        <path fill="none" style="stroke:var(--bdr-s)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="8 5" d="M 138,18 A 120,120 0 0,1 18,138"/>
-        <path id="lc-s-sail" style="stroke:var(--acc);fill:var(--acc-dim)" stroke-width="1.8"/>
-        <line id="lc-s-boom" style="stroke:var(--dim)" stroke-width="1.8" stroke-linecap="round"/>
-        <circle cx="18" cy="18" r="5" style="fill:var(--text)"/>
-        <circle id="lc-s-thumb" cx="138" cy="18" r="11" style="cursor:grab;fill:var(--acc);fill-opacity:0.9;filter:drop-shadow(0 0 6px var(--acc))"/>
-      </svg>
+      <div style="display:flex;align-items:center;gap:6px">
+        <svg id="lc-sail-svg" viewBox="0 0 152 152" width="104" height="104" style="touch-action:none;display:block">
+          <path style="fill:var(--acc-dim)" d="M 18,18 L 138,18 A 120,120 0 0,1 18,138 Z"/>
+          <path fill="none" style="stroke:var(--bdr-s)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="8 5" d="M 138,18 A 120,120 0 0,1 18,138"/>
+          <path id="lc-s-sail" style="stroke:var(--acc);fill:var(--acc-dim)" stroke-width="1.8"/>
+          <line id="lc-s-boom" style="stroke:var(--dim)" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="18" cy="18" r="5" style="fill:var(--text)"/>
+          <circle id="lc-s-thumb" cx="138" cy="18" r="11" style="cursor:grab;fill:var(--acc);fill-opacity:0.9;filter:drop-shadow(0 0 6px var(--acc))"/>
+        </svg>
+        <svg id="lc-compass-svg" viewBox="-26 -26 52 52" width="46" height="46" style="flex-shrink:0">
+          <circle r="24" fill="none" stroke="var(--bdr)" stroke-width="1.5"/>
+          <line x1="0" y1="-24" x2="0" y2="-17" stroke="var(--danger)" stroke-width="2"/>
+          <line x1="0" y1="24"  x2="0" y2="17"  stroke="var(--dim)"    stroke-width="1.5"/>
+          <line x1="-24" y1="0" x2="-17" y2="0" stroke="var(--dim)"    stroke-width="1.5"/>
+          <line x1="24"  y1="0" x2="17"  y2="0" stroke="var(--dim)"    stroke-width="1.5"/>
+          <text x="0" y="-12" text-anchor="middle" font-size="6" font-weight="700" fill="var(--danger)" font-family="monospace">N</text>
+          <text x="0"   y="18" text-anchor="middle" font-size="5" fill="var(--dim)" font-family="monospace">S</text>
+          <text x="18"  y="2"  text-anchor="middle" font-size="5" fill="var(--dim)" font-family="monospace">E</text>
+          <text x="-18" y="2"  text-anchor="middle" font-size="5" fill="var(--dim)" font-family="monospace">W</text>
+          <g id="lc-compass-needle">
+            <polygon points="0,-19 -2.8,-3 2.8,-3" fill="var(--danger)" opacity="0.95"/>
+            <polygon points="0,19 -2.8,3 2.8,3"    fill="var(--dim)"    opacity="0.7"/>
+          </g>
+        </svg>
+      </div>
       <div style="display:flex;gap:4px;width:100%">
         <button class="s-btn" id="lc-s-trim">&#9668; IN</button>
         <button class="s-btn" id="lc-s-ease">OUT &#9658;</button>
@@ -1491,6 +1523,8 @@ function updateCompactAtt() {
   if (pEl) pEl.textContent = (pitch>=0?'+':'')+pitch.toFixed(1)+'\xb0';
   var hEl = document.getElementById('c-att-hdg');
   if (hEl) hEl.textContent = (instrData.yaw||0).toFixed(0)+'\xb0';
+  var cNeedle = document.getElementById('c-compass-needle');
+  if (cNeedle) cNeedle.setAttribute('transform', 'rotate('+(instrData.yaw||0)+')');
 }
 
 // ── DEVICES ───────────────────────────────────────────────────────
@@ -1724,6 +1758,8 @@ function updateLcAtt() {
   if (pEl) pEl.textContent = (pitch>=0?'+':'')+pitch.toFixed(1)+'\xb0';
   var hEl = document.getElementById('lc-att-hdg');
   if (hEl) hEl.textContent = (instrData.yaw||0).toFixed(0)+'\xb0';
+  var lcNeedle = document.getElementById('lc-compass-needle');
+  if (lcNeedle) lcNeedle.setAttribute('transform', 'rotate('+(instrData.yaw||0)+')');
 }
 
 function updateLcTelem(d) {
