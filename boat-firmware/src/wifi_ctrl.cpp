@@ -470,7 +470,7 @@ static void handle_telemetry()
         ",\"lat\":%.6f,\"lng\":%.6f,\"alt\":%.0f"
         ",\"speed\":%.1f,\"sats\":%d,\"fix\":%s",
         gps_lat(), gps_lng(), gps_altitude_m(),
-        gps_speed_kmh(),
+        gps_speed_kn(),
         (int)gps_satellites(),
         gps_has_fix() ? "true" : "false");
 #endif

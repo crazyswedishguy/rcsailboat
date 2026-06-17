@@ -273,7 +273,7 @@ void telemetry_send_gps() {
     uint8_t p[15] = {};
     put_i32be(p + 0,  (int32_t)(gps_lat()          * 1e7f));
     put_i32be(p + 4,  (int32_t)(gps_lng()          * 1e7f));
-    put_u16be(p + 8,  (uint16_t)(gps_speed_kmh()   * 10.0f));
+    put_u16be(p + 8,  (uint16_t)(gps_speed_kn() * 1.852f * 10.0f));  // CRSF GPS frame expects km/h × 10
     put_u16be(p + 10, (uint16_t)(gps_heading_deg()  * 100.0f));
     put_u16be(p + 12, (uint16_t)(gps_altitude_m()  + 1000.0f));
     p[14] = (uint8_t)gps_satellites();

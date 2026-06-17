@@ -38,7 +38,7 @@ static File     s_file;
 static bool     s_ready = false;
 
 static const char *CSV_HEADER =
-    "millis_ms,gps_fix,lat,lng,speed_kmh,heading_deg,altitude_m,satellites,"
+    "millis_ms,gps_fix,lat,lng,speed_kn,heading_deg,altitude_m,satellites,"
     "voltage_v,current_a,mah_used,roll_deg,pitch_deg,"
     "lq_pct,rssi_dbm,rudder,sail,throttle,mcu_temp_c,"
     "bilge_wet,capsized";
@@ -100,7 +100,7 @@ void sdlog_update()
     bool    gps_fix  = gps_has_fix();
     double  lat      = gps_lat();
     double  lng      = gps_lng();
-    float   spd      = gps_speed_kmh();
+    float   spd      = gps_speed_kn();
     float   hdg      = gps_heading_deg();
     float   alt      = gps_altitude_m();
     uint8_t sats     = gps_satellites();

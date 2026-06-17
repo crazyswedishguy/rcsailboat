@@ -338,7 +338,7 @@ static const char HTML_PAGE[] PROGMEM = R"html(
   <!-- Telem strip -->
   <div class="card" id="telem">
     <div class="tg"><div class="tg-l">Battery</div><div class="tg-v" id="tl-v">--.-V</div><div class="tg-v" style="font-size:10px" id="tl-a">-.-A</div><div class="tg-v" style="font-size:10px" id="tl-pct">--%</div></div>
-    <div class="tg"><div class="tg-l">GPS</div><div class="tg-v" id="tl-s">--sat</div><div class="tg-v" style="font-size:10px" id="tl-spd">--km/h</div></div>
+    <div class="tg"><div class="tg-l">GPS</div><div class="tg-v" id="tl-s">--sat</div><div class="tg-v" style="font-size:10px" id="tl-spd">--kn</div></div>
     <div class="tg"><div class="tg-l">Attitude</div><div class="tg-v" id="tl-r">R--&#176;</div><div class="tg-v" style="font-size:10px" id="tl-p">P--&#176;</div></div>
     <div class="tg"><div class="tg-l">Temp</div><div class="tg-v" id="tl-t">--&#176;C</div></div>
   </div>
@@ -576,7 +576,9 @@ static const char HTML_PAGE[] PROGMEM = R"html(
       <div class="card gauge" id="g-gps">
         <div class="g-lbl">GPS</div>
         <div class="g-val" id="g-gps-sats" style="font-size:15px">--sat</div>
-        <div class="g-sub" id="g-gps-spd">-- km/h</div>
+        <div class="g-sub" id="g-gps-spd">-- kn</div>
+        <div class="g-sub" id="g-gps-lat">--</div>
+        <div class="g-sub" id="g-gps-lon">--</div>
       </div>
     </div>
   </div><!-- /page-instr -->
@@ -1257,7 +1259,7 @@ function loadTrack() {
     if (d.lng  !== undefined) document.getElementById('m-lon').textContent = d.lng.toFixed(4)+'\xb0';
     if (d.alt  !== undefined) document.getElementById('m-alt').textContent = d.alt.toFixed(0)+'m';
     if (d.hdg  !== undefined) document.getElementById('m-hdg').textContent = d.hdg.toFixed(0)+'\xb0';
-    if (d.speed!== undefined) document.getElementById('m-spd').textContent = d.speed.toFixed(1);
+    if (d.speed!== undefined) document.getElementById('m-spd').textContent = d.speed.toFixed(1)+' kn';
     if (d.sats !== undefined) document.getElementById('m-sats').textContent = d.sats;
   }).catch(function(){});
 }
@@ -1378,7 +1380,11 @@ setInterval(function() {
     var gpsSats = document.getElementById('g-gps-sats');
     if (gpsSats) gpsSats.textContent = d.sats !== undefined ? d.sats+'sat' : '--sat';
     var gpsSpd = document.getElementById('g-gps-spd');
-    if (gpsSpd) gpsSpd.textContent = d.speed !== undefined ? d.speed.toFixed(1)+' km/h' : '-- km/h';
+    if (gpsSpd) gpsSpd.textContent = d.speed !== undefined ? d.speed.toFixed(1)+' kn' : '-- kn';
+    var gpsLat = document.getElementById('g-gps-lat');
+    if (gpsLat) gpsLat.textContent = d.lat !== undefined ? d.lat.toFixed(4)+'\xb0' : '--';
+    var gpsLon = document.getElementById('g-gps-lon');
+    if (gpsLon) gpsLon.textContent = d.lng !== undefined ? d.lng.toFixed(4)+'\xb0' : '--';
     // Update control telem strip
     var vEl = document.getElementById('tl-v');
     if (vEl) { vEl.textContent = d.v !== undefined ? d.v.toFixed(1)+'V' : '--.-V'; vEl.className='tg-v'+(d.v<11.0?' d':d.v<11.4?' w':''); }
@@ -1414,7 +1420,7 @@ setInterval(function() {
     var sEl = document.getElementById('tl-s');
     if (sEl) sEl.textContent = d.sats !== undefined ? d.sats+'sat' : '--sat';
     var spdEl = document.getElementById('tl-spd');
-    if (spdEl) spdEl.textContent = d.speed !== undefined ? d.speed.toFixed(1)+'km/h' : '--km/h';
+    if (spdEl) spdEl.textContent = d.speed !== undefined ? d.speed.toFixed(1)+'kn' : '--kn';
     // Update INA note in devices page
     var inaNote = document.getElementById('dev-ina-note');
     if (inaNote && d.v !== undefined) inaNote.textContent = d.v.toFixed(1)+'V \xb7 '+(d.a||0).toFixed(1)+'A';

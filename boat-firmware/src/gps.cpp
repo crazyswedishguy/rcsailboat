@@ -45,7 +45,7 @@ void gps_update()
 bool    gps_has_fix()     { return s_gps.location.isValid() && s_gps.location.age() < 2000; }
 double  gps_lat()         { return s_gps.location.isValid() ? s_gps.location.lat() : 0.0; }
 double  gps_lng()         { return s_gps.location.isValid() ? s_gps.location.lng() : 0.0; }
-float   gps_speed_kmh()   { return s_gps.speed.isValid()    ? (float)s_gps.speed.kmph() : 0.0f; }
+float   gps_speed_kn()    { return s_gps.speed.isValid()    ? (float)s_gps.speed.knots() : 0.0f; }
 float   gps_heading_deg() { return s_gps.course.isValid()   ? (float)s_gps.course.deg()  : 0.0f; }
 float   gps_altitude_m()  { return s_gps.altitude.isValid() ? (float)s_gps.altitude.meters() : 0.0f; }
 uint8_t gps_satellites()  { return s_gps.satellites.isValid() ? (uint8_t)s_gps.satellites.value() : 0; }

@@ -12,7 +12,7 @@ void    gps_update();         // call each loop() — feeds chars from Serial2 i
 bool    gps_has_fix();        // true once NMEA reports a valid 3D fix
 double  gps_lat();            // degrees, WGS-84 (positive = north)
 double  gps_lng();            // degrees, WGS-84 (positive = east)
-float   gps_speed_kmh();      // ground speed in km/h
+float   gps_speed_kn();       // ground speed in knots
 float   gps_heading_deg();    // course over ground in degrees (0 = north, CW)
 float   gps_altitude_m();     // metres above mean sea level
 uint8_t gps_satellites();     // number of satellites used in the fix

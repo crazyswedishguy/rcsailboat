@@ -555,7 +555,7 @@ static void build_tile_attitude(lv_obj_t *t)
 #ifdef GPS_ENABLED
     make_section(t, 346, "SPEED");
     s5_lbl_speed = make_label_font(t, (LCD_H_RES - 130) / 2, 376,
-                                   "--.- km/h",
+                                   "--.- kn",
                                    &lv_font_montserrat_28, lv_color_white());
 #endif
 }
@@ -932,7 +932,7 @@ void display_update()
     float rol = imu_roll_deg();
     float pit = imu_pitch_deg();
 #ifdef GPS_ENABLED
-    float    spd_kmh = gps_speed_kmh();
+    float    spd_kn = gps_speed_kn();
     bool     gps_fix = gps_has_fix();
     lv_color_t spd_c = gps_fix ? lv_color_white() : lv_color_make(120, 120, 120);
 #endif
@@ -1055,7 +1055,7 @@ void display_update()
 #endif
 #ifdef GPS_ENABLED
     if (s5_lbl_speed) {
-        lv_label_set_text_fmt(s5_lbl_speed, "%.1f km/h", spd_kmh);
+        lv_label_set_text_fmt(s5_lbl_speed, "%.1f kn", spd_kn);
         lv_obj_set_style_text_color(s5_lbl_speed, spd_c, LV_PART_MAIN);
     }
 #endif
