@@ -1138,6 +1138,7 @@ function drawTiles() {
           tileCtx.drawImage(img, Math.round(dx), Math.round(dy), tileSize, tileSize);
           drawTrackOnCanvas();
         };
+        img.onerror = function() { drawTrackOnCanvas(); };
         img.src = '/tiles/' + mapZoom + '/' + tx + '/' + ty + '.png';
       })(tx, ty);
     }

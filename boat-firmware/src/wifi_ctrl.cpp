@@ -539,18 +539,24 @@ static void handle_captive_redirect()
 }
 
 // Serves /tiles/{z}/{x}/{y}.png from the SD card (if mounted).
+// Tile misses (no SD or file absent) return 404 — never a captive redirect,
+// which would cause the browser to try to decode the HTML page as a PNG.
 // All other unrecognised paths redirect to the control page (captive portal).
 static void handle_not_found()
 {
     String path = s_srv.uri();
-    if (path.startsWith("/tiles/") && sdlog_is_ready()) {
-        File f = SD.open(path.c_str());
-        if (f && !f.isDirectory()) {
-            s_srv.streamFile(f, "image/png");
-            f.close();
-            return;
+    if (path.startsWith("/tiles/")) {
+        if (sdlog_is_ready()) {
+            File f = SD.open(path.c_str());
+            if (f && !f.isDirectory()) {
+                s_srv.streamFile(f, "image/png");
+                f.close();
+                return;
+            }
+            if (f) f.close();
         }
-        if (f) f.close();
+        s_srv.send(404, "image/png", "");
+        return;
     }
     handle_captive_redirect();
 }
