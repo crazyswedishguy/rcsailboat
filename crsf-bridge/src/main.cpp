@@ -40,7 +40,7 @@
 namespace cfg {
     constexpr int    CRSF_RX           = 44;      // D7, direct from Ranger Micro
     constexpr int    CRSF_TX           = 43;      // D6 → 1kΩ → Ranger Micro signal pin
-    constexpr uint32_t CRSF_BAUD      = 400000;
+    constexpr uint32_t CRSF_BAUD      = 420000;
     constexpr char   AP_SSID[]         = "Mistral-2";
     constexpr char   AP_PASS[]         = "readyabout";
     constexpr uint32_t CTRL_TIMEOUT_MS = 500;    // servo timeout (same as boat)
