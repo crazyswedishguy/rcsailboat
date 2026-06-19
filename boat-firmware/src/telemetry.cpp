@@ -5,8 +5,8 @@
 //
 // Frame emission schedule (managed with millis() timers in telemetry_update()):
 //   BATTERY_SENSOR (0x08) every 500 ms (2 Hz)
-//   ATTITUDE       (0x1E) every 200 ms (5 Hz)
-//   SAILBOAT       (0x80) every 200 ms (5 Hz) — emitted on the same tick as ATTITUDE
+//   ATTITUDE       (0x1E) every 42 ms (~24 Hz) — fast timer, independent of SAILBOAT
+//   SAILBOAT       (0x80) every 200 ms (5 Hz)
 //   GPS            (0x02) every 1000 ms (1 Hz) — only when GPS_ENABLED and fix available
 //
 // CRSF frame layout (all frames):
@@ -118,6 +118,9 @@ static void send_attitude() {
     float pitch_rad = imu_pitch_deg() * ((float)M_PI / 180.0f);
 #ifdef COMPASS_ENABLED
     float yaw_rad = compass_heading_deg() * ((float)M_PI / 180.0f);
+    // Compass returns 0–360°; CRSF int16 encoding assumes –π…+π.
+    // Wrap headings > 180° to the negative half so the cast stays in range.
+    if (yaw_rad > (float)M_PI) yaw_rad -= 2.0f * (float)M_PI;
 #else
     float yaw_rad = 0.0f;
 #endif

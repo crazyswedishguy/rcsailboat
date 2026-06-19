@@ -40,7 +40,7 @@
 namespace cfg {
     constexpr int    CRSF_RX           = 44;      // D7, direct from Ranger Micro
     constexpr int    CRSF_TX           = 43;      // D6 → 1kΩ → Ranger Micro signal pin
-    constexpr uint32_t CRSF_BAUD      = 420000;
+    constexpr uint32_t CRSF_BAUD      = 400000;  // JR-bay module port; ≠ receiver-to-FC (420000)
     constexpr char   AP_SSID[]         = "Mistral-2";
     constexpr char   AP_PASS[]         = "readyabout";
     constexpr uint32_t CTRL_TIMEOUT_MS = 500;    // servo timeout (same as boat)
@@ -58,6 +58,7 @@ constexpr uint8_t  CRSF_TYPE_ATTITUDE   = 0x1E; // Attitude
 constexpr uint8_t  CRSF_TYPE_SAILBOAT   = 0x80; // Custom sailboat frame
 constexpr uint8_t  CRSF_TYPE_DEVICES    = 0x81; // Custom device-status bitmap
 constexpr uint8_t  CRSF_TYPE_HEARTBEAT  = 0x7E; // Pi liveness signal (stripped, not forwarded)
+constexpr uint8_t  CRSF_TYPE_RADIO_ID   = 0x3A; // Timing sync from TX module (JR bay)
 
 constexpr uint16_t CRSF_CH_MIN    = 172;
 constexpr uint16_t CRSF_CH_CENTER = 992;
@@ -71,6 +72,9 @@ constexpr int CH_ARM      = 3;
 constexpr int CH_MODE     = 4;
 constexpr int CH_RESTART  = 5;
 constexpr int CH_PUMP     = 6;
+
+// ── File-scope 50 Hz TX timer (shared with parse_radio_stream for sync-aligned sends) ──
+static unsigned long s_tx_ms = 0;
 
 // ── CRC-8/DVB-S2 (polynomial 0xD5) — identical to telemetry.cpp ──────────────
 static uint8_t crsf_crc8(const uint8_t *buf, size_t len) {
@@ -133,7 +137,7 @@ static void build_rc_frame(uint8_t buf[26]) {
     bool timed_out = (millis() - s_last_cmd_ms) > cfg::CTRL_TIMEOUT_MS;
     bool active    = s_armed && !timed_out;
 
-    ch[CH_RUDDER]   = ch_centered(s_rudder);
+    ch[CH_RUDDER]   = ch_centered(active ? s_rudder : 0.0f);
     ch[CH_SAIL]     = ch_unipolar(s_sail);
     ch[CH_THROTTLE] = ch_centered(active ? s_throttle : 0.0f);
     ch[CH_ARM]      = active ? CRSF_CH_MAX : CRSF_CH_MIN;
@@ -178,6 +182,9 @@ struct TelState {
     // Link stats (CRSF 0x14)
     int    rssi_up      = 0;
     int    lq_up        = 0;
+    // Device status bitmap (CRSF 0x81) — 0.2 Hz; 2-bit fields, mirrors boat-firmware/src/telemetry.cpp
+    uint8_t dev_qmi      = 0, dev_pca = 0, dev_ina = 0, dev_sd = 0;
+    uint8_t dev_bilge    = 0, dev_rudder = 0, dev_winch = 0, dev_esc = 0;
     // GPS (CRSF 0x02) — 1 Hz when fix
     double gps_lat      = 0.0;
     double gps_lng      = 0.0;
@@ -233,6 +240,24 @@ static void decode_link_stats(const uint8_t *p, size_t len) {
     s_tel.lq_up   = p[2];
 }
 
+// Bit layout (LSB-first, 3 bytes): [1:0]ft [3:2]qmi [5:4]pca [7:6]ina [9:8]sd
+// [11:10]bilge_sensor [13:12]bilge_pump [15:14]rudder [17:16]winch [19:18]esc.
+// Mirrors boat-firmware/src/telemetry.cpp send_devices(). ft and bilge_pump
+// (always 0 on the boat) are not surfaced — pump state comes from the
+// sailboat status byte instead, which is fresher (5 Hz vs 0.2 Hz).
+static void decode_devices(const uint8_t *p, size_t len) {
+    if (len < 3) return;
+    uint32_t bits = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16);
+    s_tel.dev_qmi    = (bits >> 2)  & 0x3;
+    s_tel.dev_pca    = (bits >> 4)  & 0x3;
+    s_tel.dev_ina    = (bits >> 6)  & 0x3;
+    s_tel.dev_sd     = (bits >> 8)  & 0x3;
+    s_tel.dev_bilge  = (bits >> 10) & 0x3;
+    s_tel.dev_rudder = (bits >> 14) & 0x3;
+    s_tel.dev_winch  = (bits >> 16) & 0x3;
+    s_tel.dev_esc    = (bits >> 18) & 0x3;
+}
+
 static void decode_gps(const uint8_t *p, size_t len) {
     if (len < 15) return;
     // int32 lat/lng × 1e7; uint16 speed km/h×10, heading °×100, altitude m+1000; uint8 sats
@@ -261,9 +286,15 @@ static size_t  s_radio_len = 0;
 static uint8_t s_pi_buf[256];
 static size_t  s_pi_len = 0;
 
+// millis() of the last validly-CRC'd frame from the Ranger Micro — used by
+// /diag.json to tell "boat reachable over RF" from "boat link is down",
+// instead of showing stale or default-true device status.
+static unsigned long s_radio_last_ms = 0;
+
 // Consume all complete, valid CRSF frames from the radio (Serial1) buffer.
 // Decodes telemetry into s_tel.
 static void parse_radio_stream() {
+    static uint32_t s_dbg_crc = 0;
     while (s_radio_len >= 2) {
         // Seek sync
         while (s_radio_len > 0 && s_radio_buf[0] != CRSF_SYNC)
@@ -273,19 +304,45 @@ static void parse_radio_stream() {
         size_t  total     = 2u + frame_len;
         if (s_radio_len < total) break;  // wait for full frame
         if (crsf_crc8(s_radio_buf + 2, frame_len - 1) != s_radio_buf[total - 1]) {
+            s_dbg_crc++;
             memmove(s_radio_buf, s_radio_buf + 1, --s_radio_len);
             continue;
         }
+        s_radio_last_ms = millis();
         uint8_t        type    = s_radio_buf[2];
         const uint8_t *payload = s_radio_buf + 3;
         size_t         plen    = (size_t)(frame_len - 2);
+        static uint32_t dbg_att=0, dbg_bat=0, dbg_gps=0, dbg_sb=0, dbg_lq=0;
+        // Track unknown types in a small histogram (first 8 distinct types seen)
+        static uint8_t  dbg_unk_types[8] = {};
+        static uint32_t dbg_unk_count[8] = {};
+        static uint8_t  dbg_unk_n = 0;
         switch (type) {
-            case CRSF_TYPE_GPS:        decode_gps(payload, plen);        break;
-            case CRSF_TYPE_BATTERY:    decode_battery(payload, plen);    break;
-            case CRSF_TYPE_ATTITUDE:   decode_attitude(payload, plen);   break;
-            case CRSF_TYPE_SAILBOAT:   decode_sailboat(payload, plen);   break;
-            case CRSF_TYPE_LINK_STATS: decode_link_stats(payload, plen); break;
-            default: break;
+            case CRSF_TYPE_GPS:        decode_gps(payload, plen);        dbg_gps++; break;
+            case CRSF_TYPE_BATTERY:    decode_battery(payload, plen);    dbg_bat++; break;
+            case CRSF_TYPE_ATTITUDE:   decode_attitude(payload, plen);   dbg_att++; break;
+            case CRSF_TYPE_SAILBOAT:   decode_sailboat(payload, plen);   dbg_sb++;  break;
+            case CRSF_TYPE_LINK_STATS: decode_link_stats(payload, plen); dbg_lq++;  break;
+            case CRSF_TYPE_DEVICES:    decode_devices(payload, plen);                break; // 0x81 — boat device status
+            case CRSF_TYPE_RADIO_ID:                                                 break; // 0x3A — timing sync; no active response needed
+            default: {
+                bool found = false;
+                for (uint8_t i = 0; i < dbg_unk_n; i++) {
+                    if (dbg_unk_types[i] == type) { dbg_unk_count[i]++; found = true; break; }
+                }
+                if (!found && dbg_unk_n < 8) { dbg_unk_types[dbg_unk_n] = type; dbg_unk_count[dbg_unk_n++] = 1; }
+                break;
+            }
+        }
+        static unsigned long dbg_last_ms = 0;
+        unsigned long dbg_now = millis();
+        if (dbg_now - dbg_last_ms >= 5000) {
+            dbg_last_ms = dbg_now;
+            Serial.printf("[telem/5s] att=%u bat=%u gps=%u sb=%u lq=%u crc_fail=%u | roll=%.1f pit=%.1f yaw=%.1f\n",
+                dbg_att, dbg_bat, dbg_gps, dbg_sb, dbg_lq, s_dbg_crc,
+                s_tel.roll_deg, s_tel.pitch_deg, s_tel.yaw_deg);
+            for (uint8_t i = 0; i < dbg_unk_n; i++)
+                Serial.printf("[unk] type=0x%02X count=%u\n", dbg_unk_types[i], dbg_unk_count[i]);
         }
         memmove(s_radio_buf, s_radio_buf + total, s_radio_len - total);
         s_radio_len -= total;
@@ -367,6 +424,63 @@ static void handle_telemetry() {
             s_tel.gps_lat, s_tel.gps_lng, s_tel.gps_alt_m,
             s_tel.gps_spd_kn, s_tel.gps_hdg_deg);
     snprintf(buf + n, sizeof(buf) - n, "}");
+    s_srv.send(200, "application/json", buf);
+}
+
+// Reports real device status relayed from the boat's CRSF DEVICES (0x81) frame,
+// instead of leaving the page's hard-coded "OK" defaults unanswered (the page
+// only overwrites them on a successful /diag.json fetch — see control_page.h
+// updateDevices()). Gated on s_radio_last_ms so a dead RF link shows "No RF
+// link" rather than stale or default-true status.
+static void handle_diag() {
+    char buf[768];
+    int  n = 0;
+    n += snprintf(buf, sizeof(buf), "[");
+
+    bool link_ok = s_radio_last_ms != 0 && (millis() - s_radio_last_ms) < 5000;
+    const char *no_link = "No RF link";
+
+    auto bool_field = [&](const char *id, uint8_t val, const char *ok_stat, const char *absent_stat) {
+        n += snprintf(buf + n, sizeof(buf) - n,
+            "%s{\"id\":\"%s\",\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
+            n > 1 ? "," : "", id,
+            (link_ok && val) ? "ok" : "absent",
+            link_ok ? (val ? ok_stat : absent_stat) : no_link);
+    };
+
+    bool_field("qmi",    s_tel.dev_qmi,    "OK", "Absent");
+    bool_field("pca",    s_tel.dev_pca,    "OK", "Absent");
+    bool_field("ina",    s_tel.dev_ina,    "OK", "Absent");
+    bool_field("sd",     s_tel.dev_sd,     "Ready", "No card");
+    bool_field("rudder", s_tel.dev_rudder, "OK", "No driver");
+    bool_field("winch",  s_tel.dev_winch,  "OK", "No driver");
+    bool_field("esc",    s_tel.dev_esc,    "OK", "No driver");
+
+    {
+        uint8_t bilge = link_ok ? s_tel.dev_bilge : 0;
+        const char *lvl, *stat;
+        if (!link_ok)        { lvl = "absent"; stat = no_link; }
+        else if (bilge == 2) { lvl = "warn";    stat = "WET"; }
+        else if (bilge == 1) { lvl = "ok";      stat = "Dry"; }
+        else if (bilge == 3) { lvl = "warn";    stat = "Unverified"; }
+        else                 { lvl = "absent";  stat = "Absent"; }
+        n += snprintf(buf + n, sizeof(buf) - n,
+            ",{\"id\":\"bilge\",\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}", lvl, stat);
+    }
+    {
+        bool on = link_ok && s_tel.pump_active;
+        n += snprintf(buf + n, sizeof(buf) - n,
+            ",{\"id\":\"pump\",\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
+            on ? "warn" : "absent", link_ok ? (on ? "Running" : "Unmonitored") : no_link);
+    }
+    {
+        bool fix = link_ok && s_tel.gps_fix;
+        n += snprintf(buf + n, sizeof(buf) - n,
+            ",{\"id\":\"gps\",\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
+            fix ? "ok" : "warn", link_ok ? (fix ? "Fix" : "No fix") : no_link);
+    }
+
+    n += snprintf(buf + n, sizeof(buf) - n, "]");
     s_srv.send(200, "application/json", buf);
 }
 
@@ -490,6 +604,7 @@ void setup() {
     s_srv.on("/control",     handle_control);
     s_srv.on("/telemetry",   handle_telemetry);
     s_srv.on("/status",      handle_status);
+    s_srv.on("/diag.json",   handle_diag);
     s_srv.on("/pump",        handle_pump);
     s_srv.on("/track",       handle_track);
     // Captive portal (iOS, Android, Windows connectivity probes)
@@ -539,7 +654,6 @@ void loop() {
         s_srv.handleClient();
 
         // ── Emit RC frame at 50 Hz ─────────────────────────────────────────
-        static unsigned long s_tx_ms = 0;
         if (now - s_tx_ms >= cfg::TX_PERIOD_MS) {
             s_tx_ms = now;
             uint8_t frame[26];
