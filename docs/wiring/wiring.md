@@ -406,4 +406,63 @@ The TF card slot is on the Waveshare PCB and is internally wired to GPIO38–41 
 
 ---
 
+## Base Station — XIAO ESP32-S3 → Ranger Micro TX Module
+
+The XIAO ESP32-S3 (`crsf-bridge/`) sits between the Raspberry Pi and the Ranger Micro. It connects to the Pi over USB-C (power + USB-CDC data) and to the Ranger Micro over UART1 (CRSF). See `docs/elrs-link.md` for the full software architecture.
+
+### CRSF is half-duplex — one shared signal wire
+
+CRSF uses a single bidirectional signal line. Both XIAO TX (D6) and XIAO RX (D7) connect to the **same physical wire** running to the Ranger Micro's signal pin. The 1 kΩ resistor on the TX line prevents the XIAO output from fighting the Ranger Micro output during telemetry bursts. XIAO RX will echo back whatever XIAO TX sends; the firmware ignores those echoes.
+
+```
+XIAO D6 (GPIO43) ──[ 1 kΩ ]──┬── Ranger Micro JR bay: SIGNAL/CRSF
+XIAO D7 (GPIO44) ─────────────┘
+XIAO GND ─────────────────────── Ranger Micro JR bay: GND
+XIAO 5V  ─────────────────────── Ranger Micro JR bay: VCC/BAT
+XIAO USB-C ───────────────────── Raspberry Pi USB port (power + data)
+```
+
+### Wiring table
+
+| FROM Component | FROM Pin | FROM Descriptor | TO Component | TO Pin | TO Descriptor | Notes | Wire Gauge |
+|---|---|---|---|---|---|---|---|
+| XIAO ESP32-S3 | D6 / GPIO43 | UART1 TX | 1 kΩ resistor | IN | Series resistor | Prevents TX/TX bus fight during Ranger Micro telemetry bursts | 26 AWG |
+| 1 kΩ resistor | OUT | — | Ranger Micro | JR bay: SIGNAL | CRSF half-duplex signal | Same node as XIAO D7 | 26 AWG |
+| XIAO ESP32-S3 | D7 / GPIO44 | UART1 RX | Ranger Micro | JR bay: SIGNAL | CRSF half-duplex signal | Direct, no resistor | 26 AWG |
+| XIAO ESP32-S3 | GND | Ground | Ranger Micro | JR bay: GND | Ground | | 26 AWG |
+| XIAO ESP32-S3 | 5V | USB VBUS out | Ranger Micro | JR bay: VCC/BAT | Module power input (4.5–13 V) | ⚠ Use JR bay VCC — do NOT connect Ranger Micro USB-C when using JR bay power | 22 AWG |
+| Raspberry Pi | USB-A port | USB host | XIAO ESP32-S3 | USB-C | Power + USB-CDC data | Use a USB 3.0 port (900 mA budget) for headroom at higher TX power settings | — |
+
+### Power note
+
+The XIAO's 5V pin is USB VBUS from the Pi. Usable current budget:
+
+| TX power setting | Ranger Micro draw | XIAO draw | Total | USB 2.0 (500 mA) | USB 3.0 (900 mA) |
+|---|---|---|---|---|---|
+| 10 mW | ~50 mA | ~200 mA | ~250 mA | ✅ OK | ✅ OK |
+| 25 mW | ~100 mA | ~200 mA | ~300 mA | ✅ OK | ✅ OK |
+| 100 mW | ~300 mA | ~200 mA | ~500 mA | ⚠ At limit | ✅ OK |
+| 250 mW | ~550 mA | ~200 mA | ~750 mA | ❌ Over | ⚠ Marginal |
+| 1 W | ~1.5 A | ~200 mA | ~1.7 A | ❌ Over | ❌ Over — needs separate 5 V supply |
+
+**Bench testing recommendation:** set the Ranger Micro to **25 mW**. That gives ~300 m line-of-sight range, enough for any sailing venue, and is well within the USB current budget from either port type.
+
+> ⚠ **Power the Ranger Micro from its JR bay VCC pin only.** If the Ranger Micro's USB-C is connected simultaneously, it will boot into WiFi update/config mode instead of TX module mode and will not transmit RF.
+
+### Ranger Micro JR bay connector
+
+Looking at the back face of the Ranger Micro (the connector end, antenna up):
+
+```
+  ┌──────────── JR Nano bay connector ────────────┐
+  │  pin labels are silkscreened on the PCB face  │
+  │                                               │
+  │   [ SIGNAL ]  [ GND ]  [ VCC ]  [ VCC ]      │
+  └───────────────────────────────────────────────┘
+```
+
+Verify against the silkscreen on your specific module — pin order can vary between hardware revisions. The three signals you need are **SIGNAL** (CRSF), **GND**, and **VCC/BAT**.
+
+---
+
 _End of RC Sailboat Wiring Reference._

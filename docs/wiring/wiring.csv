@@ -121,3 +121,13 @@ Logic Level Shifter,LV2,Low-voltage SCL,ESP32-S3,GPIO48 / SCL,I²C clock,3.3 V s
 ESP32-S3,GPIO48 / SCL,I²C clock (to level shifter LV2),Logic Level Shifter,LV2,Low-voltage SCL,3.3 V side of I²C clock line,26 AWG
 Logic Level Shifter,HV2,High-voltage SCL,PCA9685,SCL,I²C clock,5 V side of I²C clock line,26 AWG
 PCA9685,SCL,I²C clock (from level shifter HV2),Logic Level Shifter,HV2,High-voltage SCL,5 V side of I²C clock line,26 AWG
+XIAO ESP32-S3,D6 / GPIO43,UART1 TX (CRSF transmit),1kΩ Resistor,IN,Series resistor — TX side,Half-duplex bus isolation; prevents bus contention when both TX,26 AWG
+1kΩ Resistor,OUT,Series resistor output,Ranger Micro,JR bay SIGNAL,Half-duplex CRSF signal,Resistor sits on D6 side only; D7 connects to SIGNAL directly,26 AWG
+XIAO ESP32-S3,D7 / GPIO44,UART1 RX (CRSF receive),Ranger Micro,JR bay SIGNAL,Half-duplex CRSF signal,RX connects directly to SIGNAL — reads past the 1kΩ resistor,26 AWG
+Ranger Micro,JR bay SIGNAL,Half-duplex CRSF signal,XIAO ESP32-S3,D6 / GPIO43 (via 1kΩ),UART1 TX; XIAO D7 direct,Bidirectional half-duplex; 1kΩ on TX side only,26 AWG
+XIAO ESP32-S3,GND,Ground,Ranger Micro,JR bay GND,Ground,Common ground required for CRSF signal reference,26 AWG
+Ranger Micro,JR bay GND,Ground,XIAO ESP32-S3,GND,Ground,,26 AWG
+XIAO ESP32-S3,5V (VBUS),USB 5 V output,Ranger Micro,JR bay VCC / BAT,TX module power input,⚠ JR bay power ONLY — powering via Ranger Micro USB-C enters config/update mode not TX mode,26 AWG
+Ranger Micro,JR bay VCC / BAT,TX module power input,XIAO ESP32-S3,5V (VBUS),USB 5 V output,⚠ Never power Ranger Micro via its USB-C for normal operation,26 AWG
+Raspberry Pi,USB-A port,5 V USB host output,XIAO ESP32-S3,USB-C,Power + data,Powers XIAO (and Ranger Micro via 5V pin); USB-CDC serial for Mode 3 bridge,—
+XIAO ESP32-S3,USB-C,Power + data,Raspberry Pi,USB-A port,5 V USB host output,Mode 3: Pi drives XIAO as byte-pump bridge over USB-CDC,—
