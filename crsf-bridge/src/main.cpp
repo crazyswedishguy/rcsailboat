@@ -456,6 +456,10 @@ static void handle_diag() {
     bool_field("winch",  s_tel.dev_winch,  "OK", "No driver");
     bool_field("esc",    s_tel.dev_esc,    "OK", "No driver");
 
+    n += snprintf(buf + n, sizeof(buf) - n,
+        ",{\"id\":\"elrs\",\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
+        link_ok ? "ok" : "absent", link_ok ? "Active" : no_link);
+
     {
         uint8_t bilge = link_ok ? s_tel.dev_bilge : 0;
         const char *lvl, *stat;
