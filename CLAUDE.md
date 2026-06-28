@@ -94,7 +94,7 @@ Canonical sources: **`docs/pinmap.md`** and **`boat-firmware/src/config.h`**. Re
 - The shared control page HTML lives in `shared/web/control_page.h` and `shared/web/map_page.h` (PROGMEM). Both `boat-firmware` and `crsf-bridge` include via `-I"${PROJECT_DIR}/../shared"` in `platformio.ini`.
 - For chip-level work on CO5300 / FT3168 / QMI8658: start from `docs/Waveshare Demo/`, don't write drivers from scratch. Register details for these chips are sparse online and easy to get wrong.
 
-### ELRS channel quick-reference (PROTOCOL_VERSION = 2)
+### ELRS channel quick-reference (PROTOCOL_VERSION = 3)
 
 | Index (0-based) | Name | Range | Notes |
 |---|---|---|---|
@@ -102,7 +102,7 @@ Canonical sources: **`docs/pinmap.md`** and **`boat-firmware/src/config.h`**. Re
 | 1 | CH_SAIL | 0 … +1 | unipolar; 0 = fully eased |
 | 2 | CH_THROTTLE | 0 … +1 | unipolar; 0 = neutral/stop |
 | 3 | CH_ARM | 0 or 1 | ≥ 0.5 = armed |
-| 4 | CH_MODE | — | reserved |
+| 4 | CH_MODE | 0 or 1 | > 0.5 held ≥300ms = remote request for ELRS control mode (mirrors the touchscreen "Enable ELRS" button); < 0.5 held ≥3s releases to WiFi mode (asymmetric debounce — leaving tears down the AP). See `docs/protocol.md` "Remote mode switching". |
 | 5 | CH_RESTART | 0 or 1 | ≥ 0.5 = restart signal |
 | 6 | CH_PUMP | 0 or 1 | ≥ 0.5 = bilge pump on |
 | 7–15 | — | — | reserved |
@@ -144,7 +144,7 @@ Update this section as hardware gets wired up. Claude Code should treat anything
 
 - [x] Raspberry Pi 5 powered and on network (192.168.4.32)
 - [ ] ELRS transmitter module connected to Pi
-- [x] ESP32-S3 dev board powered (esp32-s3-full firmware flashed 2026-06-16; GPS on UART2, HMC5883L compass on I²C 0x1E)
+- [x] ESP32-S3 dev board powered (esp32-s3-full firmware flashed 2026-06-28; GPS on UART2, HMC5883L compass on I²C 0x1E; GPS confirmed sending NMEA data — needs outdoor sky view for fix)
 - [ ] PCA9685 wired to ESP32-S3 (I²C) — absent at boot, servo driver disabled
 - [ ] ELRS receiver wired to ESP32-S3 (UART, CRSF)
 - [ ] Rudder servo on PCA9685

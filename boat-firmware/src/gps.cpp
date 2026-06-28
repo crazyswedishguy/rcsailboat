@@ -40,6 +40,15 @@ void gps_update()
     while (s_serial.available())
         s_gps.encode(s_serial.read());
 
+    // Periodic diagnostic: charsProcessed==0 after a few seconds → wiring fault.
+    static unsigned long s_diag_ms = 0;
+    if (millis() - s_diag_ms >= 5000) {
+        s_diag_ms = millis();
+        Serial.printf("gps: chars=%lu sats=%u fix=%s\n",
+                      s_gps.charsProcessed(),
+                      gps_satellites(),
+                      gps_has_fix() ? "YES" : "no");
+    }
 }
 
 bool    gps_has_fix()     { return s_gps.location.isValid() && s_gps.location.age() < 2000; }
