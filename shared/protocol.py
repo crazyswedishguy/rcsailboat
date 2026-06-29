@@ -1,4 +1,4 @@
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
 # ELRS channel numbers (1-indexed, matching docs/protocol.md).
 # NOTE: the boat firmware (boat-firmware/src/protocol.h) uses 0-based indices
@@ -8,7 +8,12 @@ CH_RUDDER   = 1  # -1.0 (port) .. +1.0 (starboard)
 CH_SAIL     = 2  # 0.0 (sheeted out) .. +1.0 (sheeted in)
 CH_THROTTLE = 3  # -1.0 (reverse) .. +1.0 (forward)
 CH_ARM      = 4  # 0.0 = disarmed, 1.0 = armed
-CH_MODE     = 5  # 0.0 = manual; others reserved
+CH_MODE     = 5  # >0.5 (held >=300ms) = remote request for boat ELRS control
+                  # mode (equivalent to the boat's touchscreen "Enable ELRS"
+                  # button); <0.5 (held >=3000ms) releases back to WiFi mode --
+                  # asymmetric debounce, quick to enter / slow to leave, since
+                  # leaving tears down/restarts the boat's WiFi AP. Not yet
+                  # sent by elrs_bridge.py -- see docs/protocol.md.
 CH_RESTART  = 6  # hold at +1.0 for >=2 s while disarmed -> ESP.restart()
 CH_PUMP     = 7  # 0.0 = off, 1.0 = on -- manual bilge pump override (not arm-gated)
 

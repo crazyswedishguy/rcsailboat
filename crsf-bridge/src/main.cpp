@@ -131,6 +131,10 @@ static float         s_throttle    = 0.0f;
 static bool          s_armed       = false;
 static bool          s_pump        = false;
 static unsigned long s_last_cmd_ms = 0;
+// Serial command interface (Mode 2 only).
+static char          s_cmd_line[64] = {};
+static int           s_cmd_len      = 0;
+static bool          s_cmd_locked   = false; // suppresses CTRL_TIMEOUT when set
 
 // CRSF DEVICE_PING — announces the XIAO as a handset to the Ranger Micro.
 // EdgeTX sends this once per second; without it some ELRS TX module firmware
@@ -154,7 +158,7 @@ static void build_rc_frame(uint8_t buf[26]) {
     uint16_t ch[16];
     for (int i = 0; i < 16; i++) ch[i] = CRSF_CH_CENTER;
 
-    bool timed_out = (millis() - s_last_cmd_ms) > cfg::CTRL_TIMEOUT_MS;
+    bool timed_out = !s_cmd_locked && (millis() - s_last_cmd_ms) > cfg::CTRL_TIMEOUT_MS;
     bool active    = s_armed && !timed_out;
 
     ch[CH_RUDDER]   = ch_centered(active ? s_rudder : 0.0f);
@@ -322,6 +326,8 @@ static size_t  s_pi_len = 0;
 // /diag.json to tell "boat reachable over RF" from "boat link is down",
 // instead of showing stale or default-true device status.
 static unsigned long s_radio_last_ms = 0;
+// Raw byte count received from Ranger Micro on Serial1 since boot (diagnostic).
+static uint32_t      s_radio_bytes   = 0;
 
 // Consume all complete, valid CRSF frames from the radio (Serial1) buffer.
 // Decodes telemetry into s_tel.
@@ -565,6 +571,94 @@ static void handle_captive_redirect() {
 }
 static void handle_not_found() { handle_captive_redirect(); }
 
+// ── Serial command interface (Mode 2 only) ────────────────────────────────────
+// Called for each '\n'-terminated line read from USB-CDC.  Updates the same
+// s_rudder/s_sail/... state that /control HTTP hits use so the 50 Hz RC frame
+// builder picks up the new values immediately.
+//
+// Commands:
+//   rud <-1..1>    sail <0..1>    thr <0..1>
+//   arm            disarm         pump <0/1>
+//   neutral        lock           unlock
+//   show           ping           baud <hz>
+static void handle_serial_cmd(const char *line, int /*len*/)
+{
+    float         f;
+    unsigned long ul;
+
+    if (sscanf(line, "rud %f", &f) == 1) {
+        s_rudder = f < -1.0f ? -1.0f : f > 1.0f ? 1.0f : f;
+        s_last_cmd_ms = millis();
+        Serial.printf("cmd: rud=%.3f\n", s_rudder);
+
+    } else if (sscanf(line, "sail %f", &f) == 1) {
+        s_sail = f < 0.0f ? 0.0f : f > 1.0f ? 1.0f : f;
+        s_last_cmd_ms = millis();
+        Serial.printf("cmd: sail=%.3f\n", s_sail);
+
+    } else if (sscanf(line, "thr %f", &f) == 1) {
+        s_throttle = f < 0.0f ? 0.0f : f > 1.0f ? 1.0f : f;
+        s_last_cmd_ms = millis();
+        Serial.printf("cmd: thr=%.3f\n", s_throttle);
+
+    } else if (strcmp(line, "arm") == 0) {
+        s_armed = true;
+        s_last_cmd_ms = millis();
+        Serial.println("cmd: armed");
+
+    } else if (strcmp(line, "disarm") == 0) {
+        s_armed = false;
+        Serial.println("cmd: disarmed");
+
+    } else if (strcmp(line, "pump 1") == 0) {
+        s_pump = true;
+        Serial.println("cmd: pump on");
+
+    } else if (strcmp(line, "pump 0") == 0) {
+        s_pump = false;
+        Serial.println("cmd: pump off");
+
+    } else if (strcmp(line, "neutral") == 0) {
+        s_rudder = s_sail = s_throttle = 0.0f;
+        s_armed  = s_pump = false;
+        s_last_cmd_ms = millis();
+        Serial.println("cmd: neutral");
+
+    } else if (strcmp(line, "lock") == 0) {
+        s_cmd_locked  = true;
+        s_last_cmd_ms = millis();
+        Serial.println("cmd: locked (CTRL_TIMEOUT suppressed)");
+
+    } else if (strcmp(line, "unlock") == 0) {
+        s_cmd_locked = false;
+        Serial.println("cmd: unlocked");
+
+    } else if (strcmp(line, "show") == 0 || strcmp(line, "?") == 0) {
+        Serial.printf("cmd: rud=%.3f sail=%.3f thr=%.3f arm=%d pump=%d lock=%d\n",
+            s_rudder, s_sail, s_throttle,
+            s_armed ? 1 : 0, s_pump ? 1 : 0, s_cmd_locked ? 1 : 0);
+        // RF link stats: non-zero means RP3 is alive and sending telemetry back
+        Serial.printf("radio: rssi_up=%d lq_up=%d rx_bytes=%lu\n",
+            s_tel.rssi_up, s_tel.lq_up, (unsigned long)s_radio_bytes);
+
+    } else if (strcmp(line, "ping") == 0) {
+        send_device_ping();
+        Serial.println("cmd: DEVICE_PING sent");
+
+    } else if (sscanf(line, "baud %lu", &ul) == 1 && ul >= 9600) {
+        Serial.printf("cmd: restarting Serial1 at %lu baud...\n", ul);
+        Serial1.end();
+        delay(10);
+        Serial1.begin(ul, SERIAL_8N1, cfg::CRSF_RX, cfg::CRSF_TX);
+        Serial.printf("cmd: Serial1 running at %lu baud\n", ul);
+
+    } else if (line[0] != '\0') {
+        Serial.printf("cmd: unknown: \"%s\"\n", line);
+        Serial.println("cmds: rud <v>  sail <v>  thr <v>  arm  disarm  pump <0/1>");
+        Serial.println("      neutral  lock  unlock  show  ping  baud <hz>");
+    }
+}
+
 // ── Mode FSM ──────────────────────────────────────────────────────────────────
 enum class XiaoMode { AP, BRIDGE };
 static XiaoMode      s_mode       = XiaoMode::AP;
@@ -575,6 +669,8 @@ static void reset_commanded_state() {
     s_armed  = false;
     s_pump   = false;
     s_last_cmd_ms = millis();
+    s_cmd_locked  = false;
+    s_cmd_len     = 0;
 }
 
 static void start_ap() {
@@ -685,9 +781,19 @@ void loop() {
 
     if (s_mode == XiaoMode::AP) {
         // ── Drain radio (Ranger Micro → XIAO) telemetry ───────────────────
-        while (Serial1.available() && s_radio_len < sizeof(s_radio_buf))
+        while (Serial1.available() && s_radio_len < sizeof(s_radio_buf)) {
             s_radio_buf[s_radio_len++] = (uint8_t)Serial1.read();
+            s_radio_bytes++;
+        }
         parse_radio_stream();
+
+        // ── Periodic RF link status print every 5 s ───────────────────────
+        static unsigned long s_radio_stat_ms = 0;
+        if (now - s_radio_stat_ms >= 5000) {
+            s_radio_stat_ms = now;
+            Serial.printf("radio: rssi_up=%d lq_up=%d rx_bytes=%lu\n",
+                s_tel.rssi_up, s_tel.lq_up, (unsigned long)s_radio_bytes);
+        }
 
         // ── Record a GPS track point every 5 s when fix ───────────────────
         if (s_tel.gps_fix && (now - s_track_last_ms) >= 5000) {
@@ -696,9 +802,26 @@ void loop() {
                 s_track[s_track_len++] = { (float)s_tel.gps_lat, (float)s_tel.gps_lng };
         }
 
-        // ── Check Pi USB serial for heartbeat ─────────────────────────────
-        while (Serial.available() && s_pi_len < sizeof(s_pi_buf))
-            s_pi_buf[s_pi_len++] = (uint8_t)Serial.read();
+        // ── Check Pi USB serial: ASCII→command parser; high bytes→heartbeat ──
+        // Bytes < 0x80 (printable ASCII, LF, CR) are accumulated as text
+        // commands and parsed when '\n' is seen.  Bytes ≥ 0x80 (CRSF sync
+        // 0xC8 and high-byte payload) are routed to s_pi_buf for heartbeat
+        // detection so the Pi→Mode 3 transition still works.
+        while (Serial.available()) {
+            uint8_t b = (uint8_t)Serial.read();
+            if (b < 0x80) {
+                if (b == '\r') { /* ignore CR */ }
+                else if (b == '\n') {
+                    s_cmd_line[s_cmd_len] = '\0';
+                    handle_serial_cmd(s_cmd_line, s_cmd_len);
+                    s_cmd_len = 0;
+                } else if (s_cmd_len < (int)sizeof(s_cmd_line) - 1) {
+                    s_cmd_line[s_cmd_len++] = (char)b;
+                }
+            } else if (s_pi_len < sizeof(s_pi_buf)) {
+                s_pi_buf[s_pi_len++] = b;
+            }
+        }
         if (scan_pi_for_heartbeat()) {
             s_last_hb_ms = now;
             Serial.println("bridge: Pi heartbeat detected — switching to Mode 3");

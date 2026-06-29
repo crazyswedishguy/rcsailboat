@@ -1,6 +1,6 @@
 #pragma once
 
-#define PROTOCOL_VERSION 2
+#define PROTOCOL_VERSION 3
 
 // CRSF channel indices (0-based for array access).
 // The 1-based channel numbers in docs/protocol.md map to these by subtracting 1.
@@ -8,7 +8,12 @@
 #define CH_SAIL     1  // 0.0 (out) .. +1.0 (in)
 #define CH_THROTTLE 2  // -1.0 (reverse) .. +1.0 (forward)
 #define CH_ARM      3  // 0.0 = disarmed, 1.0 = armed
-#define CH_MODE     4  // 0.0 = manual; others reserved
+#define CH_MODE     4  // >0.5 (held >=300ms) = remote request for ELRS control
+                       // mode, equivalent to the touchscreen "Enable ELRS"
+                       // button; <0.5 (held >=3000ms) releases back to WiFi
+                       // mode. Asymmetric debounce: quick to enter, slow to
+                       // leave, since leaving tears down/restarts the boat's
+                       // WiFi AP. See docs/protocol.md "Remote mode switching".
 #define CH_RESTART  5  // hold at +1.0 for ≥2 s while disarmed → ESP.restart()
 #define CH_PUMP     6  // 0.0 = off, 1.0 = on — manual bilge pump override (not arm-gated)
 

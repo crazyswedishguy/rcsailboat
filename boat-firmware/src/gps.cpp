@@ -37,15 +37,30 @@ void gps_init()
 // Call from loop() without rate-limiting — parser is byte-by-byte, very fast.
 void gps_update()
 {
-    while (s_serial.available())
-        s_gps.encode(s_serial.read());
+    // Echo raw NMEA to console for the first 20 s so we can verify the module
+    // is sending valid sentences (not garbled or UBX binary).
+    static bool s_echo_done = false;
+    if (!s_echo_done) {
+        while (s_serial.available()) {
+            char c = (char)s_serial.read();
+            Serial.write(c);
+            s_gps.encode(c);
+        }
+        if (millis() > 20000) s_echo_done = true;
+    } else {
+        while (s_serial.available())
+            s_gps.encode(s_serial.read());
+    }
 
-    // Periodic diagnostic: charsProcessed==0 after a few seconds → wiring fault.
+    // Periodic diagnostic — charsProcessed==0 → wiring fault;
+    // passed==0 && failed>0 → baud rate mismatch or binary protocol.
     static unsigned long s_diag_ms = 0;
     if (millis() - s_diag_ms >= 5000) {
         s_diag_ms = millis();
-        Serial.printf("gps: chars=%lu sats=%u fix=%s\n",
+        Serial.printf("gps: chars=%lu passed=%lu failed=%lu sats=%u fix=%s\n",
                       s_gps.charsProcessed(),
+                      s_gps.passedChecksum(),
+                      s_gps.failedChecksum(),
                       gps_satellites(),
                       gps_has_fix() ? "YES" : "no");
     }

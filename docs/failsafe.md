@@ -62,6 +62,35 @@ Key rules:
 - **ARMED → FAILSAFE** on any of: no fresh CRSF frame for 500 ms, CRSF reports `link_lost`, or the PCA9685 I²C bus errors repeatedly.
 - **FAILSAFE → DISARMED** only after the link is healthy *and* the operator has returned the arm channel to 0.0 and back to 1.0. This is deliberate: returning to port should be a conscious act, not automatic.
 
+## Control-mode switching (WiFi ↔ ELRS)
+
+The boat's control *input source* (its own WiFi AP, or the ELRS receiver) is
+a separate concern from the FAILSAFE state machine above, but interacts with
+it. `CtrlMode` defaults to `WIFI` at boot and can change three ways:
+
+1. **Touchscreen** — operator taps "Enable ELRS" / "Enable WiFi" on the boat.
+2. **Remote request** (`CH_MODE`, channel 5, PROTOCOL_VERSION ≥ 3) — a live,
+   CRC-valid CRSF stream asserting `CH_MODE > 0.5` for ≥300 ms is treated as
+   an equally deliberate signal as a touchscreen tap, and switches the boat
+   into `CtrlMode::ELRS` immediately — **no arbitration** with an active WiFi
+   session. Releasing `CH_MODE` for ≥3 s switches back to `WIFI` — that exit
+   debounce is deliberately much longer than the 300 ms entry debounce, since
+   it triggers an AP teardown/restart and must not flap on a brief polling gap.
+3. **Sustained ELRS link loss while in `CtrlMode::ELRS`** — after **12 s**
+   with no valid CRSF frames (independent of, and much slower than, the
+   500 ms FAILSAFE servo-neutral response below), the boat reverts to
+   `CtrlMode::WIFI` automatically, so a bystander can always recover the boat
+   from its own AP without needing to touch the screen.
+
+Switching `CtrlMode` either direction tears down/starts the boat's own WiFi
+AP and zeroes any in-flight WiFi-mode command (`wifi_ctrl.cpp`'s
+`stop_ap()`/`start_ap()`), exactly as the manual touchscreen toggle already
+did — the remote path reuses the same `wifi_ctrl_set_mode()` entry point, it
+just adds an automatic trigger. The existing FAILSAFE state machine (BOOT →
+DISARMED → ARMED → FAILSAFE) is unaffected and continues to apply safe servo
+positions within 500 ms of any link loss while `CtrlMode::ELRS` is active,
+regardless of how that mode was entered.
+
 ## Motor-specific safety
 
 - ESC is held at neutral PWM (1500 µs) for **at least 2 seconds** at boot so the Quicrun 1060 can arm cleanly.

@@ -12,7 +12,7 @@ ELRS supports up to 16 channels per packet (via CRSF). We use the first few; the
 | 2 | Sail trim | 0.0 (sheeted out) to +1.0 (sheeted in) | Unipolar |
 | 3 | Throttle | -1.0 (reverse) to +1.0 (forward) | Neutral = 0.0; the ESC must see neutral at arm |
 | 4 | Arm / disarm | 0.0 = disarmed, 1.0 = armed | Required to be 1.0 for motor to respond |
-| 5 | Mode | discrete: 0.0 = manual, 0.5 = (reserved), 1.0 = (reserved) | For future use |
+| 5 | Mode | >0.5 = request ELRS control mode, <0.5 = release to WiFi mode | See "Remote mode switching" below |
 | 6 | System restart | 0.0 = idle, 1.0 = restart requested | Hold at max for ≥ 2 s **while arm channel is low (disarmed)** → `ESP.restart()`. Disarmed gate is mandatory — never restart while motor could be running. Implement in Phase 3 alongside the CRSF channel handler. |
 | 7 | Bilge pump | 0.0 = off, 1.0 = on | Manual override of the bilge pump from any control mode. The boat's automatic bilge logic still runs; this channel forces the pump on. Not gated by arm. |
 | 8–16 | Reserved | — | Don't use without updating this doc |
@@ -33,6 +33,41 @@ In practice, use the standard CRSF helpers from whichever library is chosen; don
 - Pi transmits channels at **50 Hz**.
 - Boat reads channels as they arrive (CRSF is event-driven).
 - If the boat sees no fresh channel frame for **500 ms**, it declares link loss (see `failsafe.md`).
+
+### Remote mode switching (channel 5 / `CH_MODE`)
+
+The boat's control input source — its own WiFi AP (`CtrlMode::WIFI`, default at
+boot) or the ELRS receiver (`CtrlMode::ELRS`) — was originally toggled only by
+a physical button on the boat's touchscreen. Since Mode 2/3 are meant to be
+used *without* physical access to the boat, the boat firmware also honors a
+remote request on `CH_MODE`:
+
+- A live, CRC-valid CRSF stream with `CH_MODE > 0.5`, held for **≥300 ms**
+  (debounce), switches the boat into `CtrlMode::ELRS` — the same effect as
+  pressing "Enable ELRS" on the touchscreen (AP torn down, WiFi session
+  zeroed). The XIAO (`crsf-bridge/`) asserts this whenever someone actually
+  has the Mode 2 page open and polling `/control` within the last **2.5 s**
+  (`MODE_REQUEST_TIMEOUT_MS`, looser than the 500 ms servo-safety timeout) —
+  not merely because the XIAO and Ranger Micro happen to be powered on with
+  no one connected. This is independent of arm state: switching into ELRS
+  mode to check telemetry before arming is intentionally allowed. No separate
+  "go ELRS" UI button is needed — opening the page is itself the signal.
+- Releasing `CH_MODE` below 0.5 for **≥3 s** switches back to `CtrlMode::WIFI`.
+  This debounce is deliberately asymmetric (300 ms to enter, 3 s to leave):
+  entering should feel responsive, but leaving tears down and restarts the
+  boat's own WiFi AP, so a brief polling gap (mobile network/JS jitter) must
+  not flap the AP up and down — this was observed on the bench (rapid
+  WiFi-stack errors) before the timeouts were loosened.
+- There is **no arbitration** with an active WiFi session: a live ELRS stream
+  is treated as just as strong a signal of present, deliberate operator intent
+  as a touchscreen tap, so it always wins immediately.
+- If the boat is in `CtrlMode::ELRS` and the ELRS link itself is lost for
+  **>12 s** (independent of, and slower than, the 500 ms servo-failsafe
+  response), the boat automatically reverts to `CtrlMode::WIFI` so a bystander
+  can recover it from the boat's own AP without touching the screen.
+- `base-station/app/elrs_bridge.py` (Mode 3 / Pi) does not yet set `CH_MODE` —
+  it currently sends channel 5 centered, so Mode 3 still requires a manual
+  touchscreen switch into ELRS mode until that's wired up.
 
 ## Telemetry link: boat → Pi
 
@@ -109,5 +144,6 @@ PROTOCOL_VERSION = 2
 
 ### Version history
 
+- **v3** — channel 5 (`CH_MODE`) repurposed from "reserved" to a remote ELRS-mode-switch request (see "Remote mode switching" above).
 - **v2** — added channel 7 (bilge pump); added the SAILBOAT status byte (capsized/bilge_wet/pump_active/armed/failsafe); raised ATTITUDE to 24 Hz; specified the 250 Hz / 1:4 ELRS link config.
 - **v1** — initial channel map + standard CRSF telemetry frames.

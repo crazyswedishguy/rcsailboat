@@ -75,11 +75,12 @@ void elrs_update()
     static uint32_t s_dbg_ms = 0;
     if (millis() - s_dbg_ms >= 100) {
         s_dbg_ms = millis();
-        Serial.printf("elrs: rud=%+.2f sail=%.2f thr=%+.2f arm=%.2f  LQ=%u%%  RSSI=-%udBm\n",
+        Serial.printf("elrs: rud=%+.2f sail=%.2f thr=%+.2f arm=%.2f mode=%+.2f  LQ=%u%%  RSSI=-%udBm\n",
                       elrs_get_channel(CH_RUDDER),
                       elrs_get_channel(CH_SAIL),
                       elrs_get_channel(CH_THROTTLE),
                       elrs_get_channel(CH_ARM),
+                      elrs_get_channel(CH_MODE),
                       elrs_link_quality(), elrs_rssi());
     }
 }
