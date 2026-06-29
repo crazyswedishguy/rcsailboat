@@ -45,7 +45,7 @@ docs/
 
 **Board:** Waveshare ESP32-S3-Touch-AMOLED-1.64
 
-- **MCU:** ESP32-S3R8 — Xtensa LX7 dual-core @ 240 MHz, 512 KB SRAM, 8 MB PSRAM, 16 MB Flash
+- **MCU:** ESP32-S3R8 — Xtensa LX7 dual-core @ 240 MHz, 512 KB SRAM, 8 MB PSRAM, 8 MB Flash (GigaDevice GD25Q64, 0xC8/0x4017 — board docs say 16 MB, chip confirmed 8 MB via esptool flash-id)
 - **Display:** 1.64" AMOLED 280×456, **CO5300** driver over **QSPI**. Uncommon controller — TFT_eSPI does NOT support it. Use Waveshare's driver from `docs/waveshare-demo/`.
 - **Touch:** **FT3168** capacitive, I²C
 - **IMU:** **QMI8658** 6-axis (accel + gyro), I²C. On board but **not currently used** — see "What to ask before doing."
