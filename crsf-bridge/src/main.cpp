@@ -44,10 +44,10 @@ namespace cfg {
     constexpr char   AP_SSID[]         = "Mistral-2";
     constexpr char   AP_PASS[]         = "readyabout";
     constexpr uint32_t CTRL_TIMEOUT_MS = 500;    // servo timeout (same as boat)
-    constexpr uint32_t MODE_REQUEST_TIMEOUT_MS = 2500;  // CH_MODE presence signal --
-                                                          // looser than CTRL_TIMEOUT_MS so
-                                                          // brief mobile-network/JS polling
-                                                          // gaps don't drop remote ELRS mode
+    constexpr uint32_t MODE_REQUEST_TIMEOUT_MS = 30000; // CH_MODE presence signal —
+                                                          // 30 s of inactivity before dropping
+                                                          // to centre, so Mode 2 sessions stay
+                                                          // stable across browser polling gaps
     constexpr uint32_t TX_PERIOD_MS    = 20;     // 50 Hz RC output
     constexpr uint32_t HB_TIMEOUT_MS   = 2000;  // Pi absence → revert to AP mode
 }

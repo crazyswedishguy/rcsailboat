@@ -94,6 +94,66 @@ void setup()
     Serial.println("rcsailboat firmware ready");
 }
 
+// ── Remote ELRS mode-switch request (CH_MODE channel) ──────────────────────────
+// CH_MODE > 0.5 held for ≥300 ms switches the boat into ELRS control mode,
+// equivalent to pressing "Enable ELRS" on the touchscreen.  Once in ELRS mode,
+// the boat stays there regardless of whether CH_MODE returns to centre — a
+// transient drop (browser polling gap, Mode 2 inactivity timeout) must NOT
+// revert the mode.  The only automatic exit is a 12 s RF link loss, which
+// signals that the transmitter is genuinely gone and a local bystander may need
+// to recover the boat via WiFi.  A deliberate exit is via the touchscreen
+// "Disable ELRS" button or CH_RESTART.
+// See docs/protocol.md and docs/failsafe.md.
+namespace remote_mode {
+    constexpr unsigned long ENTER_DEBOUNCE_MS = 300;
+    constexpr unsigned long LOSS_REVERT_MS    = 12000;
+
+    static bool          s_want_elrs     = false;
+    static unsigned long s_want_since_ms = 0;
+    static unsigned long s_link_lost_ms  = 0;
+}
+
+static void update_remote_mode_request()
+{
+    using namespace remote_mode;
+
+    bool     link  = elrs_link_ok();
+    bool     req   = link && elrs_get_channel(CH_MODE) > 0.5f;
+    CtrlMode mode  = wifi_ctrl_mode();
+
+    if (req != s_want_elrs) {
+        s_want_elrs     = req;
+        s_want_since_ms = millis();
+    }
+
+    // Enter ELRS: CH_MODE asserted for ≥300 ms while currently in WiFi mode.
+    if (mode == CtrlMode::WIFI && s_want_elrs &&
+        (millis() - s_want_since_ms) >= ENTER_DEBOUNCE_MS) {
+        Serial.println("main: remote CH_MODE request — switching to ELRS mode");
+        wifi_ctrl_set_mode(CtrlMode::ELRS);
+    }
+    // Note: CH_MODE dropping back to centre does NOT revert ELRS mode.
+    // Revert happens only via LOSS_REVERT (below) or touchscreen "Disable ELRS".
+
+    // Slower, independent timescale from failsafe's 500 ms servo-neutral
+    // response: if the ELRS link itself is gone for a long time while in
+    // ELRS mode, give control authority back to WiFi so the boat isn't
+    // stranded waiting for a transmitter that may never come back.
+    if (mode == CtrlMode::ELRS) {
+        if (link) {
+            s_link_lost_ms = 0;
+        } else if (s_link_lost_ms == 0) {
+            s_link_lost_ms = millis();
+        } else if ((millis() - s_link_lost_ms) >= LOSS_REVERT_MS) {
+            Serial.println("main: ELRS link lost >12s — reverting to WiFi mode");
+            wifi_ctrl_set_mode(CtrlMode::WIFI);
+            s_link_lost_ms = 0;
+        }
+    } else {
+        s_link_lost_ms = 0;
+    }
+}
+
 void loop()
 {
     // Dispatch any pending repair request from the display Repair button.
@@ -109,10 +169,15 @@ void loop()
     // Handle WiFi HTTP requests and apply any queued mode switches.
     wifi_ctrl_update();
 
+    // Parse CRSF unconditionally (not just while in ELRS mode) so a remote
+    // operator's CH_MODE request and link status are observable even while
+    // still in WiFi mode -- required for update_remote_mode_request() below.
+    elrs_update();
+    update_remote_mode_request();
+
     // ── Mode-aware servo control ──────────────────────────────────────────────
     if (wifi_ctrl_mode() == CtrlMode::ELRS) {
-        // ELRS mode: parse CRSF, run failsafe, apply channels or safe positions.
-        elrs_update();
+        // ELRS mode: run failsafe, apply channels or safe positions.
         failsafe_update();
         if (failsafe_active()) {
             servos_set(pwm_ch::RUDDER,     failsafe_pos::RUDDER);
