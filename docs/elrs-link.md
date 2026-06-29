@@ -96,8 +96,9 @@ the same UID. Bind phrase `darkandstormy` → UID `[68, 39, 235, 76, 236, 172]`
 - `Serial` (native USB-CDC, `ARDUINO_USB_CDC_ON_BOOT=1`) ↔ Pi (Mode 3) or
   unused (Mode 2).
 - `Serial1` (hardware UART1 on GPIO43/44) ↔ Ranger Micro, fixed at
-  **400000 baud** — this is the rate that matters for CRSF timing; the
-  Pi-side baud for USB-CDC is nominal and doesn't need to match.
+  **420000 baud** (ELRS CRSF standard; same as receiver-to-FC) — this is the
+  rate that matters for CRSF timing; the Pi-side baud for USB-CDC is nominal
+  and doesn't need to match.
 - In **Mode 3 (bridge)**: non-blocking bidirectional byte pump. Strips
   heartbeat frames (type `0x7E`) so they never reach the Ranger Micro.
 - In **Mode 2 (standalone AP)**: WiFi AP at `192.168.5.1`, HTTP server on

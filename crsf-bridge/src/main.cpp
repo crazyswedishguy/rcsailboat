@@ -19,7 +19,7 @@
 //   neutral/disarmed before the new source takes over.
 //
 // Wiring (XIAO ESP32-S3):
-//   Serial1 TX  = GPIO43 (D6) → 1kΩ resistor → Ranger Micro signal pin
+//   Serial1 TX  = GPIO43 (D6) → 470Ω resistor → Ranger Micro signal pin
 //   Serial1 RX  = GPIO44 (D7) direct
 //   USB-CDC     = Serial (native USB, enumerates as /dev/ttyACM0 on Pi)
 //
@@ -39,11 +39,15 @@
 // ── Configuration ──────────────────────────────────────────────────────────────
 namespace cfg {
     constexpr int    CRSF_RX           = 44;      // D7, direct from Ranger Micro
-    constexpr int    CRSF_TX           = 43;      // D6 → 1kΩ → Ranger Micro signal pin
-    constexpr uint32_t CRSF_BAUD      = 400000;  // JR-bay module port; ≠ receiver-to-FC (420000)
+    constexpr int    CRSF_TX           = 43;      // D6 → 470Ω → Ranger Micro signal pin
+    constexpr uint32_t CRSF_BAUD      = 420000;  // ELRS CRSF standard (same as receiver-to-FC)
     constexpr char   AP_SSID[]         = "Mistral-2";
     constexpr char   AP_PASS[]         = "readyabout";
     constexpr uint32_t CTRL_TIMEOUT_MS = 500;    // servo timeout (same as boat)
+    constexpr uint32_t MODE_REQUEST_TIMEOUT_MS = 2500;  // CH_MODE presence signal --
+                                                          // looser than CTRL_TIMEOUT_MS so
+                                                          // brief mobile-network/JS polling
+                                                          // gaps don't drop remote ELRS mode
     constexpr uint32_t TX_PERIOD_MS    = 20;     // 50 Hz RC output
     constexpr uint32_t HB_TIMEOUT_MS   = 2000;  // Pi absence → revert to AP mode
 }
@@ -128,6 +132,22 @@ static bool          s_armed       = false;
 static bool          s_pump        = false;
 static unsigned long s_last_cmd_ms = 0;
 
+// CRSF DEVICE_PING — announces the XIAO as a handset to the Ranger Micro.
+// EdgeTX sends this once per second; without it some ELRS TX module firmware
+// stays in "no handset" mode and ignores incoming RC channels.
+// CRSF format (CRSF WG spec): [dest][len=3][0x28][origin][CRC over type+origin]
+//   dest=0xEE  (CRSF transmitter = Ranger Micro)
+//   origin=0xEA (radio transmitter = XIAO/handset)
+static void send_device_ping() {
+    uint8_t f[5];
+    f[0] = 0xEE;                  // destination: CRSF transmitter (Ranger Micro)
+    f[1] = 3;                     // len = type(1) + origin(1) + CRC(1)
+    f[2] = 0x28;                  // DEVICE_PING
+    f[3] = 0xEA;                  // origin: radio transmitter (handset/XIAO)
+    f[4] = crsf_crc8(f + 2, 2);  // CRC over type + origin
+    Serial1.write(f, sizeof(f));
+}
+
 // Build a 26-byte CRSF RC Channels Packed frame from current commanded state.
 // Applies control timeout: if no /control hit recently, output neutral/disarmed.
 static void build_rc_frame(uint8_t buf[26]) {
@@ -141,16 +161,28 @@ static void build_rc_frame(uint8_t buf[26]) {
     ch[CH_SAIL]     = ch_unipolar(s_sail);
     ch[CH_THROTTLE] = ch_centered(active ? s_throttle : 0.0f);
     ch[CH_ARM]      = active ? CRSF_CH_MAX : CRSF_CH_MIN;
-    ch[CH_MODE]     = CRSF_CH_CENTER;   // manual mode
+    // Request the boat switch into ELRS mode only while someone actually has
+    // the Mode 2 page open and polling /control -- not merely because the
+    // XIAO+Ranger Micro happen to be powered on with no one connected.
+    // Independent of `active`/armed: switching into ELRS mode to check
+    // telemetry before arming is intentionally allowed. Uses the looser
+    // MODE_REQUEST_TIMEOUT_MS (not the 500 ms servo `timed_out`) so brief
+    // polling gaps don't flap the boat's WiFi AP up/down. See
+    // docs/protocol.md "Remote mode switching".
+    bool mode_timed_out = (millis() - s_last_cmd_ms) > cfg::MODE_REQUEST_TIMEOUT_MS;
+    ch[CH_MODE]     = mode_timed_out ? CRSF_CH_CENTER : CRSF_CH_MAX;
     ch[CH_RESTART]  = CRSF_CH_MIN;      // idle
     ch[CH_PUMP]     = s_pump ? CRSF_CH_MAX : CRSF_CH_MIN;  // not arm-gated
 
     uint8_t payload[22];
     pack_channels(ch, payload);
 
-    // Frame: [0xC8][24][0x16][22-byte payload][CRC]
+    // Frame: [0xEE][24][0x16][22-byte payload][CRC]
+    // Destination 0xEE = CRSF_ADDRESS_CRSF_TRANSMITTER (Ranger Micro).
+    // Handset→TX module frames must use 0xEE, not 0xC8 (FC address); using
+    // 0xC8 causes some ELRS TX firmware to ignore the frame for handset detection.
     // length field = 24 = type(1) + payload(22) + CRC(1)
-    buf[0] = CRSF_SYNC;
+    buf[0] = 0xEE;
     buf[1] = 24;
     buf[2] = CRSF_TYPE_RC;
     memcpy(buf + 3, payload, 22);
@@ -295,10 +327,24 @@ static unsigned long s_radio_last_ms = 0;
 // Decodes telemetry into s_tel.
 static void parse_radio_stream() {
     static uint32_t s_dbg_crc = 0;
+    // Track non-0xC8 bytes dropped during sync-seeking — if non-zero,
+    // the Ranger Micro sends frames with a different address byte that
+    // our parser currently discards (e.g. 0xEA = radio-transmitter-directed).
+    static uint32_t s_dbg_skip = 0;
+    static uint8_t  s_skip_seen[8] = {};
+    static uint8_t  s_skip_n = 0;
     while (s_radio_len >= 2) {
-        // Seek sync
-        while (s_radio_len > 0 && s_radio_buf[0] != CRSF_SYNC)
+        // Seek sync — only 0xC8 is a valid frame start for our parser.
+        // Track any non-0xC8 bytes that get skipped; if 0xEA or 0xEE appear
+        // here, the Ranger Micro sends TX→handset frames we're not yet parsing.
+        while (s_radio_len > 0 && s_radio_buf[0] != CRSF_SYNC) {
+            uint8_t b = s_radio_buf[0];
+            bool found = false;
+            for (uint8_t i = 0; i < s_skip_n; i++) if (s_skip_seen[i]==b) { found=true; break; }
+            if (!found && s_skip_n < 8) s_skip_seen[s_skip_n++] = b;
+            s_dbg_skip++;
             memmove(s_radio_buf, s_radio_buf + 1, --s_radio_len);
+        }
         if (s_radio_len < 2) break;
         uint8_t frame_len = s_radio_buf[1];
         size_t  total     = 2u + frame_len;
@@ -338,9 +384,15 @@ static void parse_radio_stream() {
         unsigned long dbg_now = millis();
         if (dbg_now - dbg_last_ms >= 5000) {
             dbg_last_ms = dbg_now;
-            Serial.printf("[telem/5s] att=%u bat=%u gps=%u sb=%u lq=%u crc_fail=%u | roll=%.1f pit=%.1f yaw=%.1f\n",
-                dbg_att, dbg_bat, dbg_gps, dbg_sb, dbg_lq, s_dbg_crc,
+            Serial.printf("[telem/5s] att=%u bat=%u gps=%u sb=%u lq=%u crc_fail=%u skip=%u | roll=%.1f pit=%.1f yaw=%.1f\n",
+                dbg_att, dbg_bat, dbg_gps, dbg_sb, dbg_lq, s_dbg_crc, s_dbg_skip,
                 s_tel.roll_deg, s_tel.pitch_deg, s_tel.yaw_deg);
+            if (s_skip_n > 0) {
+                Serial.print("[skip] non-sync bytes: ");
+                for (uint8_t i = 0; i < s_skip_n; i++)
+                    Serial.printf("0x%02X ", s_skip_seen[i]);
+                Serial.println();
+            }
             for (uint8_t i = 0; i < dbg_unk_n; i++)
                 Serial.printf("[unk] type=0x%02X count=%u\n", dbg_unk_types[i], dbg_unk_count[i]);
         }
@@ -663,6 +715,14 @@ void loop() {
             uint8_t frame[26];
             build_rc_frame(frame);
             Serial1.write(frame, sizeof(frame));
+        }
+
+        // ── DEVICE_PING at 1 Hz — required by ELRS TX modules to leave ────
+        // "no handset" mode (mirrors what EdgeTX sends to announce a radio).
+        static unsigned long s_ping_ms = 0;
+        if (now - s_ping_ms >= 1000) {
+            s_ping_ms = now;
+            send_device_ping();
         }
 
     } else {
