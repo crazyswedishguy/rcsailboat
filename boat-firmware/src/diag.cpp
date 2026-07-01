@@ -62,7 +62,12 @@ void i2c_recover_bus()
 // probe starts with a clean i2c-ng driver state.
 static bool probe_one(uint8_t addr)
 {
+    // Write 1 byte (reg 0x00) so Wire calls i2c_master_transmit() rather than
+    // i2c_master_probe().  Probe-only sends only the address phase; some chips
+    // (including FT3168 on this board) appear not to ACK during a bare address
+    // probe but do respond correctly to an actual write transaction.
     Wire.beginTransmission(addr);
+    Wire.write((uint8_t)0x00);
     bool ok = (Wire.endTransmission(true) == 0);
     if (!ok) i2c_recover_bus();
     return ok;
@@ -72,6 +77,9 @@ void diag_register_reinit(DevId id, diag_reinit_fn fn) { s_reinit[id] = fn; }
 
 void diag_init()
 {
+    // FT3168 needs up to 300 ms to start responding after power-on.
+    // Default Wire timeout is 50 ms (too short); use 500 ms here.
+    Wire.setTimeOut(500);
     Serial.println("diag: I\xC2\xB2""C scan");
     for (uint8_t i = 0; i < DEV_COUNT; i++) {
         bool found = probe_one(s_dev[i].addr);
@@ -80,6 +88,7 @@ void diag_init()
         Serial.printf("  %-8s 0x%02X  %s\n",
                       s_dev[i].name, s_dev[i].addr, found ? "OK" : "absent");
     }
+    Wire.setTimeOut(50);  // restore default for normal operation
 }
 
 void diag_reprobe(DevId id)
