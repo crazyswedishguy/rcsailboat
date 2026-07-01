@@ -139,7 +139,7 @@ When any field in this document changes:
 3. Both sides refuse to operate if versions don't match (log loudly, enter safe state on the boat).
 
 ```
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 ```
 
 ### Version history

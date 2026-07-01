@@ -35,7 +35,7 @@ shared/
 docs/
   ├── pinmap.md         # canonical pin assignments — keep in sync with config.h
   ├── failsafe.md       # failsafe behavior — read before changing motor/throttle code
-  ├── protocol.md       # ELRS channel mapping, telemetry packet schema (PROTOCOL_VERSION=2)
+  ├── protocol.md       # ELRS channel mapping, telemetry packet schema (PROTOCOL_VERSION=3)
   ├── elrs-link.md      # bridge wiring, Mode 2/3 switching, heartbeat, link config
   ├── datasheets/       # CO5300, FT3168, QMI8658, ESP32-S3 TRM
   └── Waveshare Demo/   # vendor reference Arduino code (READ-ONLY reference)
