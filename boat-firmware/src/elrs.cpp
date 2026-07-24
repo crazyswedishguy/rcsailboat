@@ -5,6 +5,15 @@
 // A thin SoftSPI class (below) provides the SPIClass interface via bit-bang
 // so RadioLib's Module constructor can accept it unchanged.
 //
+// DIO1 is intentionally left unconnected: this board has no free GPIO for it
+// (GPIO42, the only header candidate, turned out to be reserved internally
+// for AMOLED_EN — see docs/pinmap.md "Free GPIOs"). Instead of a hardware
+// interrupt, elrs_update() polls the SX1262's IRQ status register over SPI
+// (getIrqFlags()) once per loop() iteration. This costs nothing functionally:
+// the old DIO1 ISR only ever set a flag that was drained on the next
+// elrs_update() call anyway, so processing already happened at loop() cadence
+// either way — polling just reads that same status a different way.
+//
 // Frame format over the air:
 //   XIAO → Boat: CRSF RC_CHANNELS_PACKED (0x16), 26 bytes, up to 50 Hz.
 //   Boat → XIAO: any CRSF telemetry frame built by telemetry.cpp.
@@ -66,8 +75,9 @@ private:
 };
 
 // ── RadioLib objects ───────────────────────────────────────────────────────────
+// irq pin is RADIOLIB_NC (DIO1 not wired) — see file header comment.
 static SoftSPI s_spi(pins::SX_CLK, pins::SX_MISO, pins::SX_MOSI);
-static Module  s_module(pins::SX_CS, pins::SX_DIO1, pins::SX_RESET,
+static Module  s_module(pins::SX_CS, RADIOLIB_NC, pins::SX_RESET,
                         pins::SX_BUSY, s_spi);
 static SX1262  s_radio(&s_module);
 
@@ -85,9 +95,6 @@ static uint8_t  s_lq_pct            = 0;  // computed LQ, refreshed every second
 // Pending telemetry: set by elrs_send_frame(), consumed on the next TX turn.
 static uint8_t  s_tx_buf[64];
 static size_t   s_tx_len = 0;
-
-// DIO1 interrupt flag: set inside ISR, cleared in elrs_update().
-static volatile bool s_packet_ready = false;
 
 // ── CRC-8/DVB-S2 (polynomial 0xD5) ───────────────────────────────────────────
 static uint8_t crc8_dvb_s2(const uint8_t *buf, size_t len)
@@ -129,10 +136,6 @@ static float to_unipolar(float raw)
     float v = (raw - 172.0f) / (1811.0f - 172.0f);
     return v > 1.0f ? 1.0f : v < 0.0f ? 0.0f : v;
 }
-
-// ── DIO1 interrupt handler ─────────────────────────────────────────────────────
-// Runs in ISR context; keep it minimal — just set the flag.
-static void IRAM_ATTR on_dio1() { s_packet_ready = true; }
 
 // ── Process one received LoRa packet ──────────────────────────────────────────
 static void process_rx_packet()
@@ -225,20 +228,21 @@ void elrs_init()
         return;
     }
 
-    s_radio.setDio1Action(on_dio1);
     s_radio.startReceive();
 
     s_pkt_window_start = millis();
 
-    Serial.printf("elrs: SX1262 ready  %.0f MHz / BW%.0f / SF%u  CS=GPIO%u DIO1=GPIO%u\n",
+    Serial.printf("elrs: SX1262 ready  %.0f MHz / BW%.0f / SF%u  CS=GPIO%u (DIO1 unwired — polled)\n",
                   (double)LORA_FREQ_MHZ, (double)LORA_BW_KHZ, (unsigned)LORA_SF,
-                  (unsigned)pins::SX_CS, (unsigned)pins::SX_DIO1);
+                  (unsigned)pins::SX_CS);
 }
 
 void elrs_update()
 {
-    if (s_packet_ready) {
-        s_packet_ready = false;
+    // No DIO1 interrupt wired (see file header) — poll the IRQ status
+    // register over SPI instead. readData() clears IRQ flags internally,
+    // matching what the DIO1 ISR + startReceive() combo did before.
+    if (s_radio.getIrqFlags() & RADIOLIB_SX126X_IRQ_RX_DONE) {
         process_rx_packet();
     }
 

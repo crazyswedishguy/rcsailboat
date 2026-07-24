@@ -3,9 +3,7 @@
 ## Parts
 
 - Raspberry Pi 5 (8 GB)
-- RadioMaster Ranger Micro ELRS TX module
 - Waveshare ESP32-S3 1.64" AMOLED dev board
-- RadioMaster RP3 ELRS receiver
 - PCA9685 16-channel PWM driver breakout
 - Hitec HS-785HB winch servo
 - HobbyPark 7.5 kg waterproof servo

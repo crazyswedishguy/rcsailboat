@@ -8,8 +8,12 @@
 //   SPI2/FSPI = CO5300 AMOLED display (QSPI)
 //   SPI3/HSPI = TF card
 //   SX1262    = software bit-bang on GPIO5 CLK / GPIO6 MOSI / GPIO7 MISO
-//               CS=GPIO8, RESET=GPIO1, DIO1=GPIO42, BUSY=GPIO45
+//               CS=GPIO8, RESET=GPIO1, BUSY=GPIO45
 //               RF switch: RXEN=GPIO16, TXEN=GPIO17
+//               DIO1: not wired — no free GPIO on this board (GPIO42 is
+//               reserved internally as AMOLED_EN). IRQ status is polled
+//               over SPI in elrs_update() instead; leave the module's
+//               DIO1 pin physically unconnected.
 //
 // Protocol over the air: raw CRSF frames.  The XIAO transmits
 // RC_CHANNELS_PACKED (type 0x16) frames at 50 Hz; the boat transmits CRSF

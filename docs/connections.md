@@ -128,7 +128,7 @@ One table per component. Every external pin is listed; onboard-only signals (e.g
 
 Software bit-bang SPI (see elrs.cpp SoftSPI class) because SPI2 = display and SPI3 = TF card.
 
-RadioLib setup: `SX1262 radio(&Module(CS=8, DIO1=42, RESET=1, BUSY=45, softSpi))`  
+RadioLib setup: `SX1262 radio(&Module(CS=8, DIO1=RADIOLIB_NC, RESET=1, BUSY=45, softSpi))`  
 `radio.setRfSwitchPins(RXEN=16, TXEN=17)`
 
 | Pin | Connects to | Wire gauge | Notes |
@@ -140,10 +140,10 @@ RadioLib setup: `SX1262 radio(&Module(CS=8, DIO1=42, RESET=1, BUSY=45, softSpi))
 | MISO | ESP32-S3 GPIO7 | 24–26 AWG | Software SPI data in |
 | CS | ESP32-S3 GPIO8 | 24–26 AWG | Active low; RadioLib controls |
 | RESET | ESP32-S3 GPIO1 | 24–26 AWG | Active low reset |
-| DIO1 | ESP32-S3 GPIO42 | 24–26 AWG | Interrupt: TX/RX done. Verify GPIO42 is broken out. |
+| DIO1 | **Not connected** | — | No free GPIO on this board (GPIO42 is reserved internally as `AMOLED_EN`). Firmware polls IRQ status over SPI instead — see `elrs.cpp`. |
 | BUSY | ESP32-S3 GPIO45 | 24–26 AWG | Strapping pin — safe as input after boot |
-| RXEN | ESP32-S3 GPIO16 | 24–26 AWG | RF switch: enable LNA (freed from RP3 UART) |
-| TXEN | ESP32-S3 GPIO17 | 24–26 AWG | RF switch: enable PA (freed from RP3 UART) |
+| RXEN | ESP32-S3 GPIO16 | 24–26 AWG | RF switch: enable LNA for receive |
+| TXEN | ESP32-S3 GPIO17 | 24–26 AWG | RF switch: enable PA for transmit |
 | DIO2 | Not connected | — | Not required when RXEN/TXEN are wired to MCU |
 
 ---

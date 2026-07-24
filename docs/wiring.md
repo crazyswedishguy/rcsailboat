@@ -188,8 +188,8 @@ The PCA9685 has two separate power inputs:
 
 ## SX1262 LoRa radio — Boat (software SPI)
 
-The Ranger Micro TX + RP3 receiver have been removed. The boat communicates
-directly with the XIAO over a Waveshare SX1262 HF (868/915 MHz) module on each end.
+The boat communicates directly with the XIAO over a Waveshare SX1262 HF
+(868/915 MHz) module on each end.
 
 Both hardware SPI buses on this board are occupied (SPI2 = CO5300 display via QSPI;
 SPI3 = TF card), so the SX1262 uses software bit-bang SPI on free GPIOs.
@@ -197,7 +197,7 @@ SPI3 = TF card), so the SX1262 uses software bit-bang SPI on free GPIOs.
 RadioLib constructor (for reference):
 ```cpp
 // elrs.cpp — SoftSPI s_spi(5, 7, 6); // CLK, MISO, MOSI
-// SX1262 on Module(CS=8, DIO1=42, RESET=1, BUSY=45, s_spi)
+// SX1262 on Module(CS=8, DIO1=RADIOLIB_NC, RESET=1, BUSY=45, s_spi)
 // radio.setRfSwitchPins(16, 17);  // RXEN, TXEN
 ```
 
@@ -208,10 +208,10 @@ RadioLib constructor (for reference):
 | MISO (software SPI) | GPIO7 | MISO | Bit-bang data in |
 | CS | GPIO8 | CS | Active low; controlled by RadioLib |
 | RESET | GPIO1 | RESET | Active low; controlled by RadioLib |
-| DIO1 | GPIO42 | DIO1 | Interrupt: TX done / RX done. Verify GPIO42 is broken out before soldering. |
+| DIO1 | — | **Leave unconnected** | This board has no free GPIO (GPIO42, the only remaining header candidate, is reserved internally as `AMOLED_EN`). Firmware polls IRQ status over SPI in `elrs_update()` instead — see `elrs.cpp`. |
 | BUSY | GPIO45 | BUSY | Polled by RadioLib before every SPI access. GPIO45 is a strapping pin — fine as input after boot. |
-| RXEN | GPIO16 | RXEN | High = LNA on (receive mode). Freed from RP3 UART. |
-| TXEN | GPIO17 | TXEN | High = PA on (transmit mode). Freed from RP3 UART. |
+| RXEN | GPIO16 | RXEN | High = LNA on (receive mode) |
+| TXEN | GPIO17 | TXEN | High = PA on (transmit mode) |
 | DIO2 | — | DIO2 | Leave unconnected (RADIOLIB_NC) |
 | 3V3 | ESP32 3.3V | 3V3 | Module logic supply |
 | GND | GND | GND | |
@@ -358,7 +358,7 @@ graph TD
     I2C_BUS --- TOUCH["FT3168 touch\n0x38 (onboard)"]
     I2C_BUS --- IMU["QMI8658 IMU\n0x6A/6B (onboard)"]
 
-    ESP <-->|software SPI\nGPIO5/6/7/8 + RESET/DIO1/BUSY| SX1262_B["SX1262\n(boat radio)"]
+    ESP <-->|software SPI\nGPIO5/6/7/8 + RESET/BUSY\n(DIO1 unwired, polled)| SX1262_B["SX1262\n(boat radio)"]
     SX1262_B <-->|915 MHz LoRa| SX1262_X["SX1262\n(XIAO radio)"]
 
     ESP <-->|UART2\nGPIO15/18 9600baud| BN880["BN-880 GPS"]
@@ -403,7 +403,7 @@ Components:
   7. Teyleten Robot PCA9685 16-channel PWM servo driver breakout (VCC pin for 5V logic, V+ pin for 6V servo power)
   8. INA228 current/voltage sensor breakout (A0=VS, A1=GND for address 0x41) with a 50A/75mV bus bar shunt in the main battery positive line before the ESC/UBEC split
   9. BN-880 GPS module (UART pins + separate I2C compass pads)
-  10. ELRS receiver module
+  10. Waveshare SX1262 LoRa module (HF, 868/915 MHz) — software SPI, powered from ESP32 3.3V (not the 5V buck)
   11. Bilge float switch sensor
   12. Relay module for bilge pump
 
@@ -428,16 +428,17 @@ Power connections (use thick lines for high-current paths):
 
   Buck converter output 5V → ESP32 USB-C VBUS (yellow, use USB-C pigtail)
   Buck converter output 5V → PCA9685 VCC pin
-  Buck converter output 5V → ELRS receiver VCC
   Buck converter GND → GND rail
 
-  ESP32 3.3V → INA228 VCC, BN-880 VCC (thin red)
+  ESP32 3.3V → INA228 VCC, BN-880 VCC, SX1262 3V3 (thin red)
 
 I2C bus (SDA=GPIO47, SCL=GPIO48 on ESP32):
   Connect in parallel to: PCA9685 (0x40), INA228 (0x41, A0=VS), BN-880 compass (0x1E)
   Add 4.7kΩ pull-ups: SDA → 3.3V, SCL → 3.3V
 
-UART1 (GPIO16 RX, GPIO17 TX) → ELRS receiver TX, RX
+SX1262 software SPI: GPIO5 CLK, GPIO6 MOSI, GPIO7 MISO, GPIO8 CS, GPIO1 RESET, GPIO45 BUSY
+  (DIO1 left unconnected — no free GPIO on this board)
+SX1262 RF switch: GPIO16 RXEN, GPIO17 TXEN
 UART2 (GPIO15 RX, GPIO18 TX) → BN-880 GPS TXD, RXD
 BN-880 SDA/SCL compass pads → I2C bus
 
@@ -454,7 +455,7 @@ Important callouts:
   ⚠ ESC SBEC red wire must be taped off and NOT connected — UBEC owns the servo rail; connecting both BECs causes a voltage conflict
   ⚠ INA228 sits before the ESC/UBEC split and measures total battery current including motor draw
   ⚠ PCA9685 VCC must be 5V from buck — do NOT connect 6V UBEC directly to VCC (max 5.5V)
-  ⚠ ELRS receiver VCC must be 5V from buck — not 3.3V from ESP32
+  ⚠ SX1262 VCC is 3.3V from the ESP32 regulator — do NOT connect to the 5V buck rail
   ⚠ Do NOT connect 3S battery to ESP32 MX1.25 LiPo port (BAT_ADC calibrated for 3.7V only)
 
 Target audience: electronics hobbyist wiring this for the first time. Make high-current wires visually thicker than signal wires.

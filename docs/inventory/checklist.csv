@@ -1,8 +1,6 @@
 Status,Component,Qty,Specification,Purpose,Search hint
-✅ Have,Raspberry Pi 5,1,8 GB RAM,Base station host for web UI and ELRS bridge,—
-✅ Have,RadioMaster Ranger Micro ELRS TX module,1,"2.4 GHz ELRS, USB-serial to Pi",Base station transmitter,—
+✅ Have,Raspberry Pi 5,1,8 GB RAM,Base station host for web UI and CRSF/LoRa bridge,—
 ✅ Have,Waveshare ESP32-S3 1.64" AMOLED dev board,1,"SKU 31197; ESP32-S3R8; onboard QMI8658 IMU, TF card, AMOLED",Boat MCU,—
-✅ Have,RadioMaster RP3 ELRS receiver,1,"2.4 GHz, nano form factor, CRSF over UART",Boat ELRS receiver,—
 ✅ Have,PCA9685 16-ch PWM driver breakout,1,"I²C 0x40, 50 Hz PWM","Drives rudder servo, sail winch, and motor ESC",—
 ✅ Have,Hitec HS-785HB winch servo,1,"Multi-turn, high torque, 6V",Sail sheet trim,—
 ✅ Have,HobbyPark 7.5 kg waterproof servo,1,"Digital, metal gear, waterproof",Rudder,—

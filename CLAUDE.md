@@ -56,16 +56,18 @@ The board's I²C bus (GPIO47 SDA / GPIO48 SCL) is shared by the touch controller
 
 ### GPIO constraints when picking pins for new peripherals
 - **GPIO0** is a strapping pin (BOOT button). Don't drive during boot.
+- **GPIO42** is reserved internally as `AMOLED_EN` — not broken out, not usable for anything.
 - **GPIO45, GPIO46** are strapping pins. GPIO46 is already taken by IMU INT1.
 - **GPIO19/20** are USB D-/D+. Only repurpose if native USB isn't needed.
 - **GPIO43/44** are U0TXD/U0RXD (USB-Serial console). Only repurpose if giving up the console.
+- There are **no free GPIOs left** on this board — every pin is already allocated. Any new peripheral requires either freeing an existing assignment or dropping a non-essential signal (as was done for SX1262 DIO1, which is now polled over SPI instead of wired to a GPIO).
 
 ## Pin map
 
 Canonical sources: **`docs/pinmap.md`** and **`boat-firmware/src/config.h`**. Read those for full assignments. Key facts for quick reference:
 
 - **I²C bus**: GPIO47 SDA / GPIO48 SCL — shared by FT3168 (0x38), PCA9685 (0x40), INA228 (0x41), HMC5883L (0x1E), QMI8658 (0x6A/0x6B)
-- **SX1262 LoRa (boat)**: software SPI — CLK=GPIO5, MOSI=GPIO6, MISO=GPIO7, CS=GPIO8, RESET=GPIO1, DIO1=GPIO42, BUSY=GPIO45, RXEN=GPIO16, TXEN=GPIO17
+- **SX1262 LoRa (boat)**: software SPI — CLK=GPIO5, MOSI=GPIO6, MISO=GPIO7, CS=GPIO8, RESET=GPIO1, BUSY=GPIO45, RXEN=GPIO16, TXEN=GPIO17. DIO1 is unwired (no free GPIO — GPIO42 is reserved internally as AMOLED_EN); IRQ status is polled over SPI instead.
 - **GPS UART2**: GPIO15 RX / GPIO18 TX — 9 600 baud
 - **Bilge sensor**: GPIO2 (ADC1_CH1, analogRead) / **Bilge pump MOSFET gate**: GPIO3
 - **TF card SPI**: GPIO38 CS / GPIO39 MOSI / GPIO40 MISO / GPIO41 SCLK (internal PCB traces)

@@ -39,6 +39,13 @@ constexpr uint8_t QMI8658  = 0x6B;        // IMU (onboard); verify with i2cdetec
 //   SPI2/FSPI = CO5300 AMOLED display via QSPI;
 //   SPI3/HSPI = TF card).
 // Bit-bang SPI is implemented in elrs.cpp via a SoftSPI wrapper class.
+//
+// DIO1 is NOT wired to a GPIO: this board has no free pin for it. GPIO42
+// (the only remaining header candidate) is reserved internally as AMOLED_EN
+// and is not usable for anything else. elrs.cpp polls the radio's IRQ status
+// over SPI (getIrqFlags()) once per loop() instead of using a DIO1 interrupt
+// — see the comment at the top of elrs.cpp for why this costs nothing.
+// Leave the SX1262 module's DIO1 pin physically unconnected.
 // =============================================================================
 namespace pins {
 // SPI data lines — software bit-bang on any free GPIOs
@@ -48,7 +55,6 @@ constexpr uint8_t SX_MISO  = 7;   // software SPI MISO
 // SPI chip-select and RadioLib control signals
 constexpr uint8_t SX_CS    = 8;   // active-low chip select
 constexpr uint8_t SX_RESET = 1;   // active-low module reset
-constexpr uint8_t SX_DIO1  = 42;  // interrupt out: TX done / RX done / CAD done
 constexpr uint8_t SX_BUSY  = 45;  // busy flag (GPIO45 = VDD_SPI strapping pin — safe as input post-boot)
 // RF-switch control — Waveshare SX1262 module has separate RXEN / TXEN
 constexpr uint8_t SX_RXEN  = 16;  // high = LNA enabled (RX mode)

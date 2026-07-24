@@ -108,7 +108,7 @@ GPIO16 and GPIO17 are now used for SX1262 RXEN and TXEN. See SX1262 section belo
 | MISO (software SPI) | 7 | Free header GPIO |
 | CS | 8 | Free header GPIO |
 | RESET | 1 | Free header GPIO |
-| DIO1 | 42 | Free header GPIO — verify breakout before soldering |
+| DIO1 | — | **Leave unconnected.** GPIO42, the only remaining header candidate, is reserved internally as `AMOLED_EN` and not usable — this board has no free GPIO left for a DIO1 interrupt. Firmware polls the SX1262's IRQ status register over SPI (`getIrqFlags()`) once per `loop()` instead. See `boat-firmware/src/elrs.cpp`. |
 | BUSY | 45 | Strapping pin (VDD_SPI) — safe as input after boot |
 | RXEN | 16 | Freed from RP3 UART1 RX |
 | TXEN | 17 | Freed from RP3 UART1 TX |
@@ -162,13 +162,13 @@ Run `i2cdetect`-equivalent at first power-up and check this list matches.
 
 ## Free GPIOs
 
-All free GPIOs are now assigned to the SX1262 LoRa radio. No header GPIOs remain unallocated.
+None. Every GPIO on this board's header is allocated, and GPIO22–25 don't exist on the ESP32-S3 die while GPIO26–37 are consumed internally by the flash/octal-PSRAM SPI bus — there was never any slack there to begin with.
 
-*(GPIO2/3 = bilge sensor/pump; GPIO15/18 = GPS UART2; GPIO1/5/6/7/8/42/45 = SX1262 SPI+control; GPIO16/17 = SX1262 RXEN/TXEN)*
+*(GPIO2/3 = bilge sensor/pump; GPIO15/18 = GPS UART2; GPIO1/5/6/7/8/45 = SX1262 SPI+control; GPIO16/17 = SX1262 RXEN/TXEN)*
 
 **Caveats:**
 - GPIO45 is a strapping pin — fine as input or as output after boot, but don't pull it during reset.
-- GPIO42 is unlabeled in the schematic's GPIO table — verify it's actually broken out before planning to use it.
+- **GPIO42 is not available.** It's confirmed reserved internally as `AMOLED_EN` (display enable), not broken out to a header — do not plan to use it for anything. This is why the SX1262's DIO1 line is left unconnected (see the SX1262 section above); there is no free GPIO to give it.
 
 ## Reserved / strapping pins (avoid unless you know what you're doing)
 
@@ -193,4 +193,4 @@ These are the items still marked `TODO` above. Resolve them by reading the Waves
 - [x] Display TE GPIO — not used; Waveshare demo does not wire TE
 - [ ] IMU I²C address (0x6A vs 0x6B) — confirm with i2cdetect
 - [ ] PCA9685 /OE pin assignment (or tie to GND)
-- [ ] Confirm GPIO42 is broken out to a header
+- [x] Confirm GPIO42 is broken out to a header — **not available**, reserved internally as `AMOLED_EN`. SX1262 DIO1 is left unconnected; firmware polls IRQ status over SPI instead.
