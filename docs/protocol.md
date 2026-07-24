@@ -82,7 +82,7 @@ Use CRSF's standard telemetry frame types where they fit (battery, GPS if ever a
 | CRSF frame | Fields carried | Source | Rate |
 |---|---|---|---|
 | `BATTERY_SENSOR` (0x08) | voltage (dV), current (dA), capacity used (mAh), remaining % | INA219 + estimator | 2 Hz |
-| `ATTITUDE` (0x1E) | pitch, roll, yaw (0.0001 rad) | Onboard IMU (roll = heel) | **24 Hz** |
+| `ATTITUDE` (0x1E) | pitch, roll (int8, ~1.4°/LSB), heading (uint8, ~1.4°/LSB) — custom, not standard CRSF (see below) | Onboard IMU (roll = heel) | **24 Hz** |
 | `LINK_STATISTICS` (0x14) | RSSI, LQ, SNR, etc. | Auto-populated by ELRS stack | automatic |
 | `FLIGHT_MODE` (0x21) | short text: "MANUAL", "FAILSAFE", "DISARMED" | Firmware state | on change |
 | `GPS` (0x02) | lat (°×1e7 int32), lng (°×1e7 int32), groundspeed (km/h×10 uint16), heading (°×100 uint16), altitude (m+1000 uint16), satellites (uint8) | GPS module on UART2 — **optional**, requires `-DGPS_ENABLED` build flag | 1 Hz when fix acquired |
@@ -112,6 +112,18 @@ Status byte bits (LSB = bit 0):
 
 This replaces the previous 8-byte SAILBOAT payload (the trailing status byte is new in PROTOCOL_VERSION 2). Remote control modes (Pi, XIAO) use these flags to render the same bilge / capsize / pump indicators the boat's own page shows.
 
+### Custom ATTITUDE frame (0x1E) — 3-byte payload (PROTOCOL_VERSION 4)
+
+No longer the CRSF-standard 6-byte (int16 rad×10000) encoding. Shrunk because ATTITUDE is by far the highest-rate telemetry frame (24 Hz) and its size directly bounds how long the boat's SX1262 needs to key up for a reply within the XIAO's fixed telemetry listen window (see `TELEM_WAIT_MS` in `crsf-bridge/src/main.cpp`) — every byte here is airtime that has to fit before the XIAO gives up listening.
+
+| Offset | Field | Encoding |
+|---|---|---|
+| 0 | pitch | int8, ×(180/127) → degrees (~1.4°/LSB, ±180° range) |
+| 1 | roll | int8, ×(180/127) → degrees (~1.4°/LSB, ±180° range) |
+| 2 | heading (yaw) | uint8, ×(360/256) → degrees (~1.4°/LSB, wraps 0–360°) |
+
+Precision is intentionally coarse — plenty for a heel/pitch/heading gauge, nowhere near flight-controller-grade. If a use case ever needs sub-degree attitude precision, that needs a protocol version bump and a corresponding change to the telemetry timing budget below, not just widening this frame back out.
+
 ### ELRS link configuration
 
 Both the TX module (RadioMaster Ranger Micro) and the RX (RadioMaster RP3) must be set to:
@@ -139,11 +151,12 @@ When any field in this document changes:
 3. Both sides refuse to operate if versions don't match (log loudly, enter safe state on the boat).
 
 ```
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 ```
 
 ### Version history
 
+- **v4** — ATTITUDE (0x1E) shrunk from the standard 6-byte (int16 rad×10000) encoding to a custom 3-byte (int8 pitch/roll, uint8 heading) encoding, to fit the SX1262 LoRa link's over-the-air time budget. See "Custom ATTITUDE frame" above.
 - **v3** — channel 5 (`CH_MODE`) repurposed from "reserved" to a remote ELRS-mode-switch request (see "Remote mode switching" above).
 - **v2** — added channel 7 (bilge pump); added the SAILBOAT status byte (capsized/bilge_wet/pump_active/armed/failsafe); raised ATTITUDE to 24 Hz; specified the 250 Hz / 1:4 ELRS link config.
 - **v1** — initial channel map + standard CRSF telemetry frames.

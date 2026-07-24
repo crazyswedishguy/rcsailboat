@@ -1,6 +1,6 @@
 #pragma once
 
-#define PROTOCOL_VERSION 3
+#define PROTOCOL_VERSION 4
 
 // CRSF channel indices (0-based for array access).
 // The 1-based channel numbers in docs/protocol.md map to these by subtracting 1.

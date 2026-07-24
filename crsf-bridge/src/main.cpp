@@ -72,10 +72,20 @@ namespace cfg {
     constexpr char     AP_PASS[]        = "readyabout";
     constexpr uint32_t CTRL_TIMEOUT_MS  = 500;    // servo timeout
     constexpr uint32_t MODE_REQUEST_TIMEOUT_MS = 30000;  // CH_MODE presence
-    constexpr uint32_t TX_PERIOD_MS     = 20;     // 50 Hz RC output
+    // Minimum gap between RC transmissions — NOT an enforced cycle time.
+    // ap_radio_tick() itself (TX + TELEM_WAIT_MS listen) already takes
+    // longer than this in practice — see TELEM_WAIT_MS below — so the real
+    // achieved RC rate is set by that actual duration, not this constant.
+    constexpr uint32_t TX_PERIOD_MS     = 20;
     constexpr uint32_t HB_TIMEOUT_MS    = 2000;   // Pi absence → revert to AP mode
-    // Max time we wait for a telemetry response before moving on
-    constexpr uint32_t TELEM_WAIT_MS    = 8;
+    // Max time to wait for the boat's telemetry reply before giving up and
+    // moving on. Sized to comfortably cover the boat's measured reply time
+    // across all telemetry frame types (~11-15ms on real hardware after the
+    // boat-side SPI speed-up — see elrs.cpp BitBangHal — with margin for
+    // jitter). Widening this trades RC rate for telemetry reliability: every
+    // cycle waits up to this long when nothing is queued, since the XIAO
+    // can't know in advance whether the boat has a reply coming.
+    constexpr uint32_t TELEM_WAIT_MS    = 18;
 }
 
 // ── RadioLib objects ───────────────────────────────────────────────────────────
@@ -257,11 +267,13 @@ static void decode_battery(const uint8_t *p, size_t len) {
     s_tel.battery_pct = p[7];
 }
 
+// Custom 3-byte encoding (PROTOCOL_VERSION 4) — see telemetry.cpp send_attitude().
+// pitch/roll: int8, ~1.4°/LSB (±180° range). yaw/heading: uint8, ~1.4°/LSB, 0–360°.
 static void decode_attitude(const uint8_t *p, size_t len) {
-    if (len < 6) return;
-    s_tel.pitch_deg = get_i16be(p + 0) / 10000.0f * (180.0f / (float)M_PI);
-    s_tel.roll_deg  = get_i16be(p + 2) / 10000.0f * (180.0f / (float)M_PI);
-    s_tel.yaw_deg   = get_i16be(p + 4) / 10000.0f * (180.0f / (float)M_PI);
+    if (len < 3) return;
+    s_tel.pitch_deg = (float)(int8_t)p[0] * (180.0f / 127.0f);
+    s_tel.roll_deg  = (float)(int8_t)p[1] * (180.0f / 127.0f);
+    s_tel.yaw_deg   = (float)p[2]         * (360.0f / 256.0f);
 }
 
 static void decode_sailboat(const uint8_t *p, size_t len) {

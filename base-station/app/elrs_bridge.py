@@ -26,7 +26,6 @@ Configuration (environment variables):
 
 import asyncio
 import logging
-import math
 import os
 import queue as stdlib_queue
 import struct
@@ -187,13 +186,20 @@ def _decode_battery(payload: bytes, telem: TelemetryState) -> bool:
 
 
 def _decode_attitude(payload: bytes, telem: TelemetryState) -> bool:
-    """CRSF Attitude frame (0x1E) — 6-byte big-endian payload (rad × 10000)."""
-    if len(payload) < 6:
+    """CRSF Attitude frame (0x1E) — custom 3-byte payload (PROTOCOL_VERSION 4).
+
+    Not the CRSF-standard 6-byte encoding — reduced to fit the LoRa link's
+    over-the-air time budget (see boat-firmware/src/telemetry.cpp
+    send_attitude()). pitch/roll: signed int8, ~1.4 deg/LSB (+-180 deg range).
+    yaw/heading: unsigned uint8, ~1.4 deg/LSB, wraps 0-360 deg in one byte.
+    """
+    if len(payload) < 3:
         return False
-    pitch_raw, roll_raw, yaw_raw = struct.unpack_from(">hhh", payload)
-    telem.pitch_deg = math.degrees(pitch_raw / 10000.0)
-    telem.roll_deg  = math.degrees(roll_raw  / 10000.0)
-    telem.yaw_deg   = math.degrees(yaw_raw   / 10000.0)
+    pitch_raw, roll_raw = struct.unpack_from(">bb", payload, 0)
+    yaw_raw, = struct.unpack_from(">B", payload, 2)
+    telem.pitch_deg = pitch_raw * (180.0 / 127.0)
+    telem.roll_deg  = roll_raw  * (180.0 / 127.0)
+    telem.yaw_deg   = yaw_raw   * (360.0 / 256.0)
     return True
 
 

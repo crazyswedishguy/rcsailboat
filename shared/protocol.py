@@ -1,4 +1,4 @@
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 
 # ELRS channel numbers (1-indexed, matching docs/protocol.md).
 # NOTE: the boat firmware (boat-firmware/src/protocol.h) uses 0-based indices
@@ -21,7 +21,7 @@ CH_PUMP     = 7  # 0.0 = off, 1.0 = on -- manual bilge pump override (not arm-ga
 CRSF_FRAMETYPE_GPS       = 0x02  # standard: lat/lng/speed/heading/alt/sats
 CRSF_FRAMETYPE_BATTERY   = 0x08  # standard: voltage/current/mAh/remaining
 CRSF_FRAMETYPE_LINK_STATS = 0x14  # standard: RSSI/LQ/SNR/TX power
-CRSF_FRAMETYPE_ATTITUDE  = 0x1E  # standard: pitch/roll/yaw (rad*10000, big-endian int16)
+CRSF_FRAMETYPE_ATTITUDE  = 0x1E  # custom (v4): pitch/roll int8 (~1.4deg/LSB) + heading uint8 (~1.4deg/LSB) — not the CRSF-standard int16 rad*10000 encoding, shrunk to fit the LoRa link's time budget
 CRSF_FRAMETYPE_SAILBOAT  = 0x80  # custom:   rudder/sail/ESC commanded + ESP32 temp + status byte
 CRSF_FRAMETYPE_DEVICES   = 0x81  # custom:   device-status bitmap (10 x 2-bit levels, LSB-first)
 

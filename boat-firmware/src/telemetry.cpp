@@ -111,25 +111,33 @@ static void send_battery() {
     elrs_send_frame(frame, len);
 }
 
-// ATTITUDE (0x1E) — 6-byte payload, emit at 5 Hz
+// ATTITUDE (0x1E) — 3-byte payload, emit at 24 Hz.
+//
+// Reduced from the CRSF-standard 6-byte (int16 rad×10000) encoding to fit
+// LoRa's over-the-air time budget: at 24 Hz this is by far the most
+// frequent telemetry frame, and every byte shaved directly cuts how long
+// the boat's SX1262 needs to key up for a reply (see docs/protocol.md
+// PROTOCOL_VERSION history). Full int16 radian precision is unnecessary
+// for a heel/pitch/heading display — pitch and roll are int8 at ~1.4°/LSB
+// (±180° range), heading is uint8 at ~1.4°/LSB wrapping naturally over
+// 0–360° in a single byte. No longer matches the standard CRSF ATTITUDE
+// payload format; this is now a custom encoding for this link only.
 static void send_attitude() {
-    float roll_rad  = imu_roll_deg()  * ((float)M_PI / 180.0f);
-    float pitch_rad = imu_pitch_deg() * ((float)M_PI / 180.0f);
+    float pitch_deg = imu_pitch_deg();
+    float roll_deg  = imu_roll_deg();
 #ifdef COMPASS_ENABLED
-    float yaw_rad = compass_heading_deg() * ((float)M_PI / 180.0f);
-    // Compass returns 0–360°; CRSF int16 encoding assumes –π…+π.
-    // Wrap headings > 180° to the negative half so the cast stays in range.
-    if (yaw_rad > (float)M_PI) yaw_rad -= 2.0f * (float)M_PI;
+    float yaw_deg = compass_heading_deg();  // 0..360
 #else
-    float yaw_rad = 0.0f;
+    float yaw_deg = 0.0f;
 #endif
 
-    uint8_t p[6];
-    put_i16be(p + 0, (int16_t)(pitch_rad * 10000.0f));
-    put_i16be(p + 2, (int16_t)(roll_rad  * 10000.0f));
-    put_i16be(p + 4, (int16_t)(yaw_rad   * 10000.0f));
+    int8_t  pitch_raw = (int8_t)constrain(roundf(pitch_deg * (127.0f / 180.0f)), -128.0f, 127.0f);
+    int8_t  roll_raw  = (int8_t)constrain(roundf(roll_deg  * (127.0f / 180.0f)), -128.0f, 127.0f);
+    uint8_t yaw_raw    = (uint8_t)(((int32_t)roundf(yaw_deg * (256.0f / 360.0f))) & 0xFF);
 
-    uint8_t frame[14];
+    uint8_t p[3] = { (uint8_t)pitch_raw, (uint8_t)roll_raw, yaw_raw };
+
+    uint8_t frame[11];
     size_t  len = crsf_build(frame, CRSF_FRAMETYPE_ATTITUDE, p, sizeof(p));
     elrs_send_frame(frame, len);
 }
