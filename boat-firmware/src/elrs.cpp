@@ -183,6 +183,7 @@ static float to_unipolar(float raw)
 // ── Process one received LoRa packet ──────────────────────────────────────────
 static void process_rx_packet()
 {
+    uint32_t rx_ms = millis();  // TEMP: round-trip timing diagnostic
     uint8_t buf[64];
     size_t  len = sizeof(buf);
     // Read packet and capture RSSI; BUSY must be low before this call.
@@ -249,6 +250,12 @@ static void process_rx_packet()
         }
         if (tx_state != RADIOLIB_ERR_NONE)
             Serial.printf("elrs: TX error %d\n", tx_state);
+        // TEMP: round-trip timing diagnostic — how long from RC-frame-decoded
+        // to reply-TX-complete. XIAO only listens for TELEM_WAIT_MS after its
+        // own TX; if this consistently exceeds that, replies are being sent
+        // too late for the XIAO to catch, even though the boat's TX itself
+        // succeeds.
+        Serial.printf("elrs: TX took %lu ms (state=%d)\n", millis() - rx_ms, tx_state);
         s_tx_len = 0;
         s_radio.startReceive();
     }

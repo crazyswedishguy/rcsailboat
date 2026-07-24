@@ -328,6 +328,8 @@ static void process_telem_packet(const uint8_t *buf, size_t len)
     const uint8_t *payload = buf + 3;
     size_t         plen    = (size_t)(frame_len - 2);
     s_telem_last_ms = millis();
+    Serial.printf("bridge: telem RX type=0x%02X len=%u RSSI=%.0fdBm\n",
+                  type, (unsigned)plen, (double)s_radio.getRSSI());
 
     switch (type) {
         case CRSF_TYPE_GPS:        decode_gps(payload, plen);        break;
