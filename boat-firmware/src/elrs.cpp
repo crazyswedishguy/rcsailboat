@@ -43,6 +43,7 @@
 #include "protocol.h"
 #include <Arduino.h>
 #include <RadioLib.h>
+#include "soc/gpio_struct.h"
 
 // ── Bit-banged SPI HAL ────────────────────────────────────────────────────────
 // RadioLibHal is RadioLib's genuine extension point for non-standard SPI:
@@ -53,7 +54,8 @@ class BitBangHal : public RadioLibHal {
 public:
     BitBangHal(uint8_t clk, uint8_t miso, uint8_t mosi)
         : RadioLibHal(INPUT, OUTPUT, LOW, HIGH, RISING, FALLING),
-          _clk(clk), _miso(miso), _mosi(mosi) {}
+          _clk(clk), _miso(miso), _mosi(mosi),
+          _clkMask(1UL << clk), _mosiMask(1UL << mosi), _misoMask(1UL << miso) {}
 
     void pinMode(uint32_t pin, uint32_t mode) override {
         if (pin == RADIOLIB_NC) return;
@@ -95,26 +97,33 @@ public:
     void spiEndTransaction() override {}
     void spiEnd() override {}
 
-    // Bit-bang SPI mode 0 (CPOL=0, CPHA=0), MSB first, ~500 kHz effective
-    // clock — ample for the SX1262 (rated up to 16 MHz).
+    // Bit-bang SPI mode 0 (CPOL=0, CPHA=0), MSB first, via direct GPIO
+    // register access (GPIO.out_w1ts/w1tc/in) rather than digitalWrite()/
+    // digitalRead(). Arduino's GPIO wrapper calls carry real per-call
+    // overhead (pin validation, mode dispatch) that was previously the
+    // dominant cost of every SX1262 SPI transaction — this cuts it to a
+    // handful of register accesses per bit. CLK/MOSI/MISO are all GPIO<32
+    // on this board, so the low out_w1ts/out_w1tc/in registers cover them.
+    // Empirically verified clean (no CRC failures / no chip-not-found) over
+    // extended runs on real hardware — see docs/pinmap.md SX1262 notes.
     void spiTransfer(uint8_t* out, size_t len, uint8_t* in) override {
         for (size_t n = 0; n < len; n++) {
             uint8_t data = out[n];
             uint8_t rx = 0;
             for (int8_t i = 7; i >= 0; i--) {
-                ::digitalWrite(_mosi, (data >> i) & 1);
-                ::digitalWrite(_clk, HIGH);
-                ::delayMicroseconds(1);
-                rx = (rx << 1) | (uint8_t)::digitalRead(_miso);
-                ::digitalWrite(_clk, LOW);
-                ::delayMicroseconds(1);
+                if ((data >> i) & 1) GPIO.out_w1ts = _mosiMask;
+                else                 GPIO.out_w1tc = _mosiMask;
+                GPIO.out_w1ts = _clkMask;
+                rx = (uint8_t)((rx << 1) | ((GPIO.in & _misoMask) ? 1 : 0));
+                GPIO.out_w1tc = _clkMask;
             }
             in[n] = rx;
         }
     }
 
 private:
-    const uint8_t _clk, _miso, _mosi;
+    const uint8_t  _clk, _miso, _mosi;
+    const uint32_t _clkMask, _mosiMask, _misoMask;
 };
 
 // ── RadioLib objects ───────────────────────────────────────────────────────────
@@ -234,6 +243,7 @@ static void process_rx_packet()
     // for RX: kick off the send with startTransmit(), then poll TX_DONE
     // ourselves via the SPI-based getIrqFlags().
     if (s_tx_len > 0) {
+        uint32_t toa_us = (uint32_t)s_radio.getTimeOnAir(s_tx_len);  // TEMP: diagnostic
         int tx_state = s_radio.startTransmit(s_tx_buf, s_tx_len);
         if (tx_state == RADIOLIB_ERR_NONE) {
             // Same timeout formula RadioLib's own transmit() uses.
@@ -255,7 +265,8 @@ static void process_rx_packet()
         // own TX; if this consistently exceeds that, replies are being sent
         // too late for the XIAO to catch, even though the boat's TX itself
         // succeeds.
-        Serial.printf("elrs: TX took %lu ms (state=%d)\n", millis() - rx_ms, tx_state);
+        Serial.printf("elrs: TX took %lu ms total, %lu.%03lu ms radio-calculated ToA, len=%u (state=%d)\n",
+                      millis() - rx_ms, toa_us / 1000, toa_us % 1000, (unsigned)s_tx_len, tx_state);
         s_tx_len = 0;
         s_radio.startReceive();
     }
