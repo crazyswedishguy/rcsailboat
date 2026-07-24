@@ -225,6 +225,25 @@ void elrs_init()
         LORA_SYNC_WORD, LORA_POWER_DBM, LORA_PREAMBLE);
     if (state != RADIOLIB_ERR_NONE) {
         Serial.printf("elrs: SX1262 begin failed (err %d)\n", state);
+
+        // Diagnostic: err -2 (CHIP_NOT_FOUND) means the version-string
+        // register readback didn't match, which RadioLib reports whenever
+        // the SPI status byte comes back 0x00 or 0xFF — i.e. it can't tell
+        // "wrong chip" from "nothing is actually talking back". Dump the
+        // raw bytes and idle pin levels so a wiring fault is visible
+        // instead of just the error code.
+        uint8_t ver[16] = {0};
+        s_module.SPIreadRegisterBurst(0x0320 /* RADIOLIB_SX126X_REG_VERSION_STRING */,
+                                       sizeof(ver), ver);
+        Serial.print("elrs: raw version-string bytes:");
+        for (size_t i = 0; i < sizeof(ver); i++) Serial.printf(" %02X", ver[i]);
+        Serial.println();
+        Serial.printf(
+            "elrs: idle levels — BUSY(GPIO%u)=%d  MISO(GPIO%u)=%d  "
+            "(CLK=GPIO%u MOSI=GPIO%u CS=GPIO%u RESET=GPIO%u)\n",
+            pins::SX_BUSY, digitalRead(pins::SX_BUSY),
+            pins::SX_MISO, digitalRead(pins::SX_MISO),
+            pins::SX_CLK, pins::SX_MOSI, pins::SX_CS, pins::SX_RESET);
         return;
     }
 
