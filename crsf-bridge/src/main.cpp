@@ -79,9 +79,16 @@ namespace cfg {
 }
 
 // ── RadioLib objects ───────────────────────────────────────────────────────────
-static SPIClass   s_spi(SPI);  // Hardware SPI (SPI2 on XIAO = default SPI bus)
+// Use the framework's default global SPI object directly — SPIClass has no
+// constructor taking an SPIClass&, so `SPIClass s_spi(SPI)` silently invoked
+// the compiler-generated *copy* constructor instead of aliasing it. That
+// copied SPI's internal FreeRTOS mutex handle at static-init time, before
+// SPI's own constructor (in a different translation unit, unspecified init
+// order) had necessarily run yet — leaving the copy's mutex handle null and
+// crashing on the first beginTransaction() with
+// "assert failed: xQueueSemaphoreTake queue.c:1709".
 static Module     s_module(cfg::SX_CS, cfg::SX_DIO1, cfg::SX_RESET,
-                            cfg::SX_BUSY, s_spi);
+                            cfg::SX_BUSY, SPI);
 static SX1262     s_radio(&s_module);
 static volatile bool s_pkt_ready = false;  // set by DIO1 ISR
 static void IRAM_ATTR on_dio1() { s_pkt_ready = true; }
@@ -631,7 +638,7 @@ void setup()
     Serial.println("crsf-bridge firmware starting (SX1262 LoRa)");
 
     // Initialise hardware SPI and RadioLib.
-    s_spi.begin(cfg::SX_CLK, cfg::SX_MISO, cfg::SX_MOSI, cfg::SX_CS);
+    SPI.begin(cfg::SX_CLK, cfg::SX_MISO, cfg::SX_MOSI, cfg::SX_CS);
     s_radio.setRfSwitchPins(cfg::SX_RXEN, cfg::SX_TXEN);
 
     int state = s_radio.begin(
