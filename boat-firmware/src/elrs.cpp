@@ -2,8 +2,19 @@
 //
 // The boat's SX1262 is wired on software SPI because both hardware SPI buses
 // are occupied (SPI2 = CO5300 AMOLED display via QSPI, SPI3 = TF card).
-// A thin SoftSPI class (below) provides the SPIClass interface via bit-bang
-// so RadioLib's Module constructor can accept it unchanged.
+// Bit-banging is implemented as a RadioLibHal subclass (BitBangHal, below) —
+// NOT by subclassing SPIClass. SPIClass's begin()/transfer()/etc. are not
+// virtual, and RadioLib's ArduinoHal stores the SPI object as a plain
+// `SPIClass*`, so calls through it resolve to SPIClass's real hardware
+// implementation at compile time regardless of the object's actual runtime
+// type — a `SoftSPI : public SPIClass` override is invisible to RadioLib.
+// (This was the root cause of a real bring-up failure: "SX1262 begin failed
+// (err -2)" with all-zero SPI readback on real hardware, reproduced
+// identically across two different physical modules — RadioLib was silently
+// talking to the unconfigured onboard HSPI peripheral instead of bit-banging
+// GPIO5/6/7. RadioLibHal's spiBegin/spiTransfer/etc. genuinely are virtual,
+// so subclassing it and using Module's Hal-based constructor is the correct
+// extension point for non-standard SPI.)
 //
 // DIO1 is intentionally left unconnected: this board has no free GPIO for it
 // (GPIO42, the only header candidate, turned out to be reserved internally
@@ -32,42 +43,74 @@
 #include "protocol.h"
 #include <Arduino.h>
 #include <RadioLib.h>
-#include <SPI.h>
 
-// ── Software SPI ───────────────────────────────────────────────────────────────
-// Inherits from SPIClass so it can be passed to RadioLib's Module constructor.
-// Only begin(), beginTransaction(), endTransaction() and transfer(uint8_t) are
-// needed by RadioLib; the rest of SPIClass is left as the do-nothing base.
-class SoftSPI : public SPIClass {
+// ── Bit-banged SPI HAL ────────────────────────────────────────────────────────
+// RadioLibHal is RadioLib's genuine extension point for non-standard SPI:
+// its spiBegin/spiBeginTransaction/spiTransfer/spiEndTransaction/spiEnd are
+// real virtual methods (see Hal.h), unlike SPIClass. Everything not related
+// to SPI just delegates straight to the normal Arduino GPIO/timing calls.
+class BitBangHal : public RadioLibHal {
 public:
-    SoftSPI(uint8_t clk, uint8_t miso, uint8_t mosi)
-        : SPIClass(), _clk(clk), _miso(miso), _mosi(mosi) {}
+    BitBangHal(uint8_t clk, uint8_t miso, uint8_t mosi)
+        : RadioLibHal(INPUT, OUTPUT, LOW, HIGH, RISING, FALLING),
+          _clk(clk), _miso(miso), _mosi(mosi) {}
 
-    // Initialise GPIO directions; do NOT call SPIClass::begin() — that would
-    // try to claim a hardware SPI peripheral which is already in use.
-    void begin() {
-        pinMode(_clk,  OUTPUT); digitalWrite(_clk,  LOW);
-        pinMode(_mosi, OUTPUT); digitalWrite(_mosi, LOW);
-        pinMode(_miso, INPUT);
+    void pinMode(uint32_t pin, uint32_t mode) override {
+        if (pin == RADIOLIB_NC) return;
+        ::pinMode(pin, mode);
+    }
+    void digitalWrite(uint32_t pin, uint32_t value) override {
+        if (pin == RADIOLIB_NC) return;
+        ::digitalWrite(pin, value);
+    }
+    uint32_t digitalRead(uint32_t pin) override {
+        if (pin == RADIOLIB_NC) return 0;
+        return ::digitalRead(pin);
+    }
+    void attachInterrupt(uint32_t interruptNum, void (*interruptCb)(void), uint32_t mode) override {
+        if (interruptNum == RADIOLIB_NC) return;
+        ::attachInterrupt(interruptNum, interruptCb, mode);
+    }
+    void detachInterrupt(uint32_t interruptNum) override {
+        if (interruptNum == RADIOLIB_NC) return;
+        ::detachInterrupt(interruptNum);
+    }
+    void delay(RadioLibTime_t ms) override { ::delay(ms); }
+    void delayMicroseconds(RadioLibTime_t us) override { ::delayMicroseconds(us); }
+    RadioLibTime_t millis() override { return ::millis(); }
+    RadioLibTime_t micros() override { return ::micros(); }
+    long pulseIn(uint32_t pin, uint32_t state, RadioLibTime_t timeout) override {
+        if (pin == RADIOLIB_NC) return 0;
+        return ::pulseIn(pin, state, timeout);
     }
 
-    // RadioLib calls these around every SPI transaction; no setup needed.
-    void beginTransaction(SPISettings) {}
-    void endTransaction() {}
+    // Initialise GPIO directions. Do NOT touch any hardware SPI peripheral —
+    // both are already claimed (SPI2 = display, SPI3 = TF card).
+    void spiBegin() override {
+        ::pinMode(_clk,  OUTPUT); ::digitalWrite(_clk,  LOW);
+        ::pinMode(_mosi, OUTPUT); ::digitalWrite(_mosi, LOW);
+        ::pinMode(_miso, INPUT);
+    }
+    void spiBeginTransaction() override {}
+    void spiEndTransaction() override {}
+    void spiEnd() override {}
 
-    // Bit-bang SPI mode 0 (CPOL=0, CPHA=0): data sampled on rising edge.
-    // 1 MHz effective clock rate (1 µs per half-period) — ample for SX1262.
-    uint8_t transfer(uint8_t data) {
-        uint8_t rx = 0;
-        for (int8_t i = 7; i >= 0; i--) {
-            digitalWrite(_mosi, (data >> i) & 1);
-            digitalWrite(_clk, HIGH);
-            delayMicroseconds(1);
-            rx = (rx << 1) | (uint8_t)digitalRead(_miso);
-            digitalWrite(_clk, LOW);
-            delayMicroseconds(1);
+    // Bit-bang SPI mode 0 (CPOL=0, CPHA=0), MSB first, ~500 kHz effective
+    // clock — ample for the SX1262 (rated up to 16 MHz).
+    void spiTransfer(uint8_t* out, size_t len, uint8_t* in) override {
+        for (size_t n = 0; n < len; n++) {
+            uint8_t data = out[n];
+            uint8_t rx = 0;
+            for (int8_t i = 7; i >= 0; i--) {
+                ::digitalWrite(_mosi, (data >> i) & 1);
+                ::digitalWrite(_clk, HIGH);
+                ::delayMicroseconds(1);
+                rx = (rx << 1) | (uint8_t)::digitalRead(_miso);
+                ::digitalWrite(_clk, LOW);
+                ::delayMicroseconds(1);
+            }
+            in[n] = rx;
         }
-        return rx;
     }
 
 private:
@@ -76,10 +119,10 @@ private:
 
 // ── RadioLib objects ───────────────────────────────────────────────────────────
 // irq pin is RADIOLIB_NC (DIO1 not wired) — see file header comment.
-static SoftSPI s_spi(pins::SX_CLK, pins::SX_MISO, pins::SX_MOSI);
-static Module  s_module(pins::SX_CS, RADIOLIB_NC, pins::SX_RESET,
-                        pins::SX_BUSY, s_spi);
-static SX1262  s_radio(&s_module);
+static BitBangHal s_hal(pins::SX_CLK, pins::SX_MISO, pins::SX_MOSI);
+static Module     s_module(&s_hal, pins::SX_CS, RADIOLIB_NC, pins::SX_RESET,
+                            pins::SX_BUSY);
+static SX1262     s_radio(&s_module);
 
 // ── State ──────────────────────────────────────────────────────────────────────
 // Raw CRSF channel values (172–1811); updated on every valid received frame.
@@ -217,7 +260,9 @@ static void check_restart_channel()
 // ── Public API ─────────────────────────────────────────────────────────────────
 void elrs_init()
 {
-    s_spi.begin();
+    // RadioLibHal::init() defaults to a no-op (only ArduinoHal auto-calls
+    // spiBegin()), so call it explicitly before touching the radio.
+    s_hal.spiBegin();
     s_radio.setRfSwitchPins(pins::SX_RXEN, pins::SX_TXEN);
 
     int state = s_radio.begin(
