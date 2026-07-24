@@ -23,9 +23,8 @@
 //   Servo positions: float –1.0..+1.0 × 10000 → int16_t
 
 #include "telemetry.h"
-#include "protocol.h"
+#include "protocol.h"       // CRSF_FRAMETYPE_* constants now live here
 #include "elrs.h"
-#include <crsf_protocol.h>  // CRSF_FRAMETYPE_GPS, CRSF_FRAMETYPE_BATTERY_SENSOR, CRSF_FRAMETYPE_ATTITUDE
 #include "imu.h"
 #include "power.h"
 #include "servos.h"

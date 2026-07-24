@@ -35,16 +35,25 @@ constexpr uint8_t QMI8658  = 0x6B;        // IMU (onboard); verify with i2cdetec
 
 
 // =============================================================================
-// ELRS receiver — CRSF over UART
+// SX1262 LoRa radio — software SPI (both hardware SPI buses are occupied:
+//   SPI2/FSPI = CO5300 AMOLED display via QSPI;
+//   SPI3/HSPI = TF card).
+// Bit-bang SPI is implemented in elrs.cpp via a SoftSPI wrapper class.
 // =============================================================================
 namespace pins {
-// Recommended placements on header P1 — confirm against actual wiring.
-constexpr uint8_t CRSF_RX = 16;  // MCU RX ← receiver TX
-constexpr uint8_t CRSF_TX = 17;  // MCU TX → receiver RX
+// SPI data lines — software bit-bang on any free GPIOs
+constexpr uint8_t SX_CLK   = 5;   // software SPI clock
+constexpr uint8_t SX_MOSI  = 6;   // software SPI MOSI
+constexpr uint8_t SX_MISO  = 7;   // software SPI MISO
+// SPI chip-select and RadioLib control signals
+constexpr uint8_t SX_CS    = 8;   // active-low chip select
+constexpr uint8_t SX_RESET = 1;   // active-low module reset
+constexpr uint8_t SX_DIO1  = 42;  // interrupt out: TX done / RX done / CAD done
+constexpr uint8_t SX_BUSY  = 45;  // busy flag (GPIO45 = VDD_SPI strapping pin — safe as input post-boot)
+// RF-switch control — Waveshare SX1262 module has separate RXEN / TXEN
+constexpr uint8_t SX_RXEN  = 16;  // high = LNA enabled (RX mode)
+constexpr uint8_t SX_TXEN  = 17;  // high = PA enabled  (TX mode)
 }  // namespace pins
-
-constexpr uint8_t  CRSF_UART_NUM = 1;          // hardware UART1 (UART0 is the USB console)
-constexpr uint32_t CRSF_BAUD     = 420'000;    // CRSF standard
 
 
 // =============================================================================
@@ -73,7 +82,7 @@ constexpr uint8_t GPS_RX = 15;   // MCU RX ← GPS TX  (free on header P1)
 constexpr uint8_t GPS_TX = 18;   // MCU TX → GPS RX  (free on header P1; optional)
 }  // namespace pins
 
-constexpr uint8_t  GPS_UART_NUM = 2;    // UART2 (UART0 = console, UART1 = CRSF)
+constexpr uint8_t  GPS_UART_NUM = 2;    // UART2 (UART0 = console; UART1 unused — freed from ELRS)
 constexpr uint32_t GPS_BAUD     = 9600; // BN-880 factory default
 
 // =============================================================================
@@ -145,10 +154,21 @@ constexpr uint8_t  IMU_INT1 = 46;          // strapping pin — input only at bo
 
 
 // =============================================================================
+// LoRa radio parameters
+// =============================================================================
+constexpr float    LORA_FREQ_MHZ   = 915.0f;  // 915 MHz ISM band (US/AU); change to 868.0 for EU
+constexpr float    LORA_BW_KHZ     = 500.0f;  // 500 kHz bandwidth — widest option; maximises throughput
+constexpr uint8_t  LORA_SF         = 7;        // spreading factor 7 — fastest, shortest range
+constexpr uint8_t  LORA_CR         = 5;        // coding rate 4/5
+constexpr uint8_t  LORA_SYNC_WORD  = 0x12;    // private network; 0x34 for LoRaWAN public
+constexpr int8_t   LORA_POWER_DBM  = 14;       // 14 dBm ≈ 25 mW — headroom before regulatory limit
+constexpr uint16_t LORA_PREAMBLE   = 8;        // 8 symbols — RadioLib default
+
+// =============================================================================
 // Failsafe servo positions
 //
-// Applied when the ELRS link is lost (ELRS mode) or the WiFi connection
-// times out (WiFi mode). See docs/failsafe.md for rationale.
+// Applied when the radio link is lost or the WiFi connection times out.
+// See docs/failsafe.md for rationale.
 //
 // SAIL assumes servo minimum (−1.0) = sail fully eased (let out).
 // Verify against your physical rig and flip the sign if your winch is
@@ -167,8 +187,9 @@ constexpr float RUDDER   = 1.0f;   // full starboard — circular drift pattern
 // =============================================================================
 // Build-time sanity checks
 // =============================================================================
-static_assert(pins::CRSF_RX != pins::CRSF_TX,
-              "CRSF RX and TX must be different pins");
+static_assert(pins::SX_RXEN != pins::SX_TXEN, "SX1262 RXEN and TXEN must be different pins");
+static_assert(pins::SX_CS   != pins::SX_CLK && pins::SX_CS != pins::SX_MOSI && pins::SX_CS != pins::SX_MISO,
+              "SX1262 CS pin must not alias CLK/MOSI/MISO");
 static_assert(pwm_ch::RUDDER < 16 && pwm_ch::SAIL_WINCH < 16 && pwm_ch::MOTOR_ESC < 16,
               "PCA9685 channels must be in range 0..15");
 static_assert(pwm_ch::RUDDER != pwm_ch::SAIL_WINCH &&

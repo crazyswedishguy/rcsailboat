@@ -12,8 +12,8 @@ The boat runs from a **3S LiPo** (11.1 V nominal, 9.0–12.6 V range, T-Plug con
   3S LiPo ──→ [Bus bar shunt + INA228] ──┬──→ Quicrun 1060 ESC ──→ Motor
                                           └──→ 10A UBEC (6V) ──→ PCA9685 V+ (servo rail) ──→ Rudder servo
                                                              │                            └──→ Sail winch servo
-                                                             └──→ 5V Buck converter ──→ ESP32 (USB-C), PCA9685 VCC, ELRS receiver
-                                                                                    └──→ BN-880 VCC (via ESP32 3.3V)
+                                                             └──→ 5V Buck converter ──→ ESP32 (USB-C), PCA9685 VCC
+                                                                                    └──→ BN-880 VCC + SX1262 VCC (via ESP32 3.3V)
 ```
 
 > The INA228 and its 50A/1.5mΩ bus bar shunt sit in the main battery positive line **before the ESC/UBEC split**, so `power_voltage_v()` reads true battery voltage (9–12.6V) and `power_current_a()` includes motor current. The INA219 is not used.
@@ -22,8 +22,8 @@ The boat runs from a **3S LiPo** (11.1 V nominal, 9.0–12.6 V range, T-Plug con
 |---|---|---|---|
 | Motor | 9–12.6 V (direct battery) | Quicrun 1060 ESC | Brushed drive motor |
 | Servo power | 6 V | 10A UBEC | PCA9685 V+ rail, all servo power pins |
-| Logic 5 V | 5 V | 3A 5V buck converter (fed from UBEC 6V output) | ESP32 (via USB-C), PCA9685 VCC, ELRS receiver |
-| Logic 3.3 V | 3.3 V | ESP32 onboard regulator | BN-880 GPS/compass |
+| Logic 5 V | 5 V | 3A 5V buck converter (fed from UBEC 6V output) | ESP32 (via USB-C), PCA9685 VCC |
+| Logic 3.3 V | 3.3 V | ESP32 onboard regulator | BN-880 GPS/compass, SX1262 radio module |
 
 ### UBEC power budget (10A rated — total load is well within spec)
 
@@ -31,7 +31,7 @@ The boat runs from a **3S LiPo** (11.1 V nominal, 9.0–12.6 V range, T-Plug con
 |---|---|---|
 | Rudder servo | 100–200 mA | ~500 mA |
 | Sail winch servo | 200–500 mA | ~1.5–2 A |
-| 5V buck converter (all logic + ELRS) | ~400 mA | ~600 mA |
+| 5V buck converter (ESP32 + PCA9685 logic) | ~350 mA | ~500 mA |
 | **Total** | **~700 mA–1.1 A** | **~2.5–3 A** |
 
 The 10A UBEC runs at ~10–30% load under normal conditions, so its output stays solidly at 6V with minimal ripple. This clean, regulated 6V is what makes feeding the buck converter from the UBEC (rather than directly from the battery) the better choice: the UBEC absorbs battery-side motor noise before it reaches the logic supply.
@@ -47,7 +47,7 @@ The 10A UBEC runs at ~10–30% load under normal conditions, so its output stays
 | UBEC out → PCA9685 V+ | 20–18 AWG | Up to 2.5 A servo rail |
 | UBEC out → buck converter input | 22–20 AWG | <600 mA logic load |
 | Buck output → ESP32 USB-C | 22–20 AWG | <500 mA |
-| Buck output → ELRS receiver | 22–20 AWG | <200 mA |
+| ESP32 3.3V → SX1262 3V3 | 24–26 AWG | ~5 mA idle / ~120 mA TX peak; short run from ESP32 header |
 | Signal and I²C wires | 24–26 AWG | Low current only |
 
 ### Ferrite cores and motor noise suppression
@@ -68,7 +68,7 @@ This is standard practice for brushed motors in RC vehicles and suppresses the h
 |---|---|---|
 | Motor wires (ESC → motor) | **Critical** | 3–5 turns of each wire through a Type 31 or Type 43 ferrite ring, as close to the motor as possible |
 | Battery leads to ESC | **High** | 2–3 turns through a ferrite ring close to the ESC input, to stop back-propagation onto the battery bus |
-| ELRS receiver power wire | **High** | Single pass or 2 turns; ELRS operates at 2.4 GHz and motor EMI can desensitize it |
+| SX1262 3.3V supply wire | **High** | Single pass or 2 turns; LoRa operates at 915 MHz and motor EMI can desensitize it |
 | Buck converter output to ESP32 | **Medium** | Single pass; filters switching noise from the buck converter itself |
 | GPS UART wires (BN-880) | **Low** | Single pass if experiencing GPS dropouts; usually not needed |
 | I²C wires, servo signal wires | **Not needed** | I²C is robust; servo PWM at 50 Hz is not affected by RF noise |
@@ -116,7 +116,7 @@ Powers the ESP32 and all logic devices. Input comes from the **UBEC's 6V output*
 | Input − | GND rail | |
 | Output + (5 V) | ESP32 USB-C VBUS | Use a USB-C power pigtail or cable |
 | Output + (5 V) | PCA9685 VCC | Logic supply for the PCA9685 IC |
-| Output + (5 V) | ELRS receiver VCC | See ELRS section below |
+| Output + (5 V) | (ESP32 and PCA9685 VCC only — SX1262 runs on 3.3V from ESP32) | |
 | Output − | GND rail | |
 
 > **Powering the ESP32:** The Waveshare AMOLED board accepts 5 V via its USB-C port. Connect the buck converter's 5 V output to a short USB-C cable or pigtail (VBUS + GND only — no data lines needed). Do not connect a LiPo to the MX1.25 battery connector at the same time.
@@ -186,14 +186,35 @@ The PCA9685 has two separate power inputs:
 
 ---
 
-## UART1 — ELRS receiver, 420 000 baud, 8N1
+## SX1262 LoRa radio — Boat (software SPI)
 
-| Signal | ESP32-S3 GPIO | ELRS receiver pin | Notes |
+The Ranger Micro TX + RP3 receiver have been removed. The boat communicates
+directly with the XIAO over a Waveshare SX1262 HF (868/915 MHz) module on each end.
+
+Both hardware SPI buses on this board are occupied (SPI2 = CO5300 display via QSPI;
+SPI3 = TF card), so the SX1262 uses software bit-bang SPI on free GPIOs.
+
+RadioLib constructor (for reference):
+```cpp
+// elrs.cpp — SoftSPI s_spi(5, 7, 6); // CLK, MISO, MOSI
+// SX1262 on Module(CS=8, DIO1=42, RESET=1, BUSY=45, s_spi)
+// radio.setRfSwitchPins(16, 17);  // RXEN, TXEN
+```
+
+| Signal | ESP32-S3 GPIO | SX1262 module pin | Notes |
 |---|---|---|---|
-| MCU RX ← Rx TX | GPIO16 | TX | |
-| MCU TX → Rx RX | GPIO17 | RX | Required for telemetry passthrough |
+| CLK (software SPI) | GPIO5 | CLK | Bit-bang clock |
+| MOSI (software SPI) | GPIO6 | MOSI | Bit-bang data out |
+| MISO (software SPI) | GPIO7 | MISO | Bit-bang data in |
+| CS | GPIO8 | CS | Active low; controlled by RadioLib |
+| RESET | GPIO1 | RESET | Active low; controlled by RadioLib |
+| DIO1 | GPIO42 | DIO1 | Interrupt: TX done / RX done. Verify GPIO42 is broken out before soldering. |
+| BUSY | GPIO45 | BUSY | Polled by RadioLib before every SPI access. GPIO45 is a strapping pin — fine as input after boot. |
+| RXEN | GPIO16 | RXEN | High = LNA on (receive mode). Freed from RP3 UART. |
+| TXEN | GPIO17 | TXEN | High = PA on (transmit mode). Freed from RP3 UART. |
+| DIO2 | — | DIO2 | Leave unconnected (RADIOLIB_NC) |
+| 3V3 | ESP32 3.3V | 3V3 | Module logic supply |
 | GND | GND | GND | |
-| Power | **5 V (from buck converter output)** | VCC | Most ELRS receivers are rated 4.5–6V. Do not power from ESP32 3.3V — this is below most receivers' operating range. Verify your specific receiver's datasheet. |
 
 ---
 
@@ -326,9 +347,8 @@ graph TD
 
     BUCK -->|5V via USB-C| ESP["ESP32-S3\nWaveshare AMOLED 1.64"]
     BUCK -->|5V| PCA_VCC["PCA9685 VCC\nlogic"]
-    BUCK -->|5V| ELRS_RX["ELRS receiver"]
 
-    ESP -->|3.3V| SENSORS["INA228 VCC\nBN-880 VCC"]
+    ESP -->|3.3V| SENSORS["INA228 VCC\nBN-880 VCC\nSX1262 3V3"]
 
     ESP <-->|I2C\nGPIO47 SDA / GPIO48 SCL| I2C_BUS["I²C bus"]
     I2C_BUS --- PCA["PCA9685\n0x40"]
@@ -338,8 +358,8 @@ graph TD
     I2C_BUS --- TOUCH["FT3168 touch\n0x38 (onboard)"]
     I2C_BUS --- IMU["QMI8658 IMU\n0x6A/6B (onboard)"]
 
-    ESP <-->|UART1 signal\nGPIO16/17 420kbaud| ELRS_RX
-    ELRS_RX <-->|2.4 GHz RF| ELRS_TX["ELRS TX module\non Pi"]
+    ESP <-->|software SPI\nGPIO5/6/7/8 + RESET/DIO1/BUSY| SX1262_B["SX1262\n(boat radio)"]
+    SX1262_B <-->|915 MHz LoRa| SX1262_X["SX1262\n(XIAO radio)"]
 
     ESP <-->|UART2\nGPIO15/18 9600baud| BN880["BN-880 GPS"]
     BN880 <-->|I2C| I2C_BUS
@@ -347,8 +367,10 @@ graph TD
     ESP -->|GPIO2 input| BILGE_S["Bilge sensor"]
     ESP -->|GPIO3 output| BILGE_P["Bilge pump relay"]
 
-    PI["Raspberry Pi 5"] <-->|USB-Serial| ELRS_TX
+    XIAO["XIAO ESP32-S3\ncrsf-bridge"] <-->|hardware SPI\nD8/D9/D10 + CS/RESET/DIO1| SX1262_X
+    XIAO <-->|USB-CDC| PI["Raspberry Pi 5"]
     PI -->|Wi-Fi| BROWSER["Browser UI"]
+    XIAO -.->|WiFi AP\nMistral-2| PHONE["Phone browser\n(Mode 2)"]
 ```
 
 ---

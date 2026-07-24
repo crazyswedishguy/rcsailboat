@@ -76,7 +76,7 @@ One table per component. Every external pin is listed; onboard-only signals (e.g
 | Input − | GND rail | 22 AWG | |
 | Output + (5V) | ESP32-S3 USB-C VBUS | 22 AWG | Via USB-C pigtail (VBUS + GND only; no data lines) |
 | Output + (5V) | PCA9685 VCC | 22–24 AWG | Logic supply for PCA9685 IC (must be ≤5.5V; never connect 6V UBEC here) |
-| Output + (5V) | ELRS receiver VCC | 22–24 AWG | Must be 5V; ESP32 3.3V output is below most ELRS receiver minimum |
+| Output + (5V) | (ESP32 USB-C and PCA9685 VCC only) | — | SX1262 runs on 3.3V from ESP32, not 5V from buck |
 | Output − | GND rail | 22 AWG | |
 
 ---
@@ -92,8 +92,8 @@ One table per component. Every external pin is listed; onboard-only signals (e.g
 | GND | GND rail | 24 AWG | |
 | GPIO47 (SDA) | I²C bus SDA | 24–26 AWG | Shared: PCA9685, INA228, BN-880 compass |
 | GPIO48 (SCL) | I²C bus SCL | 24–26 AWG | Shared: PCA9685, INA228, BN-880 compass |
-| GPIO16 (UART1 RX) | ELRS receiver TX | 24–26 AWG | MCU receives CRSF frames |
-| GPIO17 (UART1 TX) | ELRS receiver RX | 24–26 AWG | MCU sends telemetry |
+| GPIO16 | SX1262 RXEN | 24–26 AWG | RF switch: enable LNA for receive |
+| GPIO17 | SX1262 TXEN | 24–26 AWG | RF switch: enable PA for transmit |
 | GPIO15 (UART2 RX) | BN-880 GPS TXD | 24–26 AWG | NMEA sentences from GPS |
 | GPIO18 (UART2 TX) | BN-880 GPS RXD | 24–26 AWG | Optional GPS config commands |
 | GPIO2 | Bilge sensor terminal A | 24–26 AWG | Input with internal pull-up; float switch to GND |
@@ -124,14 +124,27 @@ One table per component. Every external pin is listed; onboard-only signals (e.g
 
 ---
 
-## ELRS receiver
+## SX1262 LoRa radio — Boat (Waveshare SX1262 HF module, 868/915 MHz)
+
+Software bit-bang SPI (see elrs.cpp SoftSPI class) because SPI2 = display and SPI3 = TF card.
+
+RadioLib setup: `SX1262 radio(&Module(CS=8, DIO1=42, RESET=1, BUSY=45, softSpi))`  
+`radio.setRfSwitchPins(RXEN=16, TXEN=17)`
 
 | Pin | Connects to | Wire gauge | Notes |
 |---|---|---|---|
-| VCC | 5V buck Output + | 22–24 AWG | Must be 4.5–6V; do not use ESP32 3.3V |
-| GND | GND rail | 22–24 AWG | |
-| TX | ESP32-S3 GPIO16 (UART1 RX) | 24–26 AWG | CRSF frames from receiver to MCU |
-| RX | ESP32-S3 GPIO17 (UART1 TX) | 24–26 AWG | Telemetry from MCU to receiver |
+| 3V3 | ESP32-S3 3.3V | 24 AWG | Module logic + RF supply |
+| GND | GND rail | 24 AWG | |
+| CLK | ESP32-S3 GPIO5 | 24–26 AWG | Software SPI clock |
+| MOSI | ESP32-S3 GPIO6 | 24–26 AWG | Software SPI data out |
+| MISO | ESP32-S3 GPIO7 | 24–26 AWG | Software SPI data in |
+| CS | ESP32-S3 GPIO8 | 24–26 AWG | Active low; RadioLib controls |
+| RESET | ESP32-S3 GPIO1 | 24–26 AWG | Active low reset |
+| DIO1 | ESP32-S3 GPIO42 | 24–26 AWG | Interrupt: TX/RX done. Verify GPIO42 is broken out. |
+| BUSY | ESP32-S3 GPIO45 | 24–26 AWG | Strapping pin — safe as input after boot |
+| RXEN | ESP32-S3 GPIO16 | 24–26 AWG | RF switch: enable LNA (freed from RP3 UART) |
+| TXEN | ESP32-S3 GPIO17 | 24–26 AWG | RF switch: enable PA (freed from RP3 UART) |
+| DIO2 | Not connected | — | Not required when RXEN/TXEN are wired to MCU |
 
 ---
 

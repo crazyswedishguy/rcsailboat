@@ -131,3 +131,49 @@ XIAO ESP32-S3,5V (VBUS),USB 5 V output,Ranger Micro,JR bay VCC / BAT,TX module p
 Ranger Micro,JR bay VCC / BAT,TX module power input,XIAO ESP32-S3,5V (VBUS),USB 5 V output,⚠ Never power Ranger Micro via its USB-C for normal operation,26 AWG
 Raspberry Pi,USB-A port,5 V USB host output,XIAO ESP32-S3,USB-C,Power + data,Powers XIAO (and Ranger Micro via 5V pin); USB-CDC serial for Mode 3 bridge,—
 XIAO ESP32-S3,USB-C,Power + data,Raspberry Pi,USB-A port,5 V USB host output,Mode 3: Pi drives XIAO as byte-pump bridge over USB-CDC,—
+SX1262 (Boat),3V3,3.3 V power input,ESP32-S3,3V3,3.3 V output,Module confirmed 3.3V; 100 nF bypass cap close to pin,26 AWG
+ESP32-S3,3V3,3.3 V output,SX1262 (Boat),3V3,3.3 V power input,Module confirmed 3.3V; 100 nF bypass cap close to pin,26 AWG
+SX1262 (Boat),GND,Ground,Star Ground,—,Common ground bus,Connect at least one GND pad,26 AWG
+Star Ground,—,Common ground bus,SX1262 (Boat),GND,Ground,Connect at least one GND pad,26 AWG
+SX1262 (Boat),CLK,SPI clock,ESP32-S3,GPIO5,Free GPIO — software SPI CLK,Software SPI bitbanged by RadioLib,26 AWG
+ESP32-S3,GPIO5,Free GPIO — software SPI CLK,SX1262 (Boat),CLK,SPI clock,Software SPI bitbanged by RadioLib,26 AWG
+SX1262 (Boat),MOSI,SPI data in (to radio),ESP32-S3,GPIO6,Free GPIO — software SPI MOSI,,26 AWG
+ESP32-S3,GPIO6,Free GPIO — software SPI MOSI,SX1262 (Boat),MOSI,SPI data in (to radio),,26 AWG
+SX1262 (Boat),MISO,SPI data out (from radio),ESP32-S3,GPIO7,Free GPIO — software SPI MISO,,26 AWG
+ESP32-S3,GPIO7,Free GPIO — software SPI MISO,SX1262 (Boat),MISO,SPI data out (from radio),,26 AWG
+SX1262 (Boat),CS,SPI chip select (active low),ESP32-S3,GPIO8,Free GPIO — SPI CS,,26 AWG
+ESP32-S3,GPIO8,Free GPIO — SPI CS,SX1262 (Boat),CS,SPI chip select (active low),,26 AWG
+SX1262 (Boat),RESET,Radio reset (active low),ESP32-S3,GPIO1,Free GPIO,Must be MCU-driven; do not tie to VCC,26 AWG
+ESP32-S3,GPIO1,Free GPIO,SX1262 (Boat),RESET,Radio reset (active low),Must be MCU-driven; do not tie to VCC,26 AWG
+SX1262 (Boat),DIO1,Interrupt — TxDone/RxDone/Timeout,ESP32-S3,GPIO42,Free GPIO,⚠ GPIO42 header breakout unverified — continuity-check before soldering,26 AWG
+ESP32-S3,GPIO42,Free GPIO,SX1262 (Boat),DIO1,Interrupt — TxDone/RxDone/Timeout,⚠ GPIO42 header breakout unverified — continuity-check before soldering,26 AWG
+SX1262 (Boat),BUSY,Radio busy (HIGH = busy),ESP32-S3,GPIO45,Free GPIO (strapping pin),⚠ Do not pull LOW during power-on reset; safe after boot,26 AWG
+ESP32-S3,GPIO45,Free GPIO (strapping pin),SX1262 (Boat),BUSY,Radio busy (HIGH = busy),⚠ Do not pull LOW during power-on reset; safe after boot,26 AWG
+SX1262 (Boat),RXEN,RF RX enable,ESP32-S3,GPIO16,Freed from RP3 UART1,⚠ Connect only after RP3 removed — GPIO16 occupied by RP3 while installed,26 AWG
+ESP32-S3,GPIO16,Freed from RP3 UART1,SX1262 (Boat),RXEN,RF RX enable,⚠ Connect only after RP3 removed — GPIO16 occupied by RP3 while installed,26 AWG
+SX1262 (Boat),TXEN,RF TX enable,ESP32-S3,GPIO17,Freed from RP3 UART1,⚠ Connect only after RP3 removed — GPIO17 occupied by RP3 while installed,26 AWG
+ESP32-S3,GPIO17,Freed from RP3 UART1,SX1262 (Boat),TXEN,RF TX enable,⚠ Connect only after RP3 removed — GPIO17 occupied by RP3 while installed,26 AWG
+SX1262 (Boat),DIO2,SX1262 DIO2,—,—,Leave unconnected,Set RADIOLIB_NC in firmware,—
+SX1262 (XIAO),3V3,3.3 V power input,XIAO ESP32-S3,3V3,3.3 V output,Module confirmed 3.3V; 100 nF bypass cap close to pin,26 AWG
+XIAO ESP32-S3,3V3,3.3 V output,SX1262 (XIAO),3V3,3.3 V power input,Module confirmed 3.3V; 100 nF bypass cap close to pin,26 AWG
+SX1262 (XIAO),GND,Ground,XIAO ESP32-S3,GND,Ground,Connect at least one GND pad,26 AWG
+XIAO ESP32-S3,GND,Ground,SX1262 (XIAO),GND,Ground,Connect at least one GND pad,26 AWG
+SX1262 (XIAO),CLK,SPI clock,XIAO ESP32-S3,D8 / GPIO7,Hardware SPI CLK,XIAO dedicated hardware SPI clock,26 AWG
+XIAO ESP32-S3,D8 / GPIO7,Hardware SPI CLK,SX1262 (XIAO),CLK,SPI clock,XIAO dedicated hardware SPI clock,26 AWG
+SX1262 (XIAO),MOSI,SPI data in (to radio),XIAO ESP32-S3,D10 / GPIO9,Hardware SPI MOSI,,26 AWG
+XIAO ESP32-S3,D10 / GPIO9,Hardware SPI MOSI,SX1262 (XIAO),MOSI,SPI data in (to radio),,26 AWG
+SX1262 (XIAO),MISO,SPI data out (from radio),XIAO ESP32-S3,D9 / GPIO8,Hardware SPI MISO,,26 AWG
+XIAO ESP32-S3,D9 / GPIO8,Hardware SPI MISO,SX1262 (XIAO),MISO,SPI data out (from radio),,26 AWG
+SX1262 (XIAO),CS,SPI chip select (active low),XIAO ESP32-S3,D3 / GPIO4,General GPIO,,26 AWG
+XIAO ESP32-S3,D3 / GPIO4,General GPIO,SX1262 (XIAO),CS,SPI chip select (active low),,26 AWG
+SX1262 (XIAO),RESET,Radio reset (active low),XIAO ESP32-S3,D2 / GPIO3,General GPIO,Must be MCU-driven,26 AWG
+XIAO ESP32-S3,D2 / GPIO3,General GPIO,SX1262 (XIAO),RESET,Radio reset (active low),Must be MCU-driven,26 AWG
+SX1262 (XIAO),DIO1,Interrupt — TxDone/RxDone/Timeout,XIAO ESP32-S3,D1 / GPIO2,General GPIO,RadioLib interrupt pin,26 AWG
+XIAO ESP32-S3,D1 / GPIO2,General GPIO,SX1262 (XIAO),DIO1,Interrupt — TxDone/RxDone/Timeout,RadioLib interrupt pin,26 AWG
+SX1262 (XIAO),BUSY,Radio busy (HIGH = busy),XIAO ESP32-S3,D0 / GPIO1,General GPIO,MCU polls before every SPI command,26 AWG
+XIAO ESP32-S3,D0 / GPIO1,General GPIO,SX1262 (XIAO),BUSY,Radio busy (HIGH = busy),MCU polls before every SPI command,26 AWG
+SX1262 (XIAO),RXEN,RF RX enable,XIAO ESP32-S3,D6 / GPIO43,Freed from Ranger Micro CRSF TX,Disconnect Ranger Micro CRSF wire from D6 first,26 AWG
+XIAO ESP32-S3,D6 / GPIO43,Freed from Ranger Micro CRSF TX,SX1262 (XIAO),RXEN,RF RX enable,Disconnect Ranger Micro CRSF wire from D6 first,26 AWG
+SX1262 (XIAO),TXEN,RF TX enable,XIAO ESP32-S3,D7 / GPIO44,Freed from Ranger Micro CRSF RX,Disconnect Ranger Micro CRSF wire from D7 first,26 AWG
+XIAO ESP32-S3,D7 / GPIO44,Freed from Ranger Micro CRSF RX,SX1262 (XIAO),TXEN,RF TX enable,Disconnect Ranger Micro CRSF wire from D7 first,26 AWG
+SX1262 (XIAO),DIO2,SX1262 DIO2,—,—,Leave unconnected,Set RADIOLIB_NC in firmware,—

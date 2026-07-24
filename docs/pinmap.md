@@ -95,16 +95,26 @@ The BN-880 also carries an **HMC5883L compass** on I²C (address `0x1E`). Wire S
 
 ---
 
-### ELRS receiver (CRSF over UART, 420 000 baud, 8N1)
+### ~~ELRS receiver~~ (removed — replaced by SX1262 LoRa)
 
-| Signal       | GPIO | Notes |
-|--------------|------|-------|
-| MCU RX ← Rx TX | 16 | recommended; on header P1, free |
-| MCU TX → Rx RX | 17 | recommended; on header P1, free |
+GPIO16 and GPIO17 are now used for SX1262 RXEN and TXEN. See SX1262 section below.
 
-Constraints:
-- Must use a hardware UART (UART1 or UART2 on the ESP32-S3). Bit-banged 420k won't be reliable.
-- Don't use UART0 — that's the USB-Serial console.
+### SX1262 LoRa Radio — Boat (Waveshare SX1262 HF, 868/915 MHz, software SPI)
+
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| CLK (software SPI) | 5 | Free header GPIO |
+| MOSI (software SPI) | 6 | Free header GPIO |
+| MISO (software SPI) | 7 | Free header GPIO |
+| CS | 8 | Free header GPIO |
+| RESET | 1 | Free header GPIO |
+| DIO1 | 42 | Free header GPIO — verify breakout before soldering |
+| BUSY | 45 | Strapping pin (VDD_SPI) — safe as input after boot |
+| RXEN | 16 | Freed from RP3 UART1 RX |
+| TXEN | 17 | Freed from RP3 UART1 TX |
+| DIO2 | — | Leave unconnected (RADIOLIB_NC) |
+
+Both hardware SPI buses are occupied (SPI2 = display, SPI3 = TF card). Software SPI is required for the SX1262.
 
 ### PCA9685 servo driver (I²C, default address `0x40`)
 
@@ -152,11 +162,9 @@ Run `i2cdetect`-equivalent at first power-up and check this list matches.
 
 ## Free GPIOs
 
-Broken out on header P1 or P2 with no onboard function:
+All free GPIOs are now assigned to the SX1262 LoRa radio. No header GPIOs remain unallocated.
 
-`GPIO1, GPIO5, GPIO6, GPIO7, GPIO8, GPIO42, GPIO45`
-
-*(GPIO2/3 = bilge sensor/pump; GPIO15/18 = GPS UART2; GPIO16/17 = ELRS UART1 — all taken)*
+*(GPIO2/3 = bilge sensor/pump; GPIO15/18 = GPS UART2; GPIO1/5/6/7/8/42/45 = SX1262 SPI+control; GPIO16/17 = SX1262 RXEN/TXEN)*
 
 **Caveats:**
 - GPIO45 is a strapping pin — fine as input or as output after boot, but don't pull it during reset.

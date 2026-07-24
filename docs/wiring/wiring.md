@@ -1,6 +1,6 @@
 # RC Sailboat — Wiring Reference
 
-_Generated 2026-05-08. Updated 2026-05-09 (INA228 confirmed; pinmap corrected; on-hand inventory complete)._
+_Generated 2026-05-08. Updated 2026-07-01 (INA228 confirmed; pinmap corrected; on-hand inventory complete; SX1262 LoRa radio sections added)._
 
 > ⚠ All component grounds must share a single star-ground point. Verify this physically before powering. Floating grounds cause servo jitter and unreliable I²C communication.
 
@@ -28,10 +28,10 @@ The boat runs a three-rail power architecture fed by a single 3S LiPo (~11.1 V n
   │                                                        ├─ ESP32-S3 (5 V in)
   │                                                        │    └─ 3.3 V out
   │                                                        │         ├─ Bilge sensor
-  │                                                        │         └─ I²C pull-ups
+  │                                                        │         ├─ I²C pull-ups
+  │                                                        │         └─ SX1262 (Boat) 3V3
   │                                                        ├─ PCA9685 VCC
   │                                                        ├─ INA228 VCC
-  │                                                        ├─ ELRS RP3
   │                                                        └─ BN-880 GPS
   │
 3S LiPo (−) ──────────────────────────────────────────── Star ground
@@ -58,8 +58,8 @@ The boat runs a three-rail power architecture fed by a single 3S LiPo (~11.1 V n
 | ESP32-S3 + AMOLED | 5 V logic | 200–400 mA | 600 mA (WiFi TX) | Display included |
 | PCA9685 | 5 V logic | 10 mA | 10 mA | Logic only; servo power is V+ |
 | INA228 | 5 V logic | 1 mA | 1 mA | |
-| ELRS RP3 | 5 V logic | 80–100 mA | 200 mA | |
 | BN-880 GPS + HMC5883L | 5 V logic | 30–50 mA | 60 mA | |
+| SX1262 (Boat) | 3.3 V (via ESP32 LDO) | ~5 mA (RX/idle) | ~120 mA (TX +22 dBm) | 915 MHz LoRa; replaces RP3 |
 | Bilge pump | 5 V or 6 V | 0.5–1 A | 1.5 A | Pump voltage TBD |
 | **5 V rail total** | | **~750 mA** | **~1.5 A** | Buck rated 3 A — adequate headroom |
 
@@ -262,7 +262,9 @@ The logic level shifter bridges 3.3 V ESP32 I²C lines and 5 V PCA9685 I²C line
 
 ---
 
-## ELRS Receiver — RadioMaster RP3
+## ~~ELRS Receiver — RadioMaster RP3~~ (superseded — replaced by SX1262)
+
+_This hardware is no longer used. GPIO16 and GPIO17 are now assigned to SX1262 RXEN/TXEN. This section is retained for reference only._
 
 The RP3 receives 2.4 GHz ELRS packets from the base-station transmitter module and exposes them as CRSF frames over UART. The ESP32-S3 reads CRSF to recover servo channel values and link statistics. The RP3 accepts 5 V on its power pin and has an internal LDO for its 3.3 V RF front-end.
 
@@ -406,7 +408,9 @@ The TF card slot is on the Waveshare PCB and is internally wired to GPIO38–41 
 
 ---
 
-## Base Station — XIAO ESP32-S3 → Ranger Micro TX Module
+## ~~Base Station — XIAO ESP32-S3 → Ranger Micro TX Module~~ (superseded — replaced by SX1262)
+
+_This hardware is no longer used. GPIO43 (D6) and GPIO44 (D7) are now assigned to SX1262 RXEN/TXEN. This section is retained for reference only._
 
 The XIAO ESP32-S3 (`crsf-bridge/`) sits between the Raspberry Pi and the Ranger Micro. It connects to the Pi over USB-C (power + USB-CDC data) and to the Ranger Micro over UART1 (CRSF). See `docs/elrs-link.md` for the full software architecture.
 
@@ -462,6 +466,56 @@ Looking at the back face of the Ranger Micro (the connector end, antenna up):
 ```
 
 Verify against the silkscreen on your specific module — pin order can vary between hardware revisions. The three signals you need are **SIGNAL** (CRSF), **GND**, and **VCC/BAT**.
+
+---
+
+## SX1262 LoRa Radio — Boat (ESP32-S3, software SPI)
+
+The module is the **Waveshare SX1262 LoRa Node (HF)**, covering **868/915 MHz**. It replaces the ELRS RP3 receiver; GPIO16 and GPIO17 are now free and used for RXEN/TXEN. Both hardware SPI buses are occupied (SPI2 = CO5300 display, SPI3 = TF card), so the SX1262 runs on software SPI across the free header GPIOs.
+
+| FROM Component | FROM Pin # | FROM Descriptor | TO Component | TO Pin # | TO Descriptor | Notes | Wire Gauge |
+|---|---|---|---|---|---|---|---|
+| SX1262 (Boat) | 3V3 | 3.3 V power input | ESP32-S3 | 3V3 | 3.3 V output | Module confirmed 3.3 V input; add 100 nF ceramic bypass cap close to pin | 26 AWG |
+| SX1262 (Boat) | GND | Ground | Star Ground | — | Common ground bus | Three GND pads on module — connect at least one | 26 AWG |
+| SX1262 (Boat) | CLK | SPI clock | ESP32-S3 | GPIO5 | Free GPIO — software SPI CLK | Software SPI bitbanged by RadioLib | 26 AWG |
+| SX1262 (Boat) | MOSI | SPI data in (to radio) | ESP32-S3 | GPIO6 | Free GPIO — software SPI MOSI | | 26 AWG |
+| SX1262 (Boat) | MISO | SPI data out (from radio) | ESP32-S3 | GPIO7 | Free GPIO — software SPI MISO | | 26 AWG |
+| SX1262 (Boat) | CS | SPI chip select (active low) | ESP32-S3 | GPIO8 | Free GPIO — SPI CS | | 26 AWG |
+| SX1262 (Boat) | RESET | Radio reset (active low) | ESP32-S3 | GPIO1 | Free GPIO | Must be MCU-driven; do not tie to VCC | 26 AWG |
+| SX1262 (Boat) | DIO1 | Interrupt — TxDone / RxDone / Timeout | ESP32-S3 | GPIO42 | Free GPIO | ⚠ GPIO42 header breakout unverified in pinmap.md — continuity-check before soldering | 26 AWG |
+| SX1262 (Boat) | BUSY | Radio busy (HIGH = busy) | ESP32-S3 | GPIO45 | Free GPIO (strapping pin) | ⚠ GPIO45 = VDD_SPI strapping — do not pull LOW during power-on reset; safe after boot | 26 AWG |
+| SX1262 (Boat) | RXEN | RF RX enable | ESP32-S3 | GPIO16 | RF switch RX enable | RP3 removed; GPIO16 is free | 26 AWG |
+| SX1262 (Boat) | TXEN | RF TX enable | ESP32-S3 | GPIO17 | RF switch TX enable | RP3 removed; GPIO17 is free | 26 AWG |
+| SX1262 (Boat) | DIO2 | SX1262 DIO2 | — | — | Leave unconnected | Not needed when RXEN/TXEN are wired directly; set `RADIOLIB_NC` in firmware | — |
+| SX1262 (Boat) | ANT | Antenna (U.FL) | Antenna | — | RF input/output | ⚠ Never power without antenna connected — PA damage | — |
+
+> ⚠ Both hardware SPI buses are occupied: SPI2 (FSPI) = CO5300 display, SPI3 (HSPI) = TF card. Software SPI on GPIO5/6/7 is required.
+
+> RadioLib constructor: `SX1262 radio = new Module(8, 42, 1, 45);` (CS=GPIO8, DIO1=GPIO42, RESET=GPIO1, BUSY=GPIO45). After `radio.begin()`: `radio.setRfSwitchPins(16, 17);` (RXEN=GPIO16, TXEN=GPIO17).
+
+---
+
+## SX1262 LoRa Radio — XIAO (ESP32-S3, hardware SPI)
+
+The XIAO's SX1262 (HF variant, 868/915 MHz) is the base-station end of the radio link, replacing the Ranger Micro. Hardware SPI is available on D8/D9/D10. RXEN and TXEN take D6/D7 (GPIO43/GPIO44) — the same pins currently used for the Ranger Micro CRSF UART. Disconnect the Ranger Micro CRSF wires from D6/D7 before connecting RXEN/TXEN.
+
+| FROM Component | FROM Pin # | FROM Descriptor | TO Component | TO Pin # | TO Descriptor | Notes | Wire Gauge |
+|---|---|---|---|---|---|---|---|
+| SX1262 (XIAO) | 3V3 | 3.3 V power input | XIAO ESP32-S3 | 3V3 | 3.3 V output | Module confirmed 3.3 V input; add 100 nF ceramic bypass cap close to pin | 26 AWG |
+| SX1262 (XIAO) | GND | Ground | XIAO ESP32-S3 | GND | Ground | Connect at least one GND pad | 26 AWG |
+| SX1262 (XIAO) | CLK | SPI clock | XIAO ESP32-S3 | D8 / GPIO7 | Hardware SPI CLK | XIAO dedicated hardware SPI clock | 26 AWG |
+| SX1262 (XIAO) | MOSI | SPI data in (to radio) | XIAO ESP32-S3 | D10 / GPIO9 | Hardware SPI MOSI | | 26 AWG |
+| SX1262 (XIAO) | MISO | SPI data out (from radio) | XIAO ESP32-S3 | D9 / GPIO8 | Hardware SPI MISO | | 26 AWG |
+| SX1262 (XIAO) | CS | SPI chip select (active low) | XIAO ESP32-S3 | D3 / GPIO4 | General GPIO | | 26 AWG |
+| SX1262 (XIAO) | RESET | Radio reset (active low) | XIAO ESP32-S3 | D2 / GPIO3 | General GPIO | Must be MCU-driven | 26 AWG |
+| SX1262 (XIAO) | DIO1 | Interrupt — TxDone / RxDone / Timeout | XIAO ESP32-S3 | D1 / GPIO2 | General GPIO | RadioLib interrupt pin | 26 AWG |
+| SX1262 (XIAO) | BUSY | Radio busy (HIGH = busy) | XIAO ESP32-S3 | D0 / GPIO1 | General GPIO | MCU polls before every SPI command | 26 AWG |
+| SX1262 (XIAO) | RXEN | RF RX enable | XIAO ESP32-S3 | D6 / GPIO43 | Freed from Ranger Micro CRSF TX | Disconnect Ranger Micro CRSF wire from D6 first | 26 AWG |
+| SX1262 (XIAO) | TXEN | RF TX enable | XIAO ESP32-S3 | D7 / GPIO44 | Freed from Ranger Micro CRSF RX | Disconnect Ranger Micro CRSF wire from D7 first | 26 AWG |
+| SX1262 (XIAO) | DIO2 | SX1262 DIO2 | — | — | Leave unconnected | Not needed when RXEN/TXEN wired directly; set `RADIOLIB_NC` in firmware | — |
+| SX1262 (XIAO) | ANT | Antenna (U.FL) | 915 MHz antenna | — | RF input/output | ⚠ Never power without antenna connected — PA damage | — |
+
+> RadioLib constructor: `SX1262 radio = new Module(4, 2, 3, 1);` (CS=GPIO4, DIO1=GPIO2, RESET=GPIO3, BUSY=GPIO1). Hardware SPI: `SPI.begin(7, 8, 9, 4)` (CLK, MISO, MOSI, SS). After `radio.begin()`: `radio.setRfSwitchPins(43, 44);` (RXEN=GPIO43, TXEN=GPIO44).
 
 ---
 

@@ -1,27 +1,34 @@
-// main.cpp — XIAO ESP32-S3 dual-mode CRSF bridge firmware.
+// main.cpp — XIAO ESP32-S3 dual-mode LoRa bridge firmware.
+//
+// Replaces the previous Ranger Micro / CRSF-UART radio link with a direct
+// SX1262 LoRa link between this XIAO and the boat ESP32-S3.
 //
 // Two operating modes, switched dynamically based on Pi heartbeat detection:
 //
-//   Mode 2 — Standalone AP  (default at boot, Pi absent)
+//   Mode 2 — Standalone AP  (default at boot; Pi absent)
 //     • Brings up WiFi AP "Mistral-2" and serves the shared embedded control page.
-//     • Generates CRSF RC Channels Packed (0x16) to the Ranger Micro at 50 Hz.
-//     • Decodes incoming CRSF telemetry from the Ranger Micro and exposes it via
-//       HTTP JSON endpoints — same API surface as the boat's own wifi_ctrl.cpp.
+//     • Builds CRSF RC_CHANNELS_PACKED frames and transmits them over LoRa at 50 Hz.
+//     • Receives CRSF telemetry frames from the boat over LoRa; exposes them via
+//       HTTP JSON endpoints (same API surface as the boat's own wifi_ctrl.cpp).
 //     • Control timeout: if no /control hit for 500 ms, output goes to neutral/disarmed.
 //
 //   Mode 3 — Pi bridge  (active while Pi's elrs_bridge.py heartbeat is detected)
-//     • Tears down the AP; becomes a transparent USB-CDC ↔ UART1 byte pump.
-//     • Strips Pi heartbeat frames (type 0x7E) before forwarding to the Ranger Micro.
-//     • The Pi's elrs_bridge.py emits 0x7E heartbeats every ~500 ms as a liveness
-//       signal.  2 s silence → revert to Mode 2.
+//     • Tears down the AP; becomes a frame-aware USB-CDC ↔ LoRa bridge.
+//     • Pi sends CRSF RC frames over USB-CDC; XIAO forwards them over LoRa.
+//     • Boat sends CRSF telemetry over LoRa; XIAO forwards bytes to Pi via USB-CDC.
+//     • Pi heartbeat frames (type 0x7E) are stripped — not forwarded over LoRa.
+//     • 2 s silence from Pi → revert to Mode 2.
 //
-//   Transition safety: on every mode switch, commanded state resets to
-//   neutral/disarmed before the new source takes over.
+//   Transition safety: commanded state resets to neutral/disarmed on every mode switch.
 //
-// Wiring (XIAO ESP32-S3):
-//   Serial1 TX  = GPIO43 (D6) → 470Ω resistor → Ranger Micro signal pin
-//   Serial1 RX  = GPIO44 (D7) direct
-//   USB-CDC     = Serial (native USB, enumerates as /dev/ttyACM0 on Pi)
+// SX1262 wiring (XIAO ESP32-S3, hardware SPI):
+//   SPI bus: CLK=D8(GPIO7)  MISO=D9(GPIO8)  MOSI=D10(GPIO9)
+//   Control: CS=D3(GPIO4)   RESET=D2(GPIO3)  DIO1=D1(GPIO2)  BUSY=D0(GPIO1)
+//   RF switch (Waveshare module): RXEN=D6(GPIO43)  TXEN=D7(GPIO44)
+//
+// LoRa protocol: raw CRSF frames are sent as LoRa packet payloads.
+//   XIAO→Boat: CRSF RC_CHANNELS_PACKED (type 0x16), 26 bytes, at 50 Hz.
+//   Boat→XIAO: any CRSF telemetry frame (GPS 0x02, BATTERY 0x08, ATTITUDE 0x1E, …)
 //
 // Shared UI headers (from shared/web/ via -I"${PROJECT_DIR}/../shared"):
 //   web/control_page.h — HTML_PAGE[] PROGMEM (shared with boat's wifi_ctrl.cpp)
@@ -30,45 +37,71 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <SPI.h>
+#include <RadioLib.h>
 #include <math.h>
 #include <string.h>
 
-#include "web/control_page.h"   // HTML_PAGE[] PROGMEM — shared control page
-#include "web/map_page.h"       // MAP_HTML[] PROGMEM  — shared track viewer
+#include "web/control_page.h"
+#include "web/map_page.h"
 
-// ── Configuration ──────────────────────────────────────────────────────────────
+// ── SX1262 pin assignments (XIAO ESP32-S3, hardware SPI on SPI2) ──────────────
 namespace cfg {
-    constexpr int    CRSF_RX           = 44;      // D7, direct from Ranger Micro
-    constexpr int    CRSF_TX           = 43;      // D6 → 470Ω → Ranger Micro signal pin
-    constexpr uint32_t CRSF_BAUD      = 420000;  // ELRS CRSF standard (same as receiver-to-FC)
-    constexpr char   AP_SSID[]         = "Mistral-2";
-    constexpr char   AP_PASS[]         = "readyabout";
-    constexpr uint32_t CTRL_TIMEOUT_MS = 500;    // servo timeout (same as boat)
-    constexpr uint32_t MODE_REQUEST_TIMEOUT_MS = 30000; // CH_MODE presence signal —
-                                                          // 30 s of inactivity before dropping
-                                                          // to centre, so Mode 2 sessions stay
-                                                          // stable across browser polling gaps
-    constexpr uint32_t TX_PERIOD_MS    = 20;     // 50 Hz RC output
-    constexpr uint32_t HB_TIMEOUT_MS   = 2000;  // Pi absence → revert to AP mode
+    // Radio hardware
+    constexpr int SX_CLK   = 7;   // D8 — SPI clock
+    constexpr int SX_MISO  = 8;   // D9 — SPI MISO
+    constexpr int SX_MOSI  = 9;   // D10 — SPI MOSI
+    constexpr int SX_CS    = 4;   // D3 — chip select (active low)
+    constexpr int SX_RESET = 3;   // D2 — module reset (active low)
+    constexpr int SX_DIO1  = 2;   // D1 — interrupt: TX/RX done
+    constexpr int SX_BUSY  = 1;   // D0 — busy flag
+    constexpr int SX_RXEN  = 43;  // D6 — RF switch: enable LNA (RX mode)
+    constexpr int SX_TXEN  = 44;  // D7 — RF switch: enable PA (TX mode)
+
+    // LoRa link parameters — must match boat-firmware/src/config.h LORA_* constants
+    constexpr float    LORA_FREQ_MHZ   = 915.0f;
+    constexpr float    LORA_BW_KHZ     = 500.0f;
+    constexpr uint8_t  LORA_SF         = 7;
+    constexpr uint8_t  LORA_CR         = 5;
+    constexpr uint8_t  LORA_SYNC_WORD  = 0x12;
+    constexpr int8_t   LORA_POWER_DBM  = 14;
+    constexpr uint16_t LORA_PREAMBLE   = 8;
+
+    // Application timing
+    constexpr char     AP_SSID[]        = "Mistral-2";
+    constexpr char     AP_PASS[]        = "readyabout";
+    constexpr uint32_t CTRL_TIMEOUT_MS  = 500;    // servo timeout
+    constexpr uint32_t MODE_REQUEST_TIMEOUT_MS = 30000;  // CH_MODE presence
+    constexpr uint32_t TX_PERIOD_MS     = 20;     // 50 Hz RC output
+    constexpr uint32_t HB_TIMEOUT_MS    = 2000;   // Pi absence → revert to AP mode
+    // Max time we wait for a telemetry response before moving on
+    constexpr uint32_t TELEM_WAIT_MS    = 8;
 }
 
-// ── CRSF frame types and channel limits ───────────────────────────────────────
-constexpr uint8_t  CRSF_SYNC            = 0xC8;
-constexpr uint8_t  CRSF_TYPE_RC         = 0x16; // RC Channels Packed (Pi/XIAO → TX)
-constexpr uint8_t  CRSF_TYPE_GPS        = 0x02; // GPS telemetry (boat → base)
-constexpr uint8_t  CRSF_TYPE_BATTERY    = 0x08; // Battery sensor
-constexpr uint8_t  CRSF_TYPE_LINK_STATS = 0x14; // Link statistics
-constexpr uint8_t  CRSF_TYPE_ATTITUDE   = 0x1E; // Attitude
-constexpr uint8_t  CRSF_TYPE_SAILBOAT   = 0x80; // Custom sailboat frame
-constexpr uint8_t  CRSF_TYPE_DEVICES    = 0x81; // Custom device-status bitmap
-constexpr uint8_t  CRSF_TYPE_HEARTBEAT  = 0x7E; // Pi liveness signal (stripped, not forwarded)
-constexpr uint8_t  CRSF_TYPE_RADIO_ID   = 0x3A; // Timing sync from TX module (JR bay)
+// ── RadioLib objects ───────────────────────────────────────────────────────────
+static SPIClass   s_spi(SPI);  // Hardware SPI (SPI2 on XIAO = default SPI bus)
+static Module     s_module(cfg::SX_CS, cfg::SX_DIO1, cfg::SX_RESET,
+                            cfg::SX_BUSY, s_spi);
+static SX1262     s_radio(&s_module);
+static volatile bool s_pkt_ready = false;  // set by DIO1 ISR
+static void IRAM_ATTR on_dio1() { s_pkt_ready = true; }
+
+// ── CRSF frame type constants ──────────────────────────────────────────────────
+constexpr uint8_t CRSF_SYNC            = 0xC8;
+constexpr uint8_t CRSF_TYPE_RC         = 0x16;
+constexpr uint8_t CRSF_TYPE_GPS        = 0x02;
+constexpr uint8_t CRSF_TYPE_BATTERY    = 0x08;
+constexpr uint8_t CRSF_TYPE_LINK_STATS = 0x14;
+constexpr uint8_t CRSF_TYPE_ATTITUDE   = 0x1E;
+constexpr uint8_t CRSF_TYPE_SAILBOAT   = 0x80;
+constexpr uint8_t CRSF_TYPE_DEVICES    = 0x81;
+constexpr uint8_t CRSF_TYPE_HEARTBEAT  = 0x7E;  // Pi liveness signal (stripped, not forwarded)
 
 constexpr uint16_t CRSF_CH_MIN    = 172;
 constexpr uint16_t CRSF_CH_CENTER = 992;
 constexpr uint16_t CRSF_CH_MAX    = 1811;
 
-// Channel indices — 0-based, matching boat-firmware/src/protocol.h and shared/protocol.py
+// Channel indices — 0-based, matching boat-firmware/src/protocol.h
 constexpr int CH_RUDDER   = 0;
 constexpr int CH_SAIL     = 1;
 constexpr int CH_THROTTLE = 2;
@@ -77,11 +110,9 @@ constexpr int CH_MODE     = 4;
 constexpr int CH_RESTART  = 5;
 constexpr int CH_PUMP     = 6;
 
-// ── File-scope 50 Hz TX timer (shared with parse_radio_stream for sync-aligned sends) ──
-static unsigned long s_tx_ms = 0;
-
-// ── CRC-8/DVB-S2 (polynomial 0xD5) — identical to telemetry.cpp ──────────────
-static uint8_t crsf_crc8(const uint8_t *buf, size_t len) {
+// ── CRC-8/DVB-S2 (polynomial 0xD5) ───────────────────────────────────────────
+static uint8_t crsf_crc8(const uint8_t *buf, size_t len)
+{
     uint8_t crc = 0;
     for (size_t i = 0; i < len; i++) {
         crc ^= buf[i];
@@ -93,15 +124,18 @@ static uint8_t crsf_crc8(const uint8_t *buf, size_t len) {
 
 // ── RC frame builder ──────────────────────────────────────────────────────────
 
-// Map –1.0..+1.0 → CRSF_CH_MIN..CRSF_CH_MAX, centered at 992.
-static uint16_t ch_centered(float v) {
+// Map –1.0..+1.0 → CRSF_CH_MIN..CRSF_CH_MAX, centred at 992.
+static uint16_t ch_centered(float v)
+{
     int val = (int)roundf(v * (float)(CRSF_CH_MAX - CRSF_CH_CENTER) + CRSF_CH_CENTER);
     if (val < CRSF_CH_MIN) val = CRSF_CH_MIN;
     if (val > CRSF_CH_MAX) val = CRSF_CH_MAX;
     return (uint16_t)val;
 }
+
 // Map 0.0..+1.0 → CRSF_CH_MIN..CRSF_CH_MAX.
-static uint16_t ch_unipolar(float v) {
+static uint16_t ch_unipolar(float v)
+{
     int val = (int)roundf(v * (float)(CRSF_CH_MAX - CRSF_CH_MIN) + CRSF_CH_MIN);
     if (val < CRSF_CH_MIN) val = CRSF_CH_MIN;
     if (val > CRSF_CH_MAX) val = CRSF_CH_MAX;
@@ -109,8 +143,8 @@ static uint16_t ch_unipolar(float v) {
 }
 
 // Pack 16 × 11-bit channel values LSB-first into out[22].
-// Mirrors the Python expression `bits.to_bytes(22, "little")` in elrs_bridge.py.
-static void pack_channels(const uint16_t ch[16], uint8_t out[22]) {
+static void pack_channels(const uint16_t ch[16], uint8_t out[22])
+{
     memset(out, 0, 22);
     for (int i = 0; i < 16; i++) {
         int      bit_pos  = i * 11;
@@ -119,12 +153,12 @@ static void pack_channels(const uint16_t ch[16], uint8_t out[22]) {
         uint16_t val      = ch[i] & 0x7FF;
         out[byte_idx]     |= (uint8_t)((val << bit_off) & 0xFF);
         out[byte_idx + 1] |= (uint8_t)((val >> (8 - bit_off)) & 0xFF);
-        if (bit_off > 5)   // 11 bits spans a third byte when offset > 5
+        if (bit_off > 5)
             out[byte_idx + 2] |= (uint8_t)((val >> (16 - bit_off)) & 0xFF);
     }
 }
 
-// ── Commanded control state (Mode 2; reset on every mode switch) ──────────────
+// ── Commanded control state ────────────────────────────────────────────────────
 static float         s_rudder      = 0.0f;
 static float         s_sail        = 0.0f;
 static float         s_throttle    = 0.0f;
@@ -132,25 +166,10 @@ static bool          s_armed       = false;
 static bool          s_pump        = false;
 static unsigned long s_last_cmd_ms = 0;
 
-// CRSF DEVICE_PING — announces the XIAO as a handset to the Ranger Micro.
-// EdgeTX sends this once per second; without it some ELRS TX module firmware
-// stays in "no handset" mode and ignores incoming RC channels.
-// CRSF format (CRSF WG spec): [dest][len=3][0x28][origin][CRC over type+origin]
-//   dest=0xEE  (CRSF transmitter = Ranger Micro)
-//   origin=0xEA (radio transmitter = XIAO/handset)
-static void send_device_ping() {
-    uint8_t f[5];
-    f[0] = 0xEE;                  // destination: CRSF transmitter (Ranger Micro)
-    f[1] = 3;                     // len = type(1) + origin(1) + CRC(1)
-    f[2] = 0x28;                  // DEVICE_PING
-    f[3] = 0xEA;                  // origin: radio transmitter (handset/XIAO)
-    f[4] = crsf_crc8(f + 2, 2);  // CRC over type + origin
-    Serial1.write(f, sizeof(f));
-}
-
 // Build a 26-byte CRSF RC Channels Packed frame from current commanded state.
 // Applies control timeout: if no /control hit recently, output neutral/disarmed.
-static void build_rc_frame(uint8_t buf[26]) {
+static void build_rc_frame(uint8_t buf[26])
+{
     uint16_t ch[16];
     for (int i = 0; i < 16; i++) ch[i] = CRSF_CH_CENTER;
 
@@ -161,47 +180,36 @@ static void build_rc_frame(uint8_t buf[26]) {
     ch[CH_SAIL]     = ch_unipolar(s_sail);
     ch[CH_THROTTLE] = ch_centered(active ? s_throttle : 0.0f);
     ch[CH_ARM]      = active ? CRSF_CH_MAX : CRSF_CH_MIN;
-    // Request the boat switch into ELRS mode only while someone actually has
-    // the Mode 2 page open and polling /control -- not merely because the
-    // XIAO+Ranger Micro happen to be powered on with no one connected.
-    // Independent of `active`/armed: switching into ELRS mode to check
-    // telemetry before arming is intentionally allowed. Uses the looser
-    // MODE_REQUEST_TIMEOUT_MS (not the 500 ms servo `timed_out`) so brief
-    // polling gaps don't flap the boat's WiFi AP up/down. See
-    // docs/protocol.md "Remote mode switching".
+    // CH_MODE signals the boat to switch into LoRa mode.
+    // Uses the looser MODE_REQUEST_TIMEOUT_MS so brief polling gaps don't
+    // flap the boat's WiFi AP up/down (see docs/protocol.md).
     bool mode_timed_out = (millis() - s_last_cmd_ms) > cfg::MODE_REQUEST_TIMEOUT_MS;
-    ch[CH_MODE]     = mode_timed_out ? CRSF_CH_CENTER : CRSF_CH_MAX;
-    ch[CH_RESTART]  = CRSF_CH_MIN;      // idle
-    ch[CH_PUMP]     = s_pump ? CRSF_CH_MAX : CRSF_CH_MIN;  // not arm-gated
+    ch[CH_MODE]    = mode_timed_out ? CRSF_CH_CENTER : CRSF_CH_MAX;
+    ch[CH_RESTART] = CRSF_CH_MIN;
+    ch[CH_PUMP]    = s_pump ? CRSF_CH_MAX : CRSF_CH_MIN;
 
     uint8_t payload[22];
     pack_channels(ch, payload);
 
     // Frame: [0xEE][24][0x16][22-byte payload][CRC]
-    // Destination 0xEE = CRSF_ADDRESS_CRSF_TRANSMITTER (Ranger Micro).
-    // Handset→TX module frames must use 0xEE, not 0xC8 (FC address); using
-    // 0xC8 causes some ELRS TX firmware to ignore the frame for handset detection.
-    // length field = 24 = type(1) + payload(22) + CRC(1)
+    // Destination 0xEE = CRSF_ADDRESS_CRSF_TRANSMITTER (kept for protocol
+    // compatibility with boat-firmware's CRSF parser).
     buf[0] = 0xEE;
     buf[1] = 24;
     buf[2] = CRSF_TYPE_RC;
     memcpy(buf + 3, payload, 22);
-    buf[25] = crsf_crc8(buf + 2, 23);  // CRC covers type + payload (23 bytes)
+    buf[25] = crsf_crc8(buf + 2, 23);
 }
 
 // ── Telemetry state ────────────────────────────────────────────────────────────
-// Populated in Mode 2 by decoding incoming CRSF frames from the Ranger Micro.
 struct TelState {
-    // Battery (CRSF 0x08) — 2 Hz
     float  voltage_v    = 0.0f;
     float  current_a    = 0.0f;
     float  mah_used     = 0.0f;
     int    battery_pct  = 0;
-    // Attitude (CRSF 0x1E) — 24 Hz
     float  pitch_deg    = 0.0f;
     float  roll_deg     = 0.0f;
     float  yaw_deg      = 0.0f;
-    // Sailboat custom (CRSF 0x80) — 9-byte payload (protocol v2), 5 Hz
     float  rud_cmd      = 0.0f;
     float  sail_cmd     = 0.0f;
     float  throttle_cmd = 0.0f;
@@ -211,22 +219,21 @@ struct TelState {
     bool   pump_active  = false;
     bool   boat_armed   = false;
     bool   failsafe     = false;
-    // Link stats (CRSF 0x14)
     int    rssi_up      = 0;
     int    lq_up        = 0;
-    // Device status bitmap (CRSF 0x81) — 0.2 Hz; 2-bit fields, mirrors boat-firmware/src/telemetry.cpp
-    uint8_t dev_qmi      = 0, dev_pca = 0, dev_ina = 0, dev_sd = 0;
-    uint8_t dev_bilge    = 0, dev_rudder = 0, dev_winch = 0, dev_esc = 0;
-    // GPS (CRSF 0x02) — 1 Hz when fix
-    double gps_lat      = 0.0;
-    double gps_lng      = 0.0;
-    float  gps_alt_m    = 0.0f;
-    float  gps_spd_kn   = 0.0f;
-    float  gps_hdg_deg  = 0.0f;
-    int    gps_sats     = 0;
-    bool   gps_fix      = false;
+    uint8_t dev_qmi  = 0, dev_pca = 0, dev_ina = 0, dev_sd = 0;
+    uint8_t dev_bilge = 0, dev_rudder = 0, dev_winch = 0, dev_esc = 0;
+    double gps_lat    = 0.0;
+    double gps_lng    = 0.0;
+    float  gps_alt_m  = 0.0f;
+    float  gps_spd_kn = 0.0f;
+    float  gps_hdg_deg= 0.0f;
+    int    gps_sats   = 0;
+    bool   gps_fix    = false;
 };
 static TelState s_tel;
+// millis() of the last successfully decoded telemetry packet from the boat.
+static unsigned long s_telem_last_ms = 0;
 
 // ── Telemetry frame decoders ──────────────────────────────────────────────────
 static inline int16_t  get_i16be(const uint8_t *p) { return (int16_t)((p[0]<<8)|p[1]); }
@@ -245,14 +252,13 @@ static void decode_battery(const uint8_t *p, size_t len) {
 
 static void decode_attitude(const uint8_t *p, size_t len) {
     if (len < 6) return;
-    // int16 × 10000 radians → degrees
     s_tel.pitch_deg = get_i16be(p + 0) / 10000.0f * (180.0f / (float)M_PI);
     s_tel.roll_deg  = get_i16be(p + 2) / 10000.0f * (180.0f / (float)M_PI);
     s_tel.yaw_deg   = get_i16be(p + 4) / 10000.0f * (180.0f / (float)M_PI);
 }
 
 static void decode_sailboat(const uint8_t *p, size_t len) {
-    if (len < 9) return;   // protocol v2: 9-byte payload includes status byte
+    if (len < 9) return;
     s_tel.rud_cmd      = get_i16be(p + 0) / 10000.0f;
     s_tel.sail_cmd     = get_i16be(p + 2) / 10000.0f;
     s_tel.throttle_cmd = get_i16be(p + 4) / 10000.0f;
@@ -272,11 +278,6 @@ static void decode_link_stats(const uint8_t *p, size_t len) {
     s_tel.lq_up   = p[2];
 }
 
-// Bit layout (LSB-first, 3 bytes): [1:0]ft [3:2]qmi [5:4]pca [7:6]ina [9:8]sd
-// [11:10]bilge_sensor [13:12]bilge_pump [15:14]rudder [17:16]winch [19:18]esc.
-// Mirrors boat-firmware/src/telemetry.cpp send_devices(). ft and bilge_pump
-// (always 0 on the boat) are not surfaced — pump state comes from the
-// sailboat status byte instead, which is fresher (5 Hz vs 0.2 Hz).
 static void decode_devices(const uint8_t *p, size_t len) {
     if (len < 3) return;
     uint32_t bits = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16);
@@ -292,7 +293,6 @@ static void decode_devices(const uint8_t *p, size_t len) {
 
 static void decode_gps(const uint8_t *p, size_t len) {
     if (len < 15) return;
-    // int32 lat/lng × 1e7; uint16 speed km/h×10, heading °×100, altitude m+1000; uint8 sats
     int32_t  lat_raw = ((int32_t)p[0]<<24)|((int32_t)p[1]<<16)|((int32_t)p[2]<<8)|p[3];
     int32_t  lng_raw = ((int32_t)p[4]<<24)|((int32_t)p[5]<<16)|((int32_t)p[6]<<8)|p[7];
     uint16_t spd_raw = ((uint16_t)p[8] <<8)|p[9];
@@ -300,111 +300,47 @@ static void decode_gps(const uint8_t *p, size_t len) {
     uint16_t alt_raw = ((uint16_t)p[12]<<8)|p[13];
     s_tel.gps_lat    = lat_raw / 1e7;
     s_tel.gps_lng    = lng_raw / 1e7;
-    s_tel.gps_spd_kn = spd_raw / 10.0f / 1.852f;  // CRSF GPS frame uses km/h × 10
+    s_tel.gps_spd_kn = spd_raw / 10.0f / 1.852f;
     s_tel.gps_hdg_deg= hdg_raw / 100.0f;
     s_tel.gps_alt_m  = (float)alt_raw - 1000.0f;
     s_tel.gps_sats   = p[14];
     s_tel.gps_fix    = (p[14] >= 3);
 }
 
-// ── Streaming CRSF buffers ─────────────────────────────────────────────────────
-// Two separate byte buffers — one per serial direction.
+// Parse one received LoRa packet as a CRSF telemetry frame and dispatch it.
+// Called for every packet received from the boat.
+static void process_telem_packet(const uint8_t *buf, size_t len)
+{
+    if (len < 4) return;  // shortest valid CRSF: sync(1)+len(1)+type(1)+crc(1)
+    uint8_t frame_len = buf[1];
+    size_t  total     = 2u + frame_len;
+    if (total > len) return;
+    if (crsf_crc8(buf + 2, frame_len - 1) != buf[total - 1]) return;
 
-// Serial1 (Ranger Micro → XIAO): incoming CRSF telemetry in Mode 2.
-static uint8_t s_radio_buf[512];
-static size_t  s_radio_len = 0;
+    uint8_t        type    = buf[2];
+    const uint8_t *payload = buf + 3;
+    size_t         plen    = (size_t)(frame_len - 2);
+    s_telem_last_ms = millis();
 
-// Serial (Pi USB → XIAO): Pi's RC frames + heartbeats.
-static uint8_t s_pi_buf[256];
-static size_t  s_pi_len = 0;
-
-// millis() of the last validly-CRC'd frame from the Ranger Micro — used by
-// /diag.json to tell "boat reachable over RF" from "boat link is down",
-// instead of showing stale or default-true device status.
-static unsigned long s_radio_last_ms = 0;
-
-// Consume all complete, valid CRSF frames from the radio (Serial1) buffer.
-// Decodes telemetry into s_tel.
-static void parse_radio_stream() {
-    static uint32_t s_dbg_crc = 0;
-    // Track non-0xC8 bytes dropped during sync-seeking — if non-zero,
-    // the Ranger Micro sends frames with a different address byte that
-    // our parser currently discards (e.g. 0xEA = radio-transmitter-directed).
-    static uint32_t s_dbg_skip = 0;
-    static uint8_t  s_skip_seen[8] = {};
-    static uint8_t  s_skip_n = 0;
-    while (s_radio_len >= 2) {
-        // Seek sync — only 0xC8 is a valid frame start for our parser.
-        // Track any non-0xC8 bytes that get skipped; if 0xEA or 0xEE appear
-        // here, the Ranger Micro sends TX→handset frames we're not yet parsing.
-        while (s_radio_len > 0 && s_radio_buf[0] != CRSF_SYNC) {
-            uint8_t b = s_radio_buf[0];
-            bool found = false;
-            for (uint8_t i = 0; i < s_skip_n; i++) if (s_skip_seen[i]==b) { found=true; break; }
-            if (!found && s_skip_n < 8) s_skip_seen[s_skip_n++] = b;
-            s_dbg_skip++;
-            memmove(s_radio_buf, s_radio_buf + 1, --s_radio_len);
-        }
-        if (s_radio_len < 2) break;
-        uint8_t frame_len = s_radio_buf[1];
-        size_t  total     = 2u + frame_len;
-        if (s_radio_len < total) break;  // wait for full frame
-        if (crsf_crc8(s_radio_buf + 2, frame_len - 1) != s_radio_buf[total - 1]) {
-            s_dbg_crc++;
-            memmove(s_radio_buf, s_radio_buf + 1, --s_radio_len);
-            continue;
-        }
-        s_radio_last_ms = millis();
-        uint8_t        type    = s_radio_buf[2];
-        const uint8_t *payload = s_radio_buf + 3;
-        size_t         plen    = (size_t)(frame_len - 2);
-        static uint32_t dbg_att=0, dbg_bat=0, dbg_gps=0, dbg_sb=0, dbg_lq=0;
-        // Track unknown types in a small histogram (first 8 distinct types seen)
-        static uint8_t  dbg_unk_types[8] = {};
-        static uint32_t dbg_unk_count[8] = {};
-        static uint8_t  dbg_unk_n = 0;
-        switch (type) {
-            case CRSF_TYPE_GPS:        decode_gps(payload, plen);        dbg_gps++; break;
-            case CRSF_TYPE_BATTERY:    decode_battery(payload, plen);    dbg_bat++; break;
-            case CRSF_TYPE_ATTITUDE:   decode_attitude(payload, plen);   dbg_att++; break;
-            case CRSF_TYPE_SAILBOAT:   decode_sailboat(payload, plen);   dbg_sb++;  break;
-            case CRSF_TYPE_LINK_STATS: decode_link_stats(payload, plen); dbg_lq++;  break;
-            case CRSF_TYPE_DEVICES:    decode_devices(payload, plen);                break; // 0x81 — boat device status
-            case CRSF_TYPE_RADIO_ID:                                                 break; // 0x3A — timing sync; no active response needed
-            default: {
-                bool found = false;
-                for (uint8_t i = 0; i < dbg_unk_n; i++) {
-                    if (dbg_unk_types[i] == type) { dbg_unk_count[i]++; found = true; break; }
-                }
-                if (!found && dbg_unk_n < 8) { dbg_unk_types[dbg_unk_n] = type; dbg_unk_count[dbg_unk_n++] = 1; }
-                break;
-            }
-        }
-        static unsigned long dbg_last_ms = 0;
-        unsigned long dbg_now = millis();
-        if (dbg_now - dbg_last_ms >= 5000) {
-            dbg_last_ms = dbg_now;
-            Serial.printf("[telem/5s] att=%u bat=%u gps=%u sb=%u lq=%u crc_fail=%u skip=%u | roll=%.1f pit=%.1f yaw=%.1f\n",
-                dbg_att, dbg_bat, dbg_gps, dbg_sb, dbg_lq, s_dbg_crc, s_dbg_skip,
-                s_tel.roll_deg, s_tel.pitch_deg, s_tel.yaw_deg);
-            if (s_skip_n > 0) {
-                Serial.print("[skip] non-sync bytes: ");
-                for (uint8_t i = 0; i < s_skip_n; i++)
-                    Serial.printf("0x%02X ", s_skip_seen[i]);
-                Serial.println();
-            }
-            for (uint8_t i = 0; i < dbg_unk_n; i++)
-                Serial.printf("[unk] type=0x%02X count=%u\n", dbg_unk_types[i], dbg_unk_count[i]);
-        }
-        memmove(s_radio_buf, s_radio_buf + total, s_radio_len - total);
-        s_radio_len -= total;
+    switch (type) {
+        case CRSF_TYPE_GPS:        decode_gps(payload, plen);        break;
+        case CRSF_TYPE_BATTERY:    decode_battery(payload, plen);    break;
+        case CRSF_TYPE_ATTITUDE:   decode_attitude(payload, plen);   break;
+        case CRSF_TYPE_SAILBOAT:   decode_sailboat(payload, plen);   break;
+        case CRSF_TYPE_LINK_STATS: decode_link_stats(payload, plen); break;
+        case CRSF_TYPE_DEVICES:    decode_devices(payload, plen);    break;
+        default: break;
     }
 }
 
-// Scan the Pi USB buffer for heartbeat frames (Mode 2 entry trigger).
-// Discards all frames — nothing is forwarded to the Ranger Micro in AP mode.
-// Returns true if at least one heartbeat (0x7E) frame was found.
-static bool scan_pi_for_heartbeat() {
+// ── Pi USB buffer — used in both modes ────────────────────────────────────────
+static uint8_t s_pi_buf[256];
+static size_t  s_pi_len = 0;
+
+// Scan the Pi USB buffer for heartbeat frames (Mode 2 → 3 transition trigger).
+// Returns true if at least one heartbeat (0x7E) was seen.
+static bool scan_pi_for_heartbeat()
+{
     bool saw_hb = false;
     while (s_pi_len >= 2) {
         while (s_pi_len > 0 && s_pi_buf[0] != CRSF_SYNC)
@@ -420,7 +356,7 @@ static bool scan_pi_for_heartbeat() {
     return saw_hb;
 }
 
-// ── GPS track buffer (Mode 2) ─────────────────────────────────────────────────
+// ── GPS track buffer ───────────────────────────────────────────────────────────
 struct GpsPt { float lat, lng; };
 static GpsPt         s_track[200];
 static int           s_track_len     = 0;
@@ -479,18 +415,13 @@ static void handle_telemetry() {
     s_srv.send(200, "application/json", buf);
 }
 
-// Reports real device status relayed from the boat's CRSF DEVICES (0x81) frame,
-// instead of leaving the page's hard-coded "OK" defaults unanswered (the page
-// only overwrites them on a successful /diag.json fetch — see control_page.h
-// updateDevices()). Gated on s_radio_last_ms so a dead RF link shows "No RF
-// link" rather than stale or default-true status.
 static void handle_diag() {
     char buf[768];
     int  n = 0;
     n += snprintf(buf, sizeof(buf), "[");
 
-    bool link_ok = s_radio_last_ms != 0 && (millis() - s_radio_last_ms) < 5000;
-    const char *no_link = "No RF link";
+    bool link_ok = s_telem_last_ms != 0 && (millis() - s_telem_last_ms) < 5000;
+    const char *no_link = "No LoRa link";
 
     auto bool_field = [&](const char *id, uint8_t val, const char *ok_stat, const char *absent_stat) {
         n += snprintf(buf + n, sizeof(buf) - n,
@@ -509,17 +440,17 @@ static void handle_diag() {
     bool_field("esc",    s_tel.dev_esc,    "OK", "No driver");
 
     n += snprintf(buf + n, sizeof(buf) - n,
-        ",{\"id\":\"elrs\",\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
+        ",{\"id\":\"lora\",\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}",
         link_ok ? "ok" : "absent", link_ok ? "Active" : no_link);
 
     {
         uint8_t bilge = link_ok ? s_tel.dev_bilge : 0;
         const char *lvl, *stat;
         if (!link_ok)        { lvl = "absent"; stat = no_link; }
-        else if (bilge == 2) { lvl = "warn";    stat = "WET"; }
-        else if (bilge == 1) { lvl = "ok";      stat = "Dry"; }
-        else if (bilge == 3) { lvl = "warn";    stat = "Unverified"; }
-        else                 { lvl = "absent";  stat = "Absent"; }
+        else if (bilge == 2) { lvl = "warn";   stat = "WET"; }
+        else if (bilge == 1) { lvl = "ok";     stat = "Dry"; }
+        else if (bilge == 3) { lvl = "warn";   stat = "Unverified"; }
+        else                 { lvl = "absent"; stat = "Absent"; }
         n += snprintf(buf + n, sizeof(buf) - n,
             ",{\"id\":\"bilge\",\"level\":\"%s\",\"stat\":\"%s\",\"repairable\":false}", lvl, stat);
     }
@@ -568,7 +499,7 @@ static void handle_not_found() { handle_captive_redirect(); }
 // ── Mode FSM ──────────────────────────────────────────────────────────────────
 enum class XiaoMode { AP, BRIDGE };
 static XiaoMode      s_mode       = XiaoMode::AP;
-static unsigned long s_last_hb_ms = 0;  // millis() of last Pi heartbeat frame
+static unsigned long s_last_hb_ms = 0;
 
 static void reset_commanded_state() {
     s_rudder = s_sail = s_throttle = 0.0f;
@@ -595,10 +526,12 @@ static void stop_ap() {
 
 static void enter_ap_mode() {
     reset_commanded_state();
-    s_radio_len   = 0;
-    s_pi_len      = 0;
-    s_track_len   = 0;
+    s_pi_len        = 0;
+    s_track_len     = 0;
     s_track_last_ms = 0;
+    // Return to continuous receive for incoming telemetry.
+    s_pkt_ready = false;
+    s_radio.startReceive();
     start_ap();
     s_mode = XiaoMode::AP;
     Serial.println("bridge: → Mode 2 (standalone AP)");
@@ -606,19 +539,51 @@ static void enter_ap_mode() {
 
 static void enter_bridge_mode() {
     reset_commanded_state();
-    s_radio_len = 0;
     s_pi_len    = 0;
     stop_ap();
+    s_pkt_ready = false;
+    s_radio.startReceive();
     s_mode = XiaoMode::BRIDGE;
     Serial.println("bridge: → Mode 3 (Pi bridge)");
 }
 
-// ── Mode 3: frame-aware byte pump ─────────────────────────────────────────────
-// Forwards Pi→Ranger Micro while stripping heartbeat frames (0x7E) so the TX
-// module never sees them.  Ranger Micro→Pi is passed through verbatim (telemetry).
+// ── Mode 2: transmit RC frame and poll for telemetry ─────────────────────────
+// Called at 50 Hz from the main loop timer.
+// Transmits one RC frame then briefly waits for a telemetry response.
+static void ap_radio_tick()
+{
+    // Build and transmit the RC frame.
+    uint8_t frame[26];
+    build_rc_frame(frame);
+    int state = s_radio.transmit(frame, sizeof(frame));
+    if (state != RADIOLIB_ERR_NONE)
+        Serial.printf("bridge: TX error %d\n", state);
 
-static void bridge_pump() {
-    // Pi → Ranger Micro: buffer, strip heartbeats, forward all other frames.
+    // Switch to RX and wait a short window for the boat's telemetry reply.
+    s_pkt_ready = false;
+    s_radio.startReceive();
+
+    unsigned long wait_start = millis();
+    while (!s_pkt_ready && (millis() - wait_start) < cfg::TELEM_WAIT_MS)
+        ; // busy-wait; short window, OK in this context
+
+    if (s_pkt_ready) {
+        s_pkt_ready = false;
+        uint8_t rx_buf[64];
+        size_t  rx_len = sizeof(rx_buf);
+        if (s_radio.readData(rx_buf, rx_len) == RADIOLIB_ERR_NONE)
+            process_telem_packet(rx_buf, rx_len);
+        // Re-arm continuous receive.
+        s_radio.startReceive();
+    }
+}
+
+// ── Mode 3: frame-aware LoRa bridge ──────────────────────────────────────────
+// Pi → LoRa: read CRSF frames from USB-CDC, strip heartbeats, transmit the rest.
+// LoRa → Pi: read incoming packets from the radio and forward to Pi via USB-CDC.
+static void bridge_pump()
+{
+    // ── Pi → LoRa ──────────────────────────────────────────────────────────
     while (Serial.available() && s_pi_len < sizeof(s_pi_buf))
         s_pi_buf[s_pi_len++] = (uint8_t)Serial.read();
 
@@ -628,33 +593,63 @@ static void bridge_pump() {
         if (s_pi_len < 2) break;
         uint8_t frame_len = s_pi_buf[1];
         size_t  total     = 2u + frame_len;
-        if (s_pi_len < total) break;  // wait for full frame
+        if (s_pi_len < total) break;
 
         if (s_pi_buf[2] == CRSF_TYPE_HEARTBEAT) {
-            // Strip: update liveness timestamp, do not forward
+            // Strip heartbeat — update Pi liveness timer but do not forward over LoRa.
             s_last_hb_ms = millis();
         } else {
-            // Forward complete frame to Ranger Micro verbatim
-            Serial1.write(s_pi_buf, total);
+            // Transmit to boat over LoRa.
+            s_radio.transmit(s_pi_buf, total);
+            // Brief receive window for boat telemetry response.
+            s_pkt_ready = false;
+            s_radio.startReceive();
+            unsigned long wait_start = millis();
+            while (!s_pkt_ready && (millis() - wait_start) < cfg::TELEM_WAIT_MS)
+                ;
+            if (s_pkt_ready) {
+                s_pkt_ready = false;
+                uint8_t rx_buf[64];
+                size_t  rx_len = sizeof(rx_buf);
+                if (s_radio.readData(rx_buf, rx_len) == RADIOLIB_ERR_NONE) {
+                    // Forward raw CRSF bytes to Pi so elrs_bridge.py can decode them.
+                    Serial.write(rx_buf, rx_len);
+                }
+                s_radio.startReceive();
+            }
         }
         memmove(s_pi_buf, s_pi_buf + total, s_pi_len - total);
         s_pi_len -= total;
     }
-
-    // Ranger Micro → Pi: transparent (link stats, CRSF telemetry echoed to Pi)
-    while (Serial1.available())
-        Serial.write(Serial1.read());
 }
 
 // ── Arduino entry points ───────────────────────────────────────────────────────
-void setup() {
+void setup()
+{
     Serial.begin(115200);
     delay(300);
-    Serial.println("crsf-bridge firmware starting");
+    Serial.println("crsf-bridge firmware starting (SX1262 LoRa)");
 
-    Serial1.begin(cfg::CRSF_BAUD, SERIAL_8N1, cfg::CRSF_RX, cfg::CRSF_TX);
+    // Initialise hardware SPI and RadioLib.
+    s_spi.begin(cfg::SX_CLK, cfg::SX_MISO, cfg::SX_MOSI, cfg::SX_CS);
+    s_radio.setRfSwitchPins(cfg::SX_RXEN, cfg::SX_TXEN);
 
-    // Register web server handlers once — they persist across stop/begin cycles.
+    int state = s_radio.begin(
+        cfg::LORA_FREQ_MHZ, cfg::LORA_BW_KHZ, cfg::LORA_SF, cfg::LORA_CR,
+        cfg::LORA_SYNC_WORD, cfg::LORA_POWER_DBM, cfg::LORA_PREAMBLE);
+    if (state != RADIOLIB_ERR_NONE) {
+        Serial.printf("bridge: SX1262 begin failed (err %d)\n", state);
+        // Continue without radio — AP mode still serves the web UI.
+    } else {
+        s_radio.setDio1Action(on_dio1);
+        s_radio.startReceive();
+        Serial.printf("bridge: SX1262 ready  %.0f MHz / BW%.0f / SF%u\n",
+                      (double)cfg::LORA_FREQ_MHZ,
+                      (double)cfg::LORA_BW_KHZ,
+                      (unsigned)cfg::LORA_SF);
+    }
+
+    // Register web server routes once — they persist across stop/begin cycles.
     s_srv.on("/",            handle_root);
     s_srv.on("/map",         handle_map);
     s_srv.on("/control",     handle_control);
@@ -663,40 +658,30 @@ void setup() {
     s_srv.on("/diag.json",   handle_diag);
     s_srv.on("/pump",        handle_pump);
     s_srv.on("/track",       handle_track);
-    // Captive portal (iOS, Android, Windows connectivity probes)
-    s_srv.on("/hotspot-detect.html",        handle_apple_check);
-    s_srv.on("/library/test/success.html",  handle_apple_check);
-    s_srv.on("/hotspotdetect.html",         handle_apple_check);
+    s_srv.on("/hotspot-detect.html",       handle_apple_check);
+    s_srv.on("/library/test/success.html", handle_apple_check);
+    s_srv.on("/hotspotdetect.html",        handle_apple_check);
     s_srv.on("/generate_204",  []() { s_srv.send(204, "text/plain", ""); });
     s_srv.on("/ncsi.txt",      handle_captive_redirect);
     s_srv.on("/connecttest.txt", handle_captive_redirect);
     s_srv.onNotFound(handle_not_found);
 
-    // Boot in Mode 2 (standalone AP).  Pretend the Pi last heartbeat was 3 s ago
-    // so we start past HB_TIMEOUT_MS and stay in AP mode until a Pi connects.
+    // Boot in Mode 2.  Pretend Pi last heartbeat was 3 s ago so we start
+    // past HB_TIMEOUT_MS and stay in AP mode until a real Pi connects.
     s_last_hb_ms = millis() - cfg::HB_TIMEOUT_MS - 1000;
     enter_ap_mode();
 
     Serial.println("crsf-bridge ready");
 }
 
-void loop() {
+void loop()
+{
     unsigned long now = millis();
 
     if (s_mode == XiaoMode::AP) {
-        // ── Drain radio (Ranger Micro → XIAO) telemetry ───────────────────
-        while (Serial1.available() && s_radio_len < sizeof(s_radio_buf))
-            s_radio_buf[s_radio_len++] = (uint8_t)Serial1.read();
-        parse_radio_stream();
+        // ── Mode 2: standalone AP ─────────────────────────────────────────
 
-        // ── Record a GPS track point every 5 s when fix ───────────────────
-        if (s_tel.gps_fix && (now - s_track_last_ms) >= 5000) {
-            s_track_last_ms = now;
-            if (s_track_len < 200)
-                s_track[s_track_len++] = { (float)s_tel.gps_lat, (float)s_tel.gps_lng };
-        }
-
-        // ── Check Pi USB serial for heartbeat ─────────────────────────────
+        // Check Pi USB serial for heartbeat → switch to Mode 3.
         while (Serial.available() && s_pi_len < sizeof(s_pi_buf))
             s_pi_buf[s_pi_len++] = (uint8_t)Serial.read();
         if (scan_pi_for_heartbeat()) {
@@ -706,30 +691,28 @@ void loop() {
             return;
         }
 
-        // ── Serve web requests ─────────────────────────────────────────────
+        // Serve HTTP.
         s_srv.handleClient();
 
-        // ── Emit RC frame at 50 Hz ─────────────────────────────────────────
+        // Transmit RC frame at 50 Hz and poll for telemetry reply.
+        static unsigned long s_tx_ms = 0;
         if (now - s_tx_ms >= cfg::TX_PERIOD_MS) {
             s_tx_ms = now;
-            uint8_t frame[26];
-            build_rc_frame(frame);
-            Serial1.write(frame, sizeof(frame));
+            ap_radio_tick();
         }
 
-        // ── DEVICE_PING at 1 Hz — required by ELRS TX modules to leave ────
-        // "no handset" mode (mirrors what EdgeTX sends to announce a radio).
-        static unsigned long s_ping_ms = 0;
-        if (now - s_ping_ms >= 1000) {
-            s_ping_ms = now;
-            send_device_ping();
+        // Record GPS track point every 5 s when fix valid.
+        if (s_tel.gps_fix && (now - s_track_last_ms) >= 5000) {
+            s_track_last_ms = now;
+            if (s_track_len < 200)
+                s_track[s_track_len++] = { (float)s_tel.gps_lat, (float)s_tel.gps_lng };
         }
 
     } else {
         // ── Mode 3: Pi bridge ─────────────────────────────────────────────
         bridge_pump();
 
-        // ── Heartbeat timeout → revert to AP ──────────────────────────────
+        // Revert to Mode 2 when Pi heartbeat times out.
         if (now - s_last_hb_ms >= cfg::HB_TIMEOUT_MS) {
             Serial.println("bridge: Pi heartbeat lost — switching to Mode 2 (AP)");
             enter_ap_mode();

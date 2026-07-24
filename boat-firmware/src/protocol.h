@@ -24,15 +24,14 @@
 #define SB_STATUS_ARMED     3
 #define SB_STATUS_FAILSAFE  4
 
-// Standard CRSF frame types used by telemetry.cpp.
-// Names and values must match the crsf_frame_type_e enum in AlfredoCRSF's
-// crsf_protocol.h. Include <crsf_protocol.h> for the full enum; the defines
-// below cover only what our firmware emits and avoid redefinition conflicts.
-//
-// CRSF_FRAMETYPE_GPS (0x02), CRSF_FRAMETYPE_BATTERY_SENSOR (0x08), and
-// CRSF_FRAMETYPE_ATTITUDE (0x1E) are defined by the library — use them directly
-// in translation units that include <crsf_protocol.h> / <AlfredoCRSF.h>.
+// CRSF frame type bytes (subset used by this firmware).
+// Source: CRSF WG spec v5; custom types 0x80–0x81 are vendor-assigned.
+#define CRSF_FRAMETYPE_GPS            0x02  // GPS position
+#define CRSF_FRAMETYPE_BATTERY_SENSOR 0x08  // battery voltage / current / mAh
+#define CRSF_FRAMETYPE_LINK_STATS     0x14  // uplink/downlink signal quality
+#define CRSF_FRAMETYPE_RC_CHANNELS    0x16  // 16-channel RC input (packed 11-bit)
+#define CRSF_FRAMETYPE_ATTITUDE       0x1E  // pitch / roll / yaw (int16 × 10000 rad)
 
-// Custom sailboat frame types (not in the CRSF spec; assigned to the vendor range).
+// Custom sailboat frame types (vendor-assigned range 0x80–0xFF).
 #define CRSF_FRAMETYPE_SAILBOAT 0x80  // rudder/sail/ESC commanded positions + ESP32 temp
 #define CRSF_FRAMETYPE_DEVICES  0x81  // device status bitmap (10 × 2-bit levels, LSB-first)
