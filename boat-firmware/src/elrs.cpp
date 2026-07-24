@@ -224,8 +224,29 @@ static void process_rx_packet()
 
     // If a telemetry frame is queued, send it now while the XIAO is in RX.
     // Transmit → return to startReceive.
+    //
+    // RadioLib's blocking transmit() waits for TX_DONE by polling the DIO1
+    // GPIO directly (SX126x.cpp: `hal->digitalRead(mod->getIrq())`), not via
+    // SPI. DIO1 is RADIOLIB_NC here (see file header), so that read always
+    // returns 0 and transmit() would spin to timeout on every single call
+    // without ever actually detecting completion. Do the same thing we do
+    // for RX: kick off the send with startTransmit(), then poll TX_DONE
+    // ourselves via the SPI-based getIrqFlags().
     if (s_tx_len > 0) {
-        int tx_state = s_radio.transmit(s_tx_buf, s_tx_len);
+        int tx_state = s_radio.startTransmit(s_tx_buf, s_tx_len);
+        if (tx_state == RADIOLIB_ERR_NONE) {
+            // Same timeout formula RadioLib's own transmit() uses.
+            uint32_t timeout_ms = 5 + (uint32_t)(s_radio.getTimeOnAir(s_tx_len) * 5 / 1000);
+            uint32_t tx_start = millis();
+            while (!(s_radio.getIrqFlags() & RADIOLIB_SX126X_IRQ_TX_DONE)) {
+                if (millis() - tx_start > timeout_ms) {
+                    tx_state = RADIOLIB_ERR_TX_TIMEOUT;
+                    break;
+                }
+            }
+            if (tx_state == RADIOLIB_ERR_NONE)
+                tx_state = s_radio.finishTransmit();
+        }
         if (tx_state != RADIOLIB_ERR_NONE)
             Serial.printf("elrs: TX error %d\n", tx_state);
         s_tx_len = 0;
