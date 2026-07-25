@@ -593,10 +593,12 @@ static void tv_gesture_cb(lv_event_t *e)
     if (!indev) return;
     lv_dir_t    dir  = lv_indev_get_gesture_dir(indev);
     lv_obj_t   *tile = lv_tileview_get_tile_act(s_tileview);
+    // LV_ANIM_OFF: see the tileview's anim_time=0 note in build_screens() —
+    // animated tile transitions triggered a QSPI driver lockup.
     if (tile == s_tile_wifi && dir == LV_DIR_RIGHT) {
-        lv_obj_set_tile_id(s_tileview, 6, 0, LV_ANIM_ON);   // wrap → Devices
+        lv_obj_set_tile_id(s_tileview, 6, 0, LV_ANIM_OFF);   // wrap → Devices
     } else if (tile == s_tile_diag && dir == LV_DIR_LEFT) {
-        lv_obj_set_tile_id(s_tileview, 0, 0, LV_ANIM_ON);
+        lv_obj_set_tile_id(s_tileview, 0, 0, LV_ANIM_OFF);
     }
 }
 
@@ -669,6 +671,14 @@ static void build_screens()
     lv_obj_set_style_bg_color(tv, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tv, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    // Instant tile-snap, no slide animation. A swipe's default snap-scroll
+    // animation issues a rapid burst of partial-screen QSPI flushes (one per
+    // animation step); that burst has been observed to permanently wedge the
+    // CO5300 QSPI driver (confirmed via JTAG: the LVGL task's core gets stuck
+    // inside unsymbolized ROM code, almost certainly a low-level SPI transfer
+    // routine spinning on a hardware done-bit that never sets). Zero animation
+    // time means each swipe is a single flush instead of a burst.
+    lv_obj_set_style_anim_time(tv, 0, LV_PART_MAIN);
 
     lv_obj_t *tw = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);  // WiFi (leftmost)
     lv_obj_t *t0 = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);   // Main
