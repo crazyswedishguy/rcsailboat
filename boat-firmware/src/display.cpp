@@ -86,9 +86,7 @@ static constexpr unsigned long SCREEN_TIMEOUT_MS = 2UL * 60UL * 1000UL;
 
 // Tileview reference + edge-tile pointers for wrap-around gesture handling
 static lv_obj_t *s_tileview  = nullptr;
-static lv_obj_t *s_tile_wifi = nullptr;   // col 0 — leftmost
-static lv_obj_t *s_tile_att  = nullptr;   // col 5 — Attitude
-static lv_obj_t *s_tile_diag = nullptr;   // col 6 — rightmost (Devices)
+static lv_obj_t *s_tiles[7]  = {};   // col 0..6: WiFi, Main, Link, Battery, Controls, Attitude, Devices
 
 // ── Screen 0 (WiFi / ELRS control) — label handles ───────────────────────────
 static lv_obj_t *s0_lbl_mode  = nullptr;   // "WIFI AP" / "ELRS CTRL"
@@ -444,6 +442,11 @@ static void build_tile_link(lv_obj_t *t)
     const lv_coord_t ARC_SZ = 150;
     const lv_coord_t AX = (LCD_H_RES - ARC_SZ) / 2;
     s2_arc_lq = lv_arc_create(t);
+    // Read-only gauge, not a user control — arcs are draggable by default in
+    // LVGL, which would swallow a swipe starting on it before it ever reaches
+    // the tileview's gesture handler. Not just cosmetic: it's also part of
+    // why unmodified interior swipes were unreliable to begin with.
+    lv_obj_clear_flag(s2_arc_lq, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(s2_arc_lq, ARC_SZ, ARC_SZ);
     lv_obj_set_pos(s2_arc_lq, AX, 96);
     lv_arc_set_bg_angles(s2_arc_lq, 135, 45);   // 270° sweep, 0 at 12 o'clock
@@ -585,24 +588,51 @@ static void build_tile_attitude(lv_obj_t *t)
 #endif
 }
 
-// ── Wrap-around gesture handler ───────────────────────────────────────────────
-// LVGL fires LV_EVENT_GESTURE on the tileview even when scroll is clamped at
-// the boundary (elastic is disabled but gesture detection is independent).
-// A right-swipe at col 0 (WiFi) jumps to col 5 (Attitude) and vice-versa.
+// ── Gesture-driven tile navigation ───────────────────────────────────────────
+// The tileview has native scrolling disabled entirely (LV_OBJ_FLAG_SCROLLABLE
+// cleared in build_screens()) — every tile change, not just the wrap-around
+// edges, goes through this one instant (LV_ANIM_OFF) path.
+//
+// Why: LVGL's built-in touch-drag + snap-to-tile machinery reliably wedges
+// the CO5300 QSPI driver whenever the post-release snap is animated with ANY
+// non-zero duration — confirmed via JTAG (halted both CPU cores, read PC
+// directly): the LVGL task's core gets stuck inside unsymbolized ROM code,
+// almost certainly a low-level SPI routine spinning on a hardware done-bit
+// that never sets. A zero-duration animation avoids the hang but silently
+// no-ops instead of snapping (a zero-duration lv_anim_t appears to never
+// apply its final value in this LVGL version) — so there was no safe
+// non-zero duration to tune. Explicit lv_obj_set_tile_id(..., LV_ANIM_OFF)
+// was already proven safe for the wrap-around case; this generalizes it to
+// every tile pair instead of trying to fix the native scroll path.
+//
+// With LV_OBJ_FLAG_SCROLLABLE cleared, LVGL never starts a native scroll for
+// this view, so indev_gesture() (lv_indev.c) always falls through to firing
+// LV_EVENT_GESTURE instead of attempting to scroll — see its early
+// `if (proc->types.pointer.scroll_obj) return;` check. Every tile and every
+// otherwise-clickable widget on top of a tile (buttons, the LQ arc) needs
+// LV_OBJ_FLAG_GESTURE_BUBBLE (or, for the read-only LQ arc, CLICKABLE
+// cleared) so a swipe starting anywhere still reaches this handler.
 static void tv_gesture_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     lv_indev_t *indev = lv_indev_get_act();
     if (!indev) return;
-    lv_dir_t    dir  = lv_indev_get_gesture_dir(indev);
-    lv_obj_t   *tile = lv_tileview_get_tile_act(s_tileview);
-    // LV_ANIM_OFF: see the tileview's anim_time=0 note in build_screens() —
-    // animated tile transitions triggered a QSPI driver lockup.
-    if (tile == s_tile_wifi && dir == LV_DIR_RIGHT) {
-        lv_obj_set_tile_id(s_tileview, 6, 0, LV_ANIM_OFF);   // wrap → Devices
-    } else if (tile == s_tile_diag && dir == LV_DIR_LEFT) {
-        lv_obj_set_tile_id(s_tileview, 0, 0, LV_ANIM_OFF);
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return;
+
+    lv_obj_t *cur = lv_tileview_get_tile_act(s_tileview);
+    int cur_idx = -1;
+    for (int i = 0; i < 7; i++) {
+        if (s_tiles[i] == cur) { cur_idx = i; break; }
     }
+    if (cur_idx < 0) return;
+
+    // Matches the original wrap-around convention: swipe RIGHT moves to the
+    // previous (lower-index) tile, swipe LEFT moves to the next
+    // (higher-index) tile, wrapping at both ends (WiFi=0 .. Devices=6).
+    int delta  = (dir == LV_DIR_RIGHT) ? -1 : 1;
+    int target = (cur_idx + delta + 7) % 7;
+    lv_obj_set_tile_id(s_tileview, target, 0, LV_ANIM_OFF);
 }
 
 static void repair_btn_cb(lv_event_t *e)
@@ -654,6 +684,9 @@ static void build_tile_diag(lv_obj_t *t)
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
         lv_obj_add_event_cb(btn, repair_btn_cb, LV_EVENT_CLICKED,
                             (void *)(uintptr_t)(uint8_t)i);
+        // A swipe starting on this button must still navigate the tileview
+        // (bubbling doesn't affect tap/click handling, only gesture routing).
+        lv_obj_add_flag(btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
         s6_btn[i] = btn;
     }
 }
@@ -674,23 +707,9 @@ static void build_screens()
     lv_obj_set_style_bg_color(tv, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tv, LV_OBJ_FLAG_SCROLL_ELASTIC);
-    // Short (not zero) snap-scroll animation. A swipe's default snap-scroll
-    // animation issues a rapid burst of partial-screen QSPI flushes (one per
-    // animation step); that burst has been observed to permanently wedge the
-    // CO5300 QSPI driver (confirmed via JTAG: the LVGL task's core gets stuck
-    // inside unsymbolized ROM code, almost certainly a low-level SPI transfer
-    // routine spinning on a hardware done-bit that never sets).
-    //
-    // anim_time=0 was tried first and made swipes stop working entirely:
-    // ordinary touch-driven tile changes go through LVGL's built-in
-    // scroll-snap machinery (lv_obj_set_scroll_snap_x/y in the tileview
-    // constructor + core lv_obj_scroll.c), which animates the post-release
-    // snap using this same anim_time style — a zero-duration lv_anim_t
-    // appears to never apply its final value in this LVGL version, so the
-    // tile never actually snapped after a swipe. 60ms keeps the flush count
-    // per swipe low (a handful of frames instead of the ~200-300ms default's
-    // worth) while staying on LVGL's normal animated code path.
-    lv_obj_set_style_anim_time(tv, 60, LV_PART_MAIN);
+    // Native scrolling fully disabled — see tv_gesture_cb's comment above for
+    // why. All tile navigation goes through that handler instead.
+    lv_obj_clear_flag(tv, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *tw = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);  // WiFi (leftmost)
     lv_obj_t *t0 = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);   // Main
@@ -713,22 +732,18 @@ static void build_screens()
     build_tile_attitude(t4);
     build_tile_diag(t5);
 
-    // LVGL 8.3 requires at least one event listener registered directly on the
-    // tileview for scroll-chain propagation from child tiles to reach it.
-    // Without these, horizontal swipes on tiles are not forwarded to the tileview
-    // and tile navigation silently breaks. Empty callbacks are sufficient.
-    lv_obj_add_event_cb(tv, [](lv_event_t *) {}, LV_EVENT_SCROLL, nullptr);
-    lv_obj_add_event_cb(tv, [](lv_event_t *) {}, LV_EVENT_VALUE_CHANGED, nullptr);
+    s_tileview = tv;
+    s_tiles[0] = tw; s_tiles[1] = t0; s_tiles[2] = t1; s_tiles[3] = t2;
+    s_tiles[4] = t3; s_tiles[5] = t4; s_tiles[6] = t5;
 
-    // Store references for the wrap-around gesture callback
-    s_tileview  = tv;
-    s_tile_wifi = tw;
-    s_tile_att  = t4;
-    s_tile_diag = t5;
-    // LVGL 8.3 fires LV_EVENT_GESTURE on the pressed tile, not the tileview.
-    // Register on the two edge tiles only; also bubble swipes from the mode button.
-    lv_obj_add_event_cb(tw, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
-    lv_obj_add_event_cb(t5, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
+    // Single gesture handler on the tileview itself, fed by GESTURE_BUBBLE on
+    // every tile (so a swipe starting on a tile's own background reaches
+    // tv_gesture_cb) — see that function's comment for why native scrolling
+    // is disabled instead of used here.
+    lv_obj_add_event_cb(tv, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
+    for (lv_obj_t *t : s_tiles) lv_obj_add_flag(t, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    // Widgets that are independently clickable also need this, or a swipe
+    // starting on top of them never bubbles up to the tileview.
     lv_obj_add_flag(s0_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     // Start on Main, not WiFi
