@@ -1,8 +1,10 @@
-// elrs.h — SX1262 LoRa radio interface for the boat.
+// elrs.h — SX1262 GFSK radio interface for the boat.
 //
 // Replaces the previous AlfredoCRSF / ELRS-receiver driver.  The radio link
-// is now a direct SX1262 → SX1262 LoRa link between the XIAO (base station)
-// and this ESP32-S3 (boat).
+// is now a direct SX1262 → SX1262 GFSK link between the XIAO (base station)
+// and this ESP32-S3 (boat).  Was LoRa (SF7/BW500) during initial bring-up;
+// switched to GFSK for higher throughput once ~500 m range proved plenty —
+// see docs/lora-bringup.md for that history.
 //
 // Wire layout (software SPI — both hardware SPI buses are occupied):
 //   SPI2/FSPI = CO5300 AMOLED display (QSPI)
@@ -39,7 +41,7 @@ void    elrs_update();
 //   CH_SAIL                                 →  0.0 .. +1.0 (unipolar)
 float   elrs_get_channel(int ch);
 
-// True when a valid LoRa frame was received within the last 500 ms.
+// True when a valid RF frame was received within the last 500 ms.
 bool    elrs_link_ok();
 
 // Last uplink RSSI in dBm (absolute value, always positive).  0 = unknown.

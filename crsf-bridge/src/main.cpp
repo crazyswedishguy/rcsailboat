@@ -1,22 +1,22 @@
-// main.cpp — XIAO ESP32-S3 dual-mode LoRa bridge firmware.
+// main.cpp — XIAO ESP32-S3 dual-mode GFSK bridge firmware.
 //
 // Replaces the previous Ranger Micro / CRSF-UART radio link with a direct
-// SX1262 LoRa link between this XIAO and the boat ESP32-S3.
+// SX1262 GFSK link between this XIAO and the boat ESP32-S3.
 //
 // Two operating modes, switched dynamically based on Pi heartbeat detection:
 //
 //   Mode 2 — Standalone AP  (default at boot; Pi absent)
 //     • Brings up WiFi AP "Mistral-2" and serves the shared embedded control page.
-//     • Builds CRSF RC_CHANNELS_PACKED frames and transmits them over LoRa at 50 Hz.
-//     • Receives CRSF telemetry frames from the boat over LoRa; exposes them via
+//     • Builds CRSF RC_CHANNELS_PACKED frames and transmits them over GFSK at 50 Hz.
+//     • Receives CRSF telemetry frames from the boat over GFSK; exposes them via
 //       HTTP JSON endpoints (same API surface as the boat's own wifi_ctrl.cpp).
 //     • Control timeout: if no /control hit for 500 ms, output goes to neutral/disarmed.
 //
 //   Mode 3 — Pi bridge  (active while Pi's elrs_bridge.py heartbeat is detected)
-//     • Tears down the AP; becomes a frame-aware USB-CDC ↔ LoRa bridge.
-//     • Pi sends CRSF RC frames over USB-CDC; XIAO forwards them over LoRa.
-//     • Boat sends CRSF telemetry over LoRa; XIAO forwards bytes to Pi via USB-CDC.
-//     • Pi heartbeat frames (type 0x7E) are stripped — not forwarded over LoRa.
+//     • Tears down the AP; becomes a frame-aware USB-CDC ↔ GFSK bridge.
+//     • Pi sends CRSF RC frames over USB-CDC; XIAO forwards them over GFSK.
+//     • Boat sends CRSF telemetry over GFSK; XIAO forwards bytes to Pi via USB-CDC.
+//     • Pi heartbeat frames (type 0x7E) are stripped — not forwarded over GFSK.
 //     • 2 s silence from Pi → revert to Mode 2.
 //
 //   Transition safety: commanded state resets to neutral/disarmed on every mode switch.
@@ -26,7 +26,7 @@
 //   Control: CS=D3(GPIO4)   RESET=D2(GPIO3)  DIO1=D1(GPIO2)  BUSY=D0(GPIO1)
 //   RF switch (Waveshare module): RXEN=D6(GPIO43)  TXEN=D7(GPIO44)
 //
-// LoRa protocol: raw CRSF frames are sent as LoRa packet payloads.
+// GFSK protocol: raw CRSF frames are sent as GFSK packet payloads.
 //   XIAO→Boat: CRSF RC_CHANNELS_PACKED (type 0x16), 26 bytes, at 50 Hz.
 //   Boat→XIAO: any CRSF telemetry frame (GPS 0x02, BATTERY 0x08, ATTITUDE 0x1E, …)
 //
@@ -58,14 +58,13 @@ namespace cfg {
     constexpr int SX_RXEN  = 43;  // D6 — RF switch: enable LNA (RX mode)
     constexpr int SX_TXEN  = 44;  // D7 — RF switch: enable PA (TX mode)
 
-    // LoRa link parameters — must match boat-firmware/src/config.h LORA_* constants
-    constexpr float    LORA_FREQ_MHZ   = 915.0f;
-    constexpr float    LORA_BW_KHZ     = 500.0f;
-    constexpr uint8_t  LORA_SF         = 7;
-    constexpr uint8_t  LORA_CR         = 5;
-    constexpr uint8_t  LORA_SYNC_WORD  = 0x12;
-    constexpr int8_t   LORA_POWER_DBM  = 14;
-    constexpr uint16_t LORA_PREAMBLE   = 8;
+    // GFSK link parameters — must match boat-firmware/src/config.h FSK_* constants
+    constexpr float    FSK_FREQ_MHZ      = 915.0f;
+    constexpr float    FSK_BIT_RATE_KBPS = 150.0f;
+    constexpr float    FSK_FREQ_DEV_KHZ  = 75.0f;
+    constexpr float    FSK_RX_BW_KHZ     = 312.0f;
+    constexpr int8_t   FSK_POWER_DBM     = 14;
+    constexpr uint16_t FSK_PREAMBLE_BITS = 16;
 
     // Application timing
     constexpr char     AP_SSID[]        = "Mistral-2";
@@ -80,12 +79,12 @@ namespace cfg {
     constexpr uint32_t HB_TIMEOUT_MS    = 2000;   // Pi absence → revert to AP mode
     // Max time to wait for the boat's telemetry reply before giving up and
     // moving on. Sized to comfortably cover the boat's measured reply time
-    // across all telemetry frame types (~11-15ms on real hardware after the
-    // boat-side SPI speed-up — see elrs.cpp BitBangHal — with margin for
+    // across all telemetry frame types (~2-3ms on real hardware over GFSK —
+    // was ~11-15ms under LoRa, see docs/lora-bringup.md — with margin for
     // jitter). Widening this trades RC rate for telemetry reliability: every
     // cycle waits up to this long when nothing is queued, since the XIAO
     // can't know in advance whether the boat has a reply coming.
-    constexpr uint32_t TELEM_WAIT_MS    = 18;
+    constexpr uint32_t TELEM_WAIT_MS    = 6;
 }
 
 // ── RadioLib objects ───────────────────────────────────────────────────────────
@@ -197,7 +196,7 @@ static void build_rc_frame(uint8_t buf[26])
     ch[CH_SAIL]     = ch_unipolar(s_sail);
     ch[CH_THROTTLE] = ch_centered(active ? s_throttle : 0.0f);
     ch[CH_ARM]      = active ? CRSF_CH_MAX : CRSF_CH_MIN;
-    // CH_MODE signals the boat to switch into LoRa mode.
+    // CH_MODE signals the boat to switch into GFSK mode.
     // Uses the looser MODE_REQUEST_TIMEOUT_MS so brief polling gaps don't
     // flap the boat's WiFi AP up/down (see docs/protocol.md).
     bool mode_timed_out = (millis() - s_last_cmd_ms) > cfg::MODE_REQUEST_TIMEOUT_MS;
@@ -326,7 +325,7 @@ static void decode_gps(const uint8_t *p, size_t len) {
     s_tel.gps_fix    = (p[14] >= 3);
 }
 
-// Parse one received LoRa packet as a CRSF telemetry frame and dispatch it.
+// Parse one received GFSK packet as a CRSF telemetry frame and dispatch it.
 // Called for every packet received from the boat.
 static void process_telem_packet(const uint8_t *buf, size_t len)
 {
@@ -442,7 +441,7 @@ static void handle_diag() {
     n += snprintf(buf, sizeof(buf), "[");
 
     bool link_ok = s_telem_last_ms != 0 && (millis() - s_telem_last_ms) < 5000;
-    const char *no_link = "No LoRa link";
+    const char *no_link = "No GFSK link";
 
     auto bool_field = [&](const char *id, uint8_t val, const char *ok_stat, const char *absent_stat) {
         n += snprintf(buf + n, sizeof(buf) - n,
@@ -599,12 +598,12 @@ static void ap_radio_tick()
     }
 }
 
-// ── Mode 3: frame-aware LoRa bridge ──────────────────────────────────────────
-// Pi → LoRa: read CRSF frames from USB-CDC, strip heartbeats, transmit the rest.
-// LoRa → Pi: read incoming packets from the radio and forward to Pi via USB-CDC.
+// ── Mode 3: frame-aware GFSK bridge ──────────────────────────────────────────
+// Pi → GFSK: read CRSF frames from USB-CDC, strip heartbeats, transmit the rest.
+// GFSK → Pi: read incoming packets from the radio and forward to Pi via USB-CDC.
 static void bridge_pump()
 {
-    // ── Pi → LoRa ──────────────────────────────────────────────────────────
+    // ── Pi → GFSK ──────────────────────────────────────────────────────────
     while (Serial.available() && s_pi_len < sizeof(s_pi_buf))
         s_pi_buf[s_pi_len++] = (uint8_t)Serial.read();
 
@@ -617,10 +616,10 @@ static void bridge_pump()
         if (s_pi_len < total) break;
 
         if (s_pi_buf[2] == CRSF_TYPE_HEARTBEAT) {
-            // Strip heartbeat — update Pi liveness timer but do not forward over LoRa.
+            // Strip heartbeat — update Pi liveness timer but do not forward over GFSK.
             s_last_hb_ms = millis();
         } else {
-            // Transmit to boat over LoRa.
+            // Transmit to boat over GFSK.
             s_radio.transmit(s_pi_buf, total);
             // Brief receive window for boat telemetry response.
             s_pkt_ready = false;
@@ -649,25 +648,25 @@ void setup()
 {
     Serial.begin(115200);
     delay(300);
-    Serial.println("crsf-bridge firmware starting (SX1262 LoRa)");
+    Serial.println("crsf-bridge firmware starting (SX1262 GFSK)");
 
     // Initialise hardware SPI and RadioLib.
     SPI.begin(cfg::SX_CLK, cfg::SX_MISO, cfg::SX_MOSI, cfg::SX_CS);
     s_radio.setRfSwitchPins(cfg::SX_RXEN, cfg::SX_TXEN);
 
-    int state = s_radio.begin(
-        cfg::LORA_FREQ_MHZ, cfg::LORA_BW_KHZ, cfg::LORA_SF, cfg::LORA_CR,
-        cfg::LORA_SYNC_WORD, cfg::LORA_POWER_DBM, cfg::LORA_PREAMBLE);
+    int state = s_radio.beginFSK(
+        cfg::FSK_FREQ_MHZ, cfg::FSK_BIT_RATE_KBPS, cfg::FSK_FREQ_DEV_KHZ,
+        cfg::FSK_RX_BW_KHZ, cfg::FSK_POWER_DBM, cfg::FSK_PREAMBLE_BITS);
     if (state != RADIOLIB_ERR_NONE) {
         Serial.printf("bridge: SX1262 begin failed (err %d)\n", state);
         // Continue without radio — AP mode still serves the web UI.
     } else {
         s_radio.setDio1Action(on_dio1);
         s_radio.startReceive();
-        Serial.printf("bridge: SX1262 ready  %.0f MHz / BW%.0f / SF%u\n",
-                      (double)cfg::LORA_FREQ_MHZ,
-                      (double)cfg::LORA_BW_KHZ,
-                      (unsigned)cfg::LORA_SF);
+        Serial.printf("bridge: SX1262 ready  %.0f MHz FSK  %.0f kbps  dev=%.0f kHz\n",
+                      (double)cfg::FSK_FREQ_MHZ,
+                      (double)cfg::FSK_BIT_RATE_KBPS,
+                      (double)cfg::FSK_FREQ_DEV_KHZ);
     }
 
     // Register web server routes once — they persist across stop/begin cycles.

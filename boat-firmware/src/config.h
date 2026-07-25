@@ -160,15 +160,27 @@ constexpr uint8_t  IMU_INT1 = 46;          // strapping pin — input only at bo
 
 
 // =============================================================================
-// LoRa radio parameters
+// FSK radio parameters
+//
+// Switched from LoRa (SF7/BW500) to GFSK: this link only needs ~500 m range,
+// and LoRa's chirp spread-spectrum was already at its fastest practical
+// settings with no more speed to find. GFSK trades away LoRa's long-range
+// processing gain for much higher raw throughput — see docs/lora-bringup.md
+// for the LoRa-era numbers this replaced and why.
+//
+// 150 kbps / 75 kHz deviation (modulation index 1.0) keeps well within the
+// SX1262's specified limits (300 kbps max bit rate) with margin. Link budget
+// at 500 m / 915 MHz has ~30 dB+ headroom even at this rate (14 dBm TX into
+// GFSK sensitivity around -100 to -105 dBm at this bandwidth vs. ~85-90 dB
+// free-space path loss at 500 m) — verify actual RSSI on the bench before
+// trusting this on the water, and revisit if range needs to grow.
 // =============================================================================
-constexpr float    LORA_FREQ_MHZ   = 915.0f;  // 915 MHz ISM band (US/AU); change to 868.0 for EU
-constexpr float    LORA_BW_KHZ     = 500.0f;  // 500 kHz bandwidth — widest option; maximises throughput
-constexpr uint8_t  LORA_SF         = 7;        // spreading factor 7 — fastest, shortest range
-constexpr uint8_t  LORA_CR         = 5;        // coding rate 4/5
-constexpr uint8_t  LORA_SYNC_WORD  = 0x12;    // private network; 0x34 for LoRaWAN public
-constexpr int8_t   LORA_POWER_DBM  = 14;       // 14 dBm ≈ 25 mW — headroom before regulatory limit
-constexpr uint16_t LORA_PREAMBLE   = 8;        // 8 symbols — RadioLib default
+constexpr float    FSK_FREQ_MHZ     = 915.0f;  // 915 MHz ISM band (US/AU); change to 868.0 for EU
+constexpr float    FSK_BIT_RATE_KBPS = 150.0f; // 150 kbps
+constexpr float    FSK_FREQ_DEV_KHZ  = 75.0f;  // +-75 kHz deviation (mod. index 1.0)
+constexpr float    FSK_RX_BW_KHZ     = 312.0f; // nearest supported step >= 2*(dev+br/2)=300kHz
+constexpr int8_t   FSK_POWER_DBM     = 14;     // 14 dBm ~= 25 mW — headroom before regulatory limit
+constexpr uint16_t FSK_PREAMBLE_BITS = 16;     // RadioLib default
 
 // =============================================================================
 // Failsafe servo positions

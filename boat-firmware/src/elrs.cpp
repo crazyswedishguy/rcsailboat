@@ -1,4 +1,7 @@
-// elrs.cpp — SX1262 LoRa radio driver (boat side).
+// elrs.cpp — SX1262 GFSK radio driver (boat side).
+// (Was LoRa SF7/BW500 during initial bring-up; switched to GFSK for higher
+// throughput at the ~500 m range this link actually needs — the DIO1/SPI
+// pitfalls documented below apply equally to both. See docs/lora-bringup.md.)
 //
 // The boat's SX1262 is wired on software SPI because both hardware SPI buses
 // are occupied (SPI2 = CO5300 AMOLED display via QSPI, SPI3 = TF card).
@@ -197,7 +200,7 @@ static float to_unipolar(float raw)
     return v > 1.0f ? 1.0f : v < 0.0f ? 0.0f : v;
 }
 
-// ── Process one received LoRa packet ──────────────────────────────────────────
+// ── Process one received packet ────────────────────────────────────────────────
 static void process_rx_packet()
 {
     uint32_t rx_ms = millis();  // TEMP: round-trip timing diagnostic
@@ -331,9 +334,9 @@ void elrs_init()
     s_hal.spiBegin();
     s_radio.setRfSwitchPins(pins::SX_RXEN, pins::SX_TXEN);
 
-    int state = s_radio.begin(
-        LORA_FREQ_MHZ, LORA_BW_KHZ, LORA_SF, LORA_CR,
-        LORA_SYNC_WORD, LORA_POWER_DBM, LORA_PREAMBLE);
+    int state = s_radio.beginFSK(
+        FSK_FREQ_MHZ, FSK_BIT_RATE_KBPS, FSK_FREQ_DEV_KHZ, FSK_RX_BW_KHZ,
+        FSK_POWER_DBM, FSK_PREAMBLE_BITS);
     if (state != RADIOLIB_ERR_NONE) {
         Serial.printf("elrs: SX1262 begin failed (err %d)\n", state);
 
@@ -362,8 +365,8 @@ void elrs_init()
 
     s_pkt_window_start = millis();
 
-    Serial.printf("elrs: SX1262 ready  %.0f MHz / BW%.0f / SF%u  CS=GPIO%u (DIO1 unwired — polled)\n",
-                  (double)LORA_FREQ_MHZ, (double)LORA_BW_KHZ, (unsigned)LORA_SF,
+    Serial.printf("elrs: SX1262 ready  %.0f MHz FSK  %.0f kbps  dev=%.0f kHz  CS=GPIO%u (DIO1 unwired — polled)\n",
+                  (double)FSK_FREQ_MHZ, (double)FSK_BIT_RATE_KBPS, (double)FSK_FREQ_DEV_KHZ,
                   (unsigned)pins::SX_CS);
 }
 
