@@ -686,7 +686,12 @@ static void build_tile_diag(lv_obj_t *t)
                             (void *)(uintptr_t)(uint8_t)i);
         // A swipe starting on this button must still navigate the tileview
         // (bubbling doesn't affect tap/click handling, only gesture routing).
+        // SCROLLABLE also needs clearing here, same reason as the tiles
+        // themselves (see build_screens()) — buttons default to scrollable
+        // too, which would set scroll_obj and block gesture detection before
+        // GESTURE_BUBBLE is ever consulted.
         lv_obj_add_flag(btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
+        lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
         s6_btn[i] = btn;
     }
 }
@@ -722,6 +727,13 @@ static void build_screens()
     for (lv_obj_t *t : {tw, t0, t1, t2, t3, t4, t5}) {
         lv_obj_set_style_bg_color(t, lv_color_black(), LV_PART_MAIN);
         lv_obj_set_scrollbar_mode(t, LV_SCROLLBAR_MODE_OFF);
+        // lv_obj_constructor() sets SCROLLABLE on every object by default,
+        // independent of its parent — clearing it on the tileview alone
+        // wasn't enough. A touch lands on a *tile* (the deepest hit-tested
+        // object), and each tile is itself flagged scrollable out of the
+        // box, so _lv_indev_scroll_handler() was still setting scroll_obj on
+        // the tile and blocking indev_gesture() exactly as before.
+        lv_obj_clear_flag(t, LV_OBJ_FLAG_SCROLLABLE);
     }
 
     build_tile_wifi(tw);
@@ -743,8 +755,10 @@ static void build_screens()
     lv_obj_add_event_cb(tv, tv_gesture_cb, LV_EVENT_GESTURE, nullptr);
     for (lv_obj_t *t : s_tiles) lv_obj_add_flag(t, LV_OBJ_FLAG_GESTURE_BUBBLE);
     // Widgets that are independently clickable also need this, or a swipe
-    // starting on top of them never bubbles up to the tileview.
+    // starting on top of them never bubbles up to the tileview. SCROLLABLE
+    // clear is required too — see the tile loop above and s6_btn's comment.
     lv_obj_add_flag(s0_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(s0_btn, LV_OBJ_FLAG_SCROLLABLE);
 
     // Start on Main, not WiFi
     lv_obj_set_tile_id(tv, 1, 0, LV_ANIM_OFF);
