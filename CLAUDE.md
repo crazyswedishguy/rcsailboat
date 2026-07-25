@@ -35,7 +35,8 @@ shared/
 docs/
   ├── pinmap.md         # canonical pin assignments — keep in sync with config.h
   ├── failsafe.md       # failsafe behavior — read before changing motor/throttle code
-  ├── protocol.md       # ELRS channel mapping, telemetry packet schema (PROTOCOL_VERSION=3)
+  ├── protocol.md       # RC channel mapping, telemetry packet schema (PROTOCOL_VERSION=4)
+  ├── lora-bringup.md   # SX1262 LoRa bring-up debugging notes — read before touching elrs.cpp SPI/DIO1 code
   ├── elrs-link.md      # (superseded — describes old Ranger Micro / RP3 setup)
   ├── datasheets/       # CO5300, FT3168, QMI8658, ESP32-S3 TRM
   └── Waveshare Demo/   # vendor reference Arduino code (READ-ONLY reference)
