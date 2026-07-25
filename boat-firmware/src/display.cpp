@@ -674,14 +674,23 @@ static void build_screens()
     lv_obj_set_style_bg_color(tv, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tv, LV_OBJ_FLAG_SCROLL_ELASTIC);
-    // Instant tile-snap, no slide animation. A swipe's default snap-scroll
+    // Short (not zero) snap-scroll animation. A swipe's default snap-scroll
     // animation issues a rapid burst of partial-screen QSPI flushes (one per
     // animation step); that burst has been observed to permanently wedge the
     // CO5300 QSPI driver (confirmed via JTAG: the LVGL task's core gets stuck
     // inside unsymbolized ROM code, almost certainly a low-level SPI transfer
-    // routine spinning on a hardware done-bit that never sets). Zero animation
-    // time means each swipe is a single flush instead of a burst.
-    lv_obj_set_style_anim_time(tv, 0, LV_PART_MAIN);
+    // routine spinning on a hardware done-bit that never sets).
+    //
+    // anim_time=0 was tried first and made swipes stop working entirely:
+    // ordinary touch-driven tile changes go through LVGL's built-in
+    // scroll-snap machinery (lv_obj_set_scroll_snap_x/y in the tileview
+    // constructor + core lv_obj_scroll.c), which animates the post-release
+    // snap using this same anim_time style — a zero-duration lv_anim_t
+    // appears to never apply its final value in this LVGL version, so the
+    // tile never actually snapped after a swipe. 60ms keeps the flush count
+    // per swipe low (a handful of frames instead of the ~200-300ms default's
+    // worth) while staying on LVGL's normal animated code path.
+    lv_obj_set_style_anim_time(tv, 60, LV_PART_MAIN);
 
     lv_obj_t *tw = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);  // WiFi (leftmost)
     lv_obj_t *t0 = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);   // Main
