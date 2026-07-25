@@ -396,7 +396,15 @@ void elrs_update()
 
 float elrs_get_channel(int ch)
 {
-    if (ch == CH_SAIL || ch == CH_THROTTLE)
+    // CH_THROTTLE is bipolar (-1.0 reverse .. +1.0 forward, 0 = neutral) per
+    // protocol.h — matches the XIAO's ch_centered() encoder and failsafe.cpp's
+    // arm-check (fabsf(throttle) <= 0.05). It must NOT go through
+    // to_unipolar(): that previously mapped a centered/neutral stick (raw 992)
+    // to ~0.5 instead of ~0.0, which servos_set() then turned into a real
+    // ~1750us forward-throttle ESC command at "neutral", and made
+    // failsafe.cpp's arm-check fail at true neutral even when the operator's
+    // stick genuinely was centered.
+    if (ch == CH_SAIL)
         return to_unipolar(s_ch[ch]);
     return to_bipolar(s_ch[ch]);
 }

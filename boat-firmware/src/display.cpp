@@ -512,10 +512,13 @@ static void build_tile_controls(lv_obj_t *t)
     s4_bar_sail = make_bar(t, 178, false, lv_palette_lighten(LV_PALETTE_PURPLE, 2));
     s4_lbl_sail = make_label_font(t, (LCD_H_RES-60)/2, 208,
                                   "0.000", &lv_font_montserrat_20, lv_color_white());
-    // Range hints
-    make_label_font(t, 20, 208, "In", &lv_font_montserrat_14,
+    // Range hints. Bar range is 0..100 (non-symmetrical) matching CH_SAIL's
+    // 0.0=out .. +1.0=in convention (protocol.h) — left/low end is "Out",
+    // right/high end is "In". (These were previously swapped — a pure label
+    // bug, the underlying value and bar fill were always correct.)
+    make_label_font(t, 20, 208, "Out", &lv_font_montserrat_14,
                     lv_color_make(120,120,120));
-    make_label_font(t, 224, 208, "Out", &lv_font_montserrat_14,
+    make_label_font(t, 224, 208, "In", &lv_font_montserrat_14,
                     lv_color_make(120,120,120));
 
     make_section(t, 244, "THROTTLE");
