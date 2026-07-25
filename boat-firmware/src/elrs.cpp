@@ -142,6 +142,14 @@ static int16_t  s_rssi_raw   = 0;  // last RSSI from RadioLib (negative dBm)
 // Counts for LQ estimation: packets received in the current 1-second window.
 static uint32_t s_pkt_window_start  = 0;
 static uint8_t  s_pkt_count         = 0;  // RX count in the current 1-second window
+
+// TEMP: measures the XIAO's actual achieved RC transmit rate (as observed on
+// the boat's receive side), to answer "what framerate are we really getting"
+// after widening TELEM_WAIT_MS. min/max inter-packet interval shows jitter.
+static uint32_t s_rate_window_start = 0;
+static uint16_t s_rate_pkt_count    = 0;
+static uint32_t s_rate_min_gap_ms   = 0xFFFFFFFF;
+static uint32_t s_rate_max_gap_ms   = 0;
 static uint8_t  s_lq_pct            = 0;  // computed LQ, refreshed every second
 
 // Pending telemetry: set by elrs_send_frame(), consumed on the next TX turn.
@@ -219,7 +227,26 @@ static void process_rx_packet()
     }
 
     unpack_channels(buf + 3);
-    s_last_rx_ms = millis();
+    uint32_t now_rx = millis();
+    // TEMP: real-world RC receive rate measurement.
+    if (s_last_rx_ms != 0) {
+        uint32_t gap = now_rx - s_last_rx_ms;
+        if (gap < s_rate_min_gap_ms) s_rate_min_gap_ms = gap;
+        if (gap > s_rate_max_gap_ms) s_rate_max_gap_ms = gap;
+    }
+    s_rate_pkt_count++;
+    if (s_rate_window_start == 0) s_rate_window_start = now_rx;
+    if (now_rx - s_rate_window_start >= 2000) {
+        float hz = s_rate_pkt_count * 1000.0f / (now_rx - s_rate_window_start);
+        Serial.printf("elrs: RC rate: %.1f Hz  gap min=%lu max=%lu ms  (%u pkts / %lu ms)\n",
+                      (double)hz, s_rate_min_gap_ms, s_rate_max_gap_ms,
+                      s_rate_pkt_count, now_rx - s_rate_window_start);
+        s_rate_window_start = now_rx;
+        s_rate_pkt_count = 0;
+        s_rate_min_gap_ms = 0xFFFFFFFF;
+        s_rate_max_gap_ms = 0;
+    }
+    s_last_rx_ms = now_rx;
 
     // Update rolling LQ counter.
     s_pkt_count++;
