@@ -95,11 +95,11 @@ The BN-880 also carries an **HMC5883L compass** on I²C (address `0x1E`). Wire S
 
 ---
 
-### ~~ELRS receiver~~ (removed — replaced by SX1262 LoRa)
+### ~~ELRS receiver~~ (removed — replaced by SX1262 GFSK)
 
 GPIO16 and GPIO17 are now used for SX1262 RXEN and TXEN. See SX1262 section below.
 
-### SX1262 LoRa Radio — Boat (Waveshare SX1262 HF, 868/915 MHz, software SPI)
+### SX1262 GFSK Radio — Boat (Waveshare SX1262 HF, 868/915 MHz, software SPI)
 
 | Signal | GPIO | Notes |
 |--------|------|-------|

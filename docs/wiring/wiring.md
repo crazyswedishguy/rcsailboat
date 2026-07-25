@@ -1,6 +1,6 @@
 # RC Sailboat — Wiring Reference
 
-_Generated 2026-05-08. Updated 2026-07-01 (INA228 confirmed; pinmap corrected; on-hand inventory complete; SX1262 LoRa radio sections added)._
+_Generated 2026-05-08. Updated 2026-07-01 (INA228 confirmed; pinmap corrected; on-hand inventory complete; SX1262 GFSK radio sections added)._
 
 > ⚠ All component grounds must share a single star-ground point. Verify this physically before powering. Floating grounds cause servo jitter and unreliable I²C communication.
 
@@ -59,7 +59,7 @@ The boat runs a three-rail power architecture fed by a single 3S LiPo (~11.1 V n
 | PCA9685 | 5 V logic | 10 mA | 10 mA | Logic only; servo power is V+ |
 | INA228 | 5 V logic | 1 mA | 1 mA | |
 | BN-880 GPS + HMC5883L | 5 V logic | 30–50 mA | 60 mA | |
-| SX1262 (Boat) | 3.3 V (via ESP32 LDO) | ~5 mA (RX/idle) | ~120 mA (TX +22 dBm) | 915 MHz LoRa |
+| SX1262 (Boat) | 3.3 V (via ESP32 LDO) | ~5 mA (RX/idle) | ~120 mA (TX +22 dBm) | 915 MHz GFSK |
 | Bilge pump | 5 V or 6 V | 0.5–1 A | 1.5 A | Pump voltage TBD |
 | **5 V rail total** | | **~750 mA** | **~1.5 A** | Buck rated 3 A — adequate headroom |
 
@@ -188,7 +188,7 @@ The buck converter steps raw battery voltage down to 5 V for all logic: ESP32-S3
 
 ## ESP32-S3 — Waveshare AMOLED 1.64"
 
-The ESP32-S3 is the boat's main controller. It runs the SX1262 LoRa driver (software SPI, CRSF frames as the LoRa payload), PCA9685 servo driver (I²C), GPS parser (UART2), bilge monitor (ADC), and WiFi direct-mode web server. It is powered from the 5 V logic rail; the onboard regulator produces 3.3 V for peripherals.
+The ESP32-S3 is the boat's main controller. It runs the SX1262 GFSK driver (software SPI, CRSF frames as the GFSK payload), PCA9685 servo driver (I²C), GPS parser (UART2), bilge monitor (ADC), and WiFi direct-mode web server. It is powered from the 5 V logic rail; the onboard regulator produces 3.3 V for peripherals.
 
 | FROM Component | FROM Pin # | FROM Descriptor | TO Component | TO Pin # | TO Descriptor | Notes | Wire Gauge |
 |---|---|---|---|---|---|---|---|
@@ -390,9 +390,9 @@ The TF card slot is on the Waveshare PCB and is internally wired to GPIO38–41 
 
 ---
 
-## SX1262 LoRa Radio — Boat (ESP32-S3, software SPI)
+## SX1262 GFSK Radio — Boat (ESP32-S3, software SPI)
 
-The module is the **Waveshare SX1262 LoRa Node (HF)**, covering **868/915 MHz**. Both hardware SPI buses are occupied (SPI2 = CO5300 display, SPI3 = TF card), so the SX1262 runs on software SPI across free header GPIOs.
+The module is the **Waveshare SX1262 LoRa Node (HF)** (Waveshare's product name — the SX1262 chip itself supports both LoRa and GFSK modulation), covering **868/915 MHz**, run in **GFSK mode** for higher throughput at this project's ~500 m range — see `docs/lora-bringup.md`. Both hardware SPI buses are occupied (SPI2 = CO5300 display, SPI3 = TF card), so the SX1262 runs on software SPI across free header GPIOs.
 
 | FROM Component | FROM Pin # | FROM Descriptor | TO Component | TO Pin # | TO Descriptor | Notes | Wire Gauge |
 |---|---|---|---|---|---|---|---|
@@ -412,11 +412,11 @@ The module is the **Waveshare SX1262 LoRa Node (HF)**, covering **868/915 MHz**.
 
 > ⚠ Both hardware SPI buses are occupied: SPI2 (FSPI) = CO5300 display, SPI3 (HSPI) = TF card. Software SPI on GPIO5/6/7 is required.
 
-> RadioLib constructor: `SX1262 radio = new Module(8, RADIOLIB_NC, 1, 45);` (CS=GPIO8, DIO1=unconnected, RESET=GPIO1, BUSY=GPIO45). After `radio.begin()`: `radio.setRfSwitchPins(16, 17);` (RXEN=GPIO16, TXEN=GPIO17).
+> RadioLib constructor: `SX1262 radio = new Module(&bitBangHal, 8, RADIOLIB_NC, 1, 45);` (CS=GPIO8, DIO1=unconnected, RESET=GPIO1, BUSY=GPIO45). After `radio.setRfSwitchPins(16, 17);` (RXEN=GPIO16, TXEN=GPIO17): `radio.beginFSK(915.0, 150.0, 75.0, 312.0, 14, 16);` (freq MHz, bit rate kbps, deviation kHz, RX bandwidth kHz, power dBm, preamble bits).
 
 ---
 
-## SX1262 LoRa Radio — XIAO (ESP32-S3, hardware SPI)
+## SX1262 GFSK Radio — XIAO (ESP32-S3, hardware SPI)
 
 The XIAO's SX1262 (HF variant, 868/915 MHz) is the base-station end of the radio link. Hardware SPI is available on D8/D9/D10. RXEN and TXEN take D6/D7 (GPIO43/GPIO44).
 
@@ -435,9 +435,9 @@ The XIAO's SX1262 (HF variant, 868/915 MHz) is the base-station end of the radio
 | SX1262 (XIAO) | TXEN | RF TX enable | XIAO ESP32-S3 | D7 / GPIO44 | General GPIO | | 26 AWG |
 | SX1262 (XIAO) | DIO2 | SX1262 DIO2 | — | — | Leave unconnected | Not needed when RXEN/TXEN wired directly; set `RADIOLIB_NC` in firmware | — |
 | SX1262 (XIAO) | ANT | Antenna (U.FL) | 915 MHz antenna | — | RF input/output | ⚠ Never power without antenna connected — PA damage | — |
-| Raspberry Pi | USB-A port | USB host | XIAO ESP32-S3 | USB-C | Power + USB-CDC data | Use a USB 3.0 port (900 mA budget) for headroom at higher LoRa TX power settings | — |
+| Raspberry Pi | USB-A port | USB host | XIAO ESP32-S3 | USB-C | Power + USB-CDC data | Use a USB 3.0 port (900 mA budget) for headroom at higher GFSK TX power settings | — |
 
-> RadioLib constructor: `SX1262 radio = new Module(4, 2, 3, 1);` (CS=GPIO4, DIO1=GPIO2, RESET=GPIO3, BUSY=GPIO1). Hardware SPI: `SPI.begin(7, 8, 9, 4)` (CLK, MISO, MOSI, SS). After `radio.begin()`: `radio.setRfSwitchPins(43, 44);` (RXEN=GPIO43, TXEN=GPIO44).
+> RadioLib constructor: `SX1262 radio = new Module(4, 2, 3, 1);` (CS=GPIO4, DIO1=GPIO2, RESET=GPIO3, BUSY=GPIO1). Hardware SPI: `SPI.begin(7, 8, 9, 4)` (CLK, MISO, MOSI, SS). After `radio.setRfSwitchPins(43, 44);` (RXEN=GPIO43, TXEN=GPIO44): `radio.beginFSK(915.0, 150.0, 75.0, 312.0, 14, 16);` (freq MHz, bit rate kbps, deviation kHz, RX bandwidth kHz, power dBm, preamble bits).
 
 ---
 

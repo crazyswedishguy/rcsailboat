@@ -12,7 +12,7 @@ _Generated 2026-05-09. On-hand status updated 2026-05-09._
 | Motor control / propulsion | ✅ Covered | HobbyWing Quicrun 1060 ESC + INJORA 550 brushed motor (21T) |
 | Servo control — sail winch | ✅ Covered | Hitec HS-785HB winch servo on PCA9685 ch 1 |
 | Servo control — rudder | ✅ Covered | HobbyPark 7.5 kg waterproof servo on PCA9685 ch 0 |
-| Radio control link | ✅ Covered | Two Waveshare SX1262 LoRa (HF, 868/915 MHz) modules — one on the boat, one on the XIAO base station |
+| Radio control link | ✅ Covered | Two Waveshare SX1262 GFSK (HF, 868/915 MHz) modules — one on the boat, one on the XIAO base station |
 | Current / power monitoring | ✅ Covered | INA228 (I²C, address 0x41) |
 | Data logging | ✅ Covered | Onboard TF card slot (Waveshare board — no extra hardware needed) |
 | Battery voltage monitoring | ✅ Covered | BAT_ADC on GPIO4 (onboard resistor divider) + INA228 |
@@ -24,7 +24,7 @@ _Generated 2026-05-09. On-hand status updated 2026-05-09._
 
 | Status | Component | Qty | Specification | Purpose | Search hint |
 |---|---|---|---|---|---|
-| ✅ Have | Raspberry Pi 5 | 1 | 8 GB RAM | Base station host for web UI and CRSF/LoRa bridge | — |
+| ✅ Have | Raspberry Pi 5 | 1 | 8 GB RAM | Base station host for web UI and CRSF/GFSK bridge | — |
 | ✅ Have | Waveshare ESP32-S3 1.64" AMOLED dev board | 1 | SKU 31197; ESP32-S3R8; onboard QMI8658 IMU + TF card + AMOLED | Boat MCU | — |
 | ✅ Have | PCA9685 16-ch PWM driver breakout | 1 | I²C 0x40, 50 Hz PWM | Drives rudder servo, sail winch, and motor ESC | — |
 | ✅ Have | Hitec HS-785HB winch servo | 1 | Multi-turn, high torque, 6V | Sail sheet trim | — |

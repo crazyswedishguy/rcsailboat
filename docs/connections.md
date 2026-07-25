@@ -124,12 +124,13 @@ One table per component. Every external pin is listed; onboard-only signals (e.g
 
 ---
 
-## SX1262 LoRa radio — Boat (Waveshare SX1262 HF module, 868/915 MHz)
+## SX1262 GFSK radio — Boat (Waveshare SX1262 HF module, 868/915 MHz)
 
-Software bit-bang SPI (see elrs.cpp SoftSPI class) because SPI2 = display and SPI3 = TF card.
+Software bit-bang SPI (see elrs.cpp `BitBangHal` class) because SPI2 = display and SPI3 = TF card.
 
-RadioLib setup: `SX1262 radio(&Module(CS=8, DIO1=RADIOLIB_NC, RESET=1, BUSY=45, softSpi))`  
+RadioLib setup: `SX1262 radio(&Module(&bitBangHal, CS=8, DIO1=RADIOLIB_NC, RESET=1, BUSY=45))`
 `radio.setRfSwitchPins(RXEN=16, TXEN=17)`
+`radio.beginFSK(915.0, 150.0, 75.0, 312.0, 14, 16)` — 150 kbps / 75 kHz deviation / 312 kHz RX BW (was LoRa SF7/BW500 during initial bring-up; switched for throughput, see `docs/lora-bringup.md`).
 
 | Pin | Connects to | Wire gauge | Notes |
 |---|---|---|---|

@@ -68,7 +68,7 @@ This is standard practice for brushed motors in RC vehicles and suppresses the h
 |---|---|---|
 | Motor wires (ESC → motor) | **Critical** | 3–5 turns of each wire through a Type 31 or Type 43 ferrite ring, as close to the motor as possible |
 | Battery leads to ESC | **High** | 2–3 turns through a ferrite ring close to the ESC input, to stop back-propagation onto the battery bus |
-| SX1262 3.3V supply wire | **High** | Single pass or 2 turns; LoRa operates at 915 MHz and motor EMI can desensitize it |
+| SX1262 3.3V supply wire | **High** | Single pass or 2 turns; GFSK operates at 915 MHz and motor EMI can desensitize it |
 | Buck converter output to ESP32 | **Medium** | Single pass; filters switching noise from the buck converter itself |
 | GPS UART wires (BN-880) | **Low** | Single pass if experiencing GPS dropouts; usually not needed |
 | I²C wires, servo signal wires | **Not needed** | I²C is robust; servo PWM at 50 Hz is not affected by RF noise |
@@ -186,7 +186,7 @@ The PCA9685 has two separate power inputs:
 
 ---
 
-## SX1262 LoRa radio — Boat (software SPI)
+## SX1262 GFSK radio — Boat (software SPI)
 
 The boat communicates directly with the XIAO over a Waveshare SX1262 HF
 (868/915 MHz) module on each end.
@@ -196,9 +196,10 @@ SPI3 = TF card), so the SX1262 uses software bit-bang SPI on free GPIOs.
 
 RadioLib constructor (for reference):
 ```cpp
-// elrs.cpp — SoftSPI s_spi(5, 7, 6); // CLK, MISO, MOSI
-// SX1262 on Module(CS=8, DIO1=RADIOLIB_NC, RESET=1, BUSY=45, s_spi)
+// elrs.cpp — BitBangHal bitBangHal(5, 7, 6); // CLK, MISO, MOSI
+// SX1262 on Module(&bitBangHal, CS=8, DIO1=RADIOLIB_NC, RESET=1, BUSY=45)
 // radio.setRfSwitchPins(16, 17);  // RXEN, TXEN
+// radio.beginFSK(915.0, 150.0, 75.0, 312.0, 14, 16); // freq, bitrate, deviation, rxBw, power, preamble
 ```
 
 | Signal | ESP32-S3 GPIO | SX1262 module pin | Notes |
@@ -359,7 +360,7 @@ graph TD
     I2C_BUS --- IMU["QMI8658 IMU\n0x6A/6B (onboard)"]
 
     ESP <-->|software SPI\nGPIO5/6/7/8 + RESET/BUSY\n(DIO1 unwired, polled)| SX1262_B["SX1262\n(boat radio)"]
-    SX1262_B <-->|915 MHz LoRa| SX1262_X["SX1262\n(XIAO radio)"]
+    SX1262_B <-->|915 MHz GFSK| SX1262_X["SX1262\n(XIAO radio)"]
 
     ESP <-->|UART2\nGPIO15/18 9600baud| BN880["BN-880 GPS"]
     BN880 <-->|I2C| I2C_BUS
@@ -403,7 +404,7 @@ Components:
   7. Teyleten Robot PCA9685 16-channel PWM servo driver breakout (VCC pin for 5V logic, V+ pin for 6V servo power)
   8. INA228 current/voltage sensor breakout (A0=VS, A1=GND for address 0x41) with a 50A/75mV bus bar shunt in the main battery positive line before the ESC/UBEC split
   9. BN-880 GPS module (UART pins + separate I2C compass pads)
-  10. Waveshare SX1262 LoRa module (HF, 868/915 MHz) — software SPI, powered from ESP32 3.3V (not the 5V buck)
+  10. Waveshare SX1262 GFSK module (HF, 868/915 MHz) — software SPI, powered from ESP32 3.3V (not the 5V buck)
   11. Bilge float switch sensor
   12. Relay module for bilge pump
 

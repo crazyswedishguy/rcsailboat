@@ -7,14 +7,14 @@ This file gives Claude Code persistent context about the project. Read this firs
 A remote-controlled sailboat with three control modes:
 
 - **Mode 1** — Phone connects to the **boat ESP32-S3** WiFi AP (`Mistral` / `192.168.4.1`). The boat serves the embedded control page directly.
-- **Mode 2** — Phone connects to the **XIAO ESP32-S3** WiFi AP (`Mistral-2` / `192.168.5.1`). The XIAO serves the same control page and transmits CRSF RC frames over SX1262 LoRa directly to the boat.
-- **Mode 3** — Browser connects to the **Raspberry Pi** React UI. The Pi sends CRSF over USB-CDC → XIAO → LoRa → boat; telemetry returns on the same path in reverse.
+- **Mode 2** — Phone connects to the **XIAO ESP32-S3** WiFi AP (`Mistral-2` / `192.168.5.1`). The XIAO serves the same control page and transmits CRSF RC frames over SX1262 GFSK directly to the boat.
+- **Mode 3** — Browser connects to the **Raspberry Pi** React UI. The Pi sends CRSF over USB-CDC → XIAO → GFSK → boat; telemetry returns on the same path in reverse.
 
-The XIAO (`crsf-bridge/`) auto-switches between Mode 2 (standalone AP) and Mode 3 (LoRa bridge) based on whether the Pi's heartbeat frame (CRSF type `0x7E`) is seen on its USB serial.
+The XIAO (`crsf-bridge/`) auto-switches between Mode 2 (standalone AP) and Mode 3 (GFSK bridge) based on whether the Pi's heartbeat frame (CRSF type `0x7E`) is seen on its USB serial.
 
 ## Key architectural decisions (don't revisit without asking)
 
-- **Single radio link**: SX1262 LoRa at 915 MHz (SF7 / BW500) for both control and telemetry. The Radiomaster Ranger Micro TX + RP3 receiver failed to link and have been removed. Raw CRSF frames are the LoRa packet payload format.
+- **Single radio link**: SX1262 GFSK at 915 MHz, 150 kbps / 75 kHz deviation / 312 kHz RX BW, 14 dBm, for both control and telemetry. Switched from LoRa (SF7/BW500) once ~500 m range proved to need none of LoRa's processing gain — see `docs/lora-bringup.md` for that history. The Radiomaster Ranger Micro TX + RP3 receiver failed to link before either radio and have been removed. Raw CRSF frames are the GFSK packet payload format.
 - **Base station language**: Python. Web framework: **FastAPI** (async, integrates cleanly with serial I/O via XIAO USB-CDC).
 - **Boat firmware**: C++ on PlatformIO, Arduino framework, targeting the Waveshare ESP32-S3 1.64" AMOLED dev board.
 - **Servo/ESC control**: All PWM goes through a PCA9685 over I²C. The ESP32 does not generate PWM directly.
@@ -68,7 +68,7 @@ The board's I²C bus (GPIO47 SDA / GPIO48 SCL) is shared by the touch controller
 Canonical sources: **`docs/pinmap.md`** and **`boat-firmware/src/config.h`**. Read those for full assignments. Key facts for quick reference:
 
 - **I²C bus**: GPIO47 SDA / GPIO48 SCL — shared by FT3168 (0x38), PCA9685 (0x40), INA228 (0x41), HMC5883L (0x1E), QMI8658 (0x6A/0x6B)
-- **SX1262 LoRa (boat)**: software SPI — CLK=GPIO5, MOSI=GPIO6, MISO=GPIO7, CS=GPIO8, RESET=GPIO1, BUSY=GPIO45, RXEN=GPIO16, TXEN=GPIO17. DIO1 is unwired (no free GPIO — GPIO42 is reserved internally as AMOLED_EN); IRQ status is polled over SPI instead.
+- **SX1262 GFSK (boat)**: software SPI — CLK=GPIO5, MOSI=GPIO6, MISO=GPIO7, CS=GPIO8, RESET=GPIO1, BUSY=GPIO45, RXEN=GPIO16, TXEN=GPIO17. DIO1 is unwired (no free GPIO — GPIO42 is reserved internally as AMOLED_EN); IRQ status is polled over SPI instead.
 - **GPS UART2**: GPIO15 RX / GPIO18 TX — 9 600 baud
 - **Bilge sensor**: GPIO2 (ADC1_CH1, analogRead) / **Bilge pump MOSFET gate**: GPIO3
 - **TF card SPI**: GPIO38 CS / GPIO39 MOSI / GPIO40 MISO / GPIO41 SCLK (internal PCB traces)
@@ -105,7 +105,7 @@ Canonical sources: **`docs/pinmap.md`** and **`boat-firmware/src/config.h`**. Re
 | 1 | CH_SAIL | 0 … +1 | unipolar; 0 = fully eased |
 | 2 | CH_THROTTLE | 0 … +1 | unipolar; 0 = neutral/stop |
 | 3 | CH_ARM | 0 or 1 | ≥ 0.5 = armed |
-| 4 | CH_MODE | 0 or 1 | > 0.5 held ≥300ms = remote request for LoRa control mode (mirrors the touchscreen "Enable LoRa" button); < 0.5 held ≥3s releases to WiFi mode (asymmetric debounce — leaving tears down the AP). See `docs/protocol.md` "Remote mode switching". |
+| 4 | CH_MODE | 0 or 1 | > 0.5 held ≥300ms = remote request for GFSK control mode (mirrors the touchscreen "Enable GFSK" button); < 0.5 held ≥3s releases to WiFi mode (asymmetric debounce — leaving tears down the AP). See `docs/protocol.md` "Remote mode switching". |
 | 5 | CH_RESTART | 0 or 1 | ≥ 0.5 = restart signal |
 | 6 | CH_PUMP | 0 or 1 | ≥ 0.5 = bilge pump on |
 | 7–15 | — | — | reserved |
@@ -147,8 +147,8 @@ Update this section as hardware gets wired up. Claude Code should treat anything
 
 - [x] Raspberry Pi 5 powered and on network (192.168.4.32)
 - [x] ESP32-S3 dev board powered (esp32-s3-full firmware flashed 2026-06-28; GPS on UART2, HMC5883L compass on I²C 0x1E; GPS confirmed sending NMEA data — needs outdoor sky view for fix)
-- [ ] SX1262 LoRa module wired to ESP32-S3 (software SPI, GPIO5/6/7/8 + control pins) — radio link not yet active
-- [ ] SX1262 LoRa module wired to XIAO ESP32-S3 (hardware SPI, D8/D9/D10 + control pins) — radio link not yet active
+- [x] SX1262 GFSK module wired to ESP32-S3 (software SPI, GPIO5/6/7/8 + control pins) — radio link confirmed working on the workbench 2026-07-24 (RC control + telemetry round-trip, ~46-47 Hz)
+- [x] SX1262 GFSK module wired to XIAO ESP32-S3 (hardware SPI, D8/D9/D10 + control pins) — radio link confirmed working on the workbench 2026-07-24
 - [ ] PCA9685 wired to ESP32-S3 (I²C) — absent at boot, servo driver disabled
 - [ ] Rudder servo on PCA9685
 - [ ] Sail winch servo on PCA9685
