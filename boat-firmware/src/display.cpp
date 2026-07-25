@@ -3,6 +3,7 @@
 #include "config.h"
 #include "diag.h"
 #include "elrs.h"
+#include "protocol.h"
 #include "imu.h"
 #include "power.h"
 #include "servos.h"
@@ -67,6 +68,16 @@ static SemaphoreHandle_t       s_mux              = nullptr;
 static lv_disp_drv_t           s_drv;
 static bool                    s_ready            = false;
 static esp_lcd_panel_handle_t  s_panel            = nullptr;
+
+// TEMP: LVGL-task hang diagnostic. s_lvgl_beat_ms updates every lvgl_task()
+// loop iteration (proves the task is still scheduled at all); s_lvgl_locked_ms
+// is set while s_mux is held (proves it's specifically stuck inside
+// lv_timer_handler(), e.g. mid-flush or mid-gesture-callback, rather than
+// just not being scheduled). display_update()'s bounded lvgl_lock(50) call
+// silently no-ops on timeout, which is why a stuck lvgl_task shows up as a
+// frozen screen with no error anywhere — this makes that failure visible.
+static volatile uint32_t s_lvgl_beat_ms   = 0;
+static volatile uint32_t s_lvgl_locked_ms = 0;  // 0 = not currently held
 static bool                    s_screen_on        = true;
 static unsigned long           s_last_activity_ms = 0;
 
@@ -155,16 +166,24 @@ static bool          s_was_linked      = false;
 #define C_ATT   lv_color_make( 26,  35, 126)   // Indigo 900
 #define C_DIAG  lv_color_make( 31,  41,  55)   // Dark Blue Grey (system health)
 
+// TEMP: set while a QSPI flush is in flight, cleared by flush_ready_cb. If
+// s_lvgl_locked_ms shows the LVGL task stuck AND this is nonzero, the hang is
+// specifically in the QSPI/DMA transfer, not general LVGL event processing —
+// distinguishes a display-driver problem from an LVGL/gesture-logic problem.
+static volatile uint32_t s_lvgl_flush_started_ms = 0;
+
 // ── LVGL / panel callbacks ────────────────────────────────────────────────────
 static bool flush_ready_cb(esp_lcd_panel_io_handle_t,
                             esp_lcd_panel_io_event_data_t *, void *user_ctx)
 {
+    s_lvgl_flush_started_ms = 0;  // TEMP
     lv_disp_flush_ready((lv_disp_drv_t *)user_ctx);
     return false;
 }
 
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *colors)
 {
+    s_lvgl_flush_started_ms = millis();  // TEMP
     esp_lcd_panel_handle_t panel = (esp_lcd_panel_handle_t)drv->user_data;
     esp_lcd_panel_draw_bitmap(panel,
         area->x1 + LCD_X_OFFSET, area->y1,
@@ -184,8 +203,11 @@ static void tick_cb(void *) { lv_tick_inc(LVGL_TICK_MS); }
 static void lvgl_task(void *)
 {
     for (;;) {
+        s_lvgl_beat_ms = millis();  // TEMP: proves this task is still scheduled
         if (xSemaphoreTake(s_mux, portMAX_DELAY) == pdTRUE) {
+            s_lvgl_locked_ms = millis();  // TEMP
             uint32_t ms = lv_timer_handler();
+            s_lvgl_locked_ms = 0;  // TEMP
             xSemaphoreGive(s_mux);
             ms = ms > 500 ? 500 : (ms < 1 ? 1 : ms);
             vTaskDelay(pdMS_TO_TICKS(ms));
@@ -892,7 +914,36 @@ void display_poll_touch()
 void display_update()
 {
     if (!s_ready) return;
-    if (!lvgl_lock(50)) return;
+    if (!lvgl_lock(50)) {
+        // TEMP: diagnostic for the display-freeze investigation — see
+        // s_lvgl_beat_ms/s_lvgl_locked_ms above. Rate-limited to 1/s.
+        static uint32_t s_last_warn_ms = 0;
+        uint32_t now = millis();
+        if (now - s_last_warn_ms >= 1000) {
+            s_last_warn_ms = now;
+            uint32_t beat_age  = now - s_lvgl_beat_ms;
+            uint32_t locked_ms = s_lvgl_locked_ms;
+            uint32_t flush_ms  = s_lvgl_flush_started_ms;
+            if (locked_ms && flush_ms) {
+                Serial.printf(
+                    "display: lvgl_lock timeout — task alive %lums ago, "
+                    "mutex HELD for %lums, STUCK IN QSPI FLUSH for %lums\n",
+                    (unsigned long)beat_age, (unsigned long)(now - locked_ms),
+                    (unsigned long)(now - flush_ms));
+            } else if (locked_ms) {
+                Serial.printf(
+                    "display: lvgl_lock timeout — task alive %lums ago, "
+                    "mutex HELD for %lums (stuck inside lv_timer_handler, not flush)\n",
+                    (unsigned long)beat_age, (unsigned long)(now - locked_ms));
+            } else {
+                Serial.printf(
+                    "display: lvgl_lock timeout — task alive %lums ago, "
+                    "mutex not held (task just not scheduled in time)\n",
+                    (unsigned long)beat_age);
+            }
+        }
+        return;
+    }
 
     // ── Shared readings ───────────────────────────────────────────────────────
     bool     ok   = elrs_link_ok();
@@ -916,18 +967,24 @@ void display_update()
     lv_color_t temp_c  = color_temp(temp);
     int        pct     = batt_pct(v);
 
-    // In WiFi mode read the raw browser-commanded values so the display reflects
-    // what the user is doing even when disarmed (servos_get_commanded() returns
-    // failsafe positions when not armed, which hides all slider activity).
+    // Read the raw commanded values (not servos_get_commanded()) so the display
+    // reflects what the user is doing even when disarmed or in failsafe —
+    // servos_get_commanded() returns the fixed failsafe position whenever the
+    // boat isn't actually driving the servos from live input, which hides all
+    // slider/stick activity on screen. This was previously only done for WIFI
+    // mode; ELRS/GFSK mode fell through to servos_get_commanded() and so
+    // silently froze the Controls tab (and Main tile's control readout) any
+    // time the boat was disarmed or in failsafe, even though the radio link
+    // itself and elrs_get_channel() were updating normally underneath.
     float rud, sai, thr;
     if (wifi_ctrl_mode() == CtrlMode::WIFI) {
         rud = wifi_ctrl_rudder();
         sai = wifi_ctrl_sail();
         thr = wifi_ctrl_throttle();
     } else {
-        rud = servos_get_commanded(pwm_ch::RUDDER);
-        sai = servos_get_commanded(pwm_ch::SAIL_WINCH);
-        thr = servos_get_commanded(pwm_ch::MOTOR_ESC);
+        rud = elrs_get_channel(CH_RUDDER);
+        sai = elrs_get_channel(CH_SAIL);
+        thr = elrs_get_channel(CH_THROTTLE);
     }
     float rol = imu_roll_deg();
     float pit = imu_pitch_deg();
